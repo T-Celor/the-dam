@@ -241,10 +241,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     const ys = [pts[1] ?? 0, pts[3] ?? 0, pts[5] ?? 0]
     const margin = k * 2
     if (Math.max(...xs) < -margin || Math.min(...xs) > view.width + margin || Math.max(...ys) < view.top - margin || Math.min(...ys) > view.top + view.height + margin) return
-    const mx = (a[0] + b[0] + c[0]) / 3
-    const my = (a[1] + b[1] + c[1]) / 3
-    const isShore = distance(mx, my) < widthAt(mx) + 0.5
-    const base = isShore ? SAND : (grass[Math.floor(noise(seed, 3) * 2)] ?? 0)
+    const base = grass[Math.floor(noise(seed, 3) * 2)] ?? 0
     ground.push({ pts, color: facet(blend(tint(base), lit(base, a, b, c), 0.3)) })
   }
   const firstI = Math.floor(minX / CELL)
@@ -275,6 +272,12 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
   const total = s.context?.layers.reduce((sum, layer) => sum + layer.tokens, 0) ?? 0
   const layers = total > 0 ? (s.context?.layers ?? []).map(layer => layer.tokens / total) : [1]
   const hasWater = flooded || (s.context !== null && percent > 0)
+  // A thin bank along the water, drawn first so that no stretch of it covers the stream at a bend.
+  for (let i = 0; i < trail.length - 1; i++) {
+    const [a, b] = [crossAt(i), crossAt(i + 1)]
+    const edge = (c: typeof a, side: number): V3 => [c.x + c.nx * (c.half + 0.2) * side, c.y + c.ny * (c.half + 0.2) * side, waterZ(c.x)]
+    ground.push({ pts: faces2([edge(a, -1), edge(b, -1), edge(b, 1), edge(a, 1)]), color: tint(SAND) })
+  }
   if (hasWater) {
     for (let i = 0; i < trail.length - 1; i++) {
       const [a, b] = [crossAt(i), crossAt(i + 1)]
@@ -475,7 +478,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     const r = 0.3 * big
     const FUR = rgb('#96683c')
     const parts = [
-      ...frustum([x - r * 0.9, y - r * 1.1, z + 0.02], [x - r * 0.9, y - r * 2.4, z + 0.02], r * 0.5, r * 0.34, 4, rgb('#4a2f1b')),
+      ...frustum([x - r * 0.9, y - r * 1.1, z + 0.02], [x - r * 0.9, y - r * 2.4, z + 0.02], r * 0.5, r * 0.34, 4, rgb('#7a5534')),
       ...frustum([x, y, z], [x, y, z + r * 1.6], r, r * 0.74, 6, FUR, rgb('#b98a58')),
       ...frustum([x, y, z + r * 1.6], [x, y, z + r * 2.6], r * 0.8, r * 0.56, 6, rgb('#a8784a'), rgb('#b98a58')),
       ...frustum([x, y, z + r * 2.6], [x, y, z + r * 3.5], r * 0.68, 0, 6, HAT[id]),

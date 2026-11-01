@@ -1,5 +1,5 @@
-// The terminal's dam: a software renderer for the same world the panel draws. Each cell is one quadrant glyph,
-// so it holds four smoothed pixels in two colours. The still layers are kept until the stats change; only the movers cost anything per frame.
+﻿// The terminal's dam: a software renderer for the same world the panel draws. Each cell is one quadrant glyph,
+// so it holds four pixels in two colours. The still layers are kept until the stats change; only the movers cost anything per frame.
 
 import type { Heat, Stats } from '../types'
 import { blend, clamp, noise } from './engine'
@@ -9,6 +9,30 @@ import { pressureOf, stockOf } from './model'
 import { counterEntries, formatCount } from './scene'
 
 const WHITE = 0xffffff
+// The terminal rounds every colour to the xterm 256 cube, which turns browns mauve and greens mint.
+// So the picture only uses colours of that cube: what is asked for is what shows, on any terminal.
+const PALETTE = [
+  0x87af5f, 0x5f875f, 0xd7d787, 0xafaf87,
+  0x0087d7, 0x00afd7, 0x005f87, 0xffffff, 0xd7ffff,
+  0xaf875f, 0x875f00, 0xd7af5f, 0xffd787,
+  0x008700, 0x005f00, 0x00875f, 0x005f5f,
+  0xffd700, 0x875fd7, 0x0087af, 0xd75f00, 0x121212,
+]
+const snapped = new Map<number, number>()
+
+export function snap(color: number): number {
+  const known = snapped.get(color)
+  if (known !== undefined) return known
+  let [best, nearest] = [PALETTE[0] ?? 0, Infinity]
+  for (const entry of PALETTE) {
+    const distance = gap(color, entry)
+    if (distance < nearest) [best, nearest] = [entry, distance]
+  }
+  snapped.set(color, best)
+
+  return best
+}
+
 const CLEAR = 0xffffffff
 
 // `ratio` is a pixel's height over its width: a terminal's pixels are not square.
@@ -94,7 +118,8 @@ function stillFor(s: Stats, levels: Heat, width: number, height: number, ratio: 
   const key = JSON.stringify([s, levels, width, height, ratio])
   if (still?.key === key) return still
   // A small panel looks closer in, so a tree is still a tree at 60 pixels across.
-  const tiles = 12 + 3 * clamp((width - 120) / 100, 0, 1)
+  // A low panel steps back too, so the whole dam stays in frame.
+  const tiles = (10 + 5 * clamp((width - 90) / 100, 0, 1)) * Math.max(1, 0.8 / ((height * ratio) / width))
   const world = buildWorld(s, levels, { width: 640, top: 0, height: (640 * height * ratio) / width, tiles })
   const scale = width / 640
   const layer = (faces: readonly Face[], base: number) => {
@@ -183,7 +208,7 @@ const mean = (colors: readonly number[]) => {
   return (channel(0) << 16) | (channel(1) << 8) | channel(2)
 }
 
-// Four rendered pixels across and down per cell of about 8 by 18: each is 2 wide and 4.5 tall.
+// Two pixels across and down per cell of about 8 by 18: each is 4 wide and 9 tall.
 const SUB_RATIO = 2.25
 const WIDE_BLOCK = 80
 const ICON_COLUMNS = 6
@@ -203,6 +228,15 @@ function paintBlock(words: Uint32Array, s: Stats, columns: number, firstRow: num
     words[at + 2] = bg
   }
   for (let row = firstRow; row < rows; row++) for (let x = 0; x < columns; x++) cell(row, x, 32, DIM)
+  if (across === 1) {
+    counterEntries(s).forEach((entry, i) => {
+      const head = `${entry.value} ${entry.word}${entry.lost > 0 ? ` -${formatCount(entry.lost)}` : ''}`.padEnd(18)
+      const line = ` ${head}${entry.note}`
+      for (let n = 0; n < Math.min(columns, line.length); n++) cell(firstRow + i, n, line.charCodeAt(n), n <= head.length ? (entry.lost > 0 ? LOST : INK) : DIM)
+    })
+
+    return
+  }
   counterEntries(s).forEach((entry, i) => {
     const left = (i % across) * half
     const row = firstRow + Math.floor(i / across) * 2
@@ -212,7 +246,7 @@ function paintBlock(words: Uint32Array, s: Stats, columns: number, firstRow: num
       for (let x = 0; x < ICON_COLUMNS; x++) {
         const at = down * 2 * icon.width + x * 2
         const [glyph, fg, bg] = quadrantOf([icon.pixels[at] ?? 0, icon.pixels[at + 1] ?? 0, icon.pixels[at + icon.width] ?? 0, icon.pixels[at + icon.width + 1] ?? 0])
-        cell(row + down, left + x, glyph, fg, bg)
+        cell(row + down, left + x, glyph, fg === PANEL ? PANEL : snap(fg), bg === PANEL ? PANEL : snap(bg))
       }
     }
     const write = (y: number, text: string, color: number) => {
@@ -226,25 +260,22 @@ function paintBlock(words: Uint32Array, s: Stats, columns: number, firstRow: num
 
 // Packs a frame the way Raster takes it: [codePoint, foreground, background] per cell.
 export function frameCells(s: Stats, levels: Heat, t: number, columns: number, rows: number): string {
-  // Two by two when wide, stacked when narrow, and one plain line when there is no room for either.
-  const blockRows = columns >= WIDE_BLOCK ? 4 : 8
-  const hasBlock = (columns >= WIDE_BLOCK && rows >= 12) || (columns >= 36 && rows >= 20)
+  // Two by two with icons when wide, one line each when narrow, one plain line when there is no room for either.
+  const blockRows = 4
+  const hasBlock = (columns >= WIDE_BLOCK && rows >= 12) || (columns >= 36 && rows >= 12)
   const pictureRows = Math.max(1, rows - (hasBlock ? blockRows : 1))
-  const across = columns * 4
-  const pixels = renderPixels(s, levels, t, across, pictureRows * 4, SUB_RATIO)
+  const across = columns * 2
+  const pixels = renderPixels(s, levels, t, across, pictureRows * 2, SUB_RATIO)
   const words = new Uint32Array(columns * rows * 3)
   for (let row = 0; row < pictureRows; row++) {
     for (let x = 0; x < columns; x++) {
       const at = (row * columns + x) * 3
-      const smooth = (down: number, side: number) => {
-        const from = (row * 4 + down * 2) * across + x * 4 + side * 2
-        // Each glyph pixel averages four rendered ones, which is what softens the edges.
-        return mean([pixels[from] ?? 0, pixels[from + 1] ?? 0, pixels[from + across] ?? 0, pixels[from + across + 1] ?? 0])
-      }
-      const [glyph, fg, bg] = quadrantOf([smooth(0, 0), smooth(0, 1), smooth(1, 0), smooth(1, 1)])
+      // Snapped first and never averaged: with so few pixels, a blend only makes specks.
+      const corner = (down: number, side: number) => snap(pixels[(row * 2 + down) * across + x * 2 + side] ?? 0)
+      const [glyph, fg, bg] = quadrantOf([corner(0, 0), corner(0, 1), corner(1, 0), corner(1, 1)])
       words[at] = glyph
-      words[at + 1] = fg
-      words[at + 2] = bg
+      words[at + 1] = snap(fg)
+      words[at + 2] = snap(bg)
     }
   }
   if (hasBlock) {

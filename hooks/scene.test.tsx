@@ -1,8 +1,8 @@
-import { expect, test } from 'claude-code/testing'
+﻿import { expect, test } from 'claude-code/testing'
 
 import { earnedFrom, gainNote, isOverwhelmed, NO_MATERIALS, nextRiver, nextWear, pressureOf, stockOf, strengthOf } from './model'
 import type { Stats } from '../types'
-import { counterLine, frameCells, quadrantOf, renderPixels } from './raster'
+import { counterLine, frameCells, quadrantOf, renderPixels, snap } from './raster'
 import { COLD, cool, damScene, EMPTY, fallWidth, formatCount, isFlooded, levelOf, nextPennants, sceneAlt, twigCount, usedBy, warm } from './scene'
 import { iconFaces } from './iso'
 import { candidates, compressRequest, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, teBootFrom } from './tools'
@@ -144,6 +144,12 @@ test('the terminal frame fills its box, moves with time, and shows the data', ()
   expect(frameCells(at(50), COLD, 1, 30, 10).length).toBe(4800)
   for (const [columns, rows] of [[54, 30], [90, 24], [30, 10]] as const) expect(frameCells(at(50), COLD, 1, columns, rows).length).toBe(Math.ceil((columns * rows * 12) / 3) * 4)
   expect(quadrantOf([5, 5, 5, 5])).toEqual([0x20, 5, 5])
+  // Browns stay browns: the terminal rounds to the xterm cube, so only its colours are used.
+  expect(snap(0x7a5534)).toBe(0x875f00)
+  const words = new Uint32Array(Uint8Array.from(atob(frameCells({ ...RICH, context: at(60).context }, COLD, 1, 90, 24)), c => c.charCodeAt(0)).buffer)
+  const pairs = new Set<string>()
+  for (let i = 0; i < words.length; i += 3) pairs.add(`${words[i + 1]}:${words[i + 2]}`)
+  expect(pairs.size).toBeLessThan(1024)
   expect(quadrantOf([0xffffff, 0xffffff, 0, 0])).toEqual([0x2580, 0xffffff, 0])
   expect(quadrantOf([0xffffff, 0, 0, 0xfefefe])[0]).toBe(0x259a)
 })
