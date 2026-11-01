@@ -61,37 +61,7 @@ const WOOD = ['#c9a06a', '#a97b45', '#8a5e34', '#dcb988', '#75502c'].map(rgb)
 const HAT: Record<CritterId, number> = { hazel: rgb('#f2bf2e'), mimi: rgb('#2f7ea3'), pompom: rgb('#8d6fd0'), truffle: rgb('#d9533c') }
 const CREW: readonly CritterId[] = ['hazel', 'mimi', 'pompom', 'truffle']
 
-export function buildWorld(s: Stats, levels: Heat, view: View): World {
-  const percent = clamp(s.river ?? s.context?.percent ?? 0, 0, 100)
-  const storm = clamp((percent - 45) / 50, 0, 1)
-  const strength = strengthFor(s)
-  const pressure = pressureOf(percent, strength)
-  const flooded = isFlooded(s)
-  const shape = shapeOf(strength)
-  const stock = stockOf(s.earned, s.wear)
-  const k = view.width / view.tiles
-  const cx = view.width / 2
-  const cy = view.top + view.height * 0.42
-  // A low-resolution view needs its characters larger than life to stay readable.
-  const big = 1 + ((22 - view.tiles) / 8) * 0.8
-
-  const crestHalf = shape.topHalf / 50
-  const damTall = shape.height / 130
-  const thick = 0.7 + 0.8 * shape.size
-  const slope = damTall * 0.75
-  const river = flooded ? 3.4 : s.context ? 0.14 + fallWidth(percent, shape.topHalf) / 140 : 0.14
-  const lake = damTall * (0.4 + 0.5 * (percent / 100))
-  const step = damTall * 0.96
-
-  const project = ([x, y, z]: V3): [number, number] => [cx + (x - y) * 0.866 * k, cy + (x + y) * 0.5 * k - z * 0.82 * k]
-  const toWorld = (sx: number, sy: number): [number, number] => {
-    const a = (sx - cx) / (0.866 * k)
-    const b = (sy - cy) / (0.5 * k)
-
-    return [(a + b) / 2, (b - a) / 2]
-  }
-  const dusk = rgb('#39465a')
-  const tint = (color: number) => facet(blend(color, dusk, storm * 0.38))
+function solidsFor(project: (p: V3) => [number, number], tint: (color: number) => number) {
   const lit = (color: number, a: V3, b: V3, c: V3) => {
     const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]] as const
     const w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]] as const
@@ -148,22 +118,81 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     return out
   }
 
+  return { lit, flat, faces2, frustum }
+}
+
+export type Icon = 'river' | 'twigs' | 'logs' | 'trunks'
+
+// The counters' icons: small solids of the very things they count, `k` pixels to the tile, centred on 0 0.
+export function iconFaces(icon: Icon, k: number): Face[] {
+  const { frustum } = solidsFor(([x, y, z]) => [(x - y) * 0.866 * k, (x + y) * 0.5 * k - z * 0.82 * k], facet)
+  if (icon === 'river') {
+    const blue = rgb('#4cb8dd')
+
+    return [...frustum([0, 0, -0.55], [0, 0, -0.15], 0.25, 0.46, 6, blue), ...frustum([0, 0, -0.15], [0, 0, 0.7], 0.46, 0, 6, blue)]
+  }
+  if (icon === 'twigs') {
+    const stick = (x: number, z: number, skew: number, color: number) => frustum([x - skew, -0.72, z], [x + skew, 0.72, z], 0.07, 0.05, 4, color, SAWN)
+
+    return [...stick(-0.25, -0.2, 0.3, WOOD[1] ?? 0), ...stick(0.2, -0.05, -0.28, WOOD[0] ?? 0), ...stick(0, 0.15, 0.12, WOOD[3] ?? 0)]
+  }
+  if (icon === 'logs') return frustum([0, -0.6, 0], [0, 0.6, 0], 0.3, 0.3, 6, rgb('#9c6d3e'), SAWN)
+
+  return frustum([0, -0.85, 0], [0, 0.85, 0], 0.5, 0.5, 7, BARK, SAWN)
+}
+
+export function buildWorld(s: Stats, levels: Heat, view: View): World {
+  const percent = clamp(s.river ?? s.context?.percent ?? 0, 0, 100)
+  const storm = clamp((percent - 45) / 50, 0, 1)
+  const strength = strengthFor(s)
+  const pressure = pressureOf(percent, strength)
+  const flooded = isFlooded(s)
+  const shape = shapeOf(strength)
+  const stock = stockOf(s.earned, s.wear)
+  const k = view.width / view.tiles
+  const cx = view.width / 2
+  // A wide, low view needs the dam lower down, or its crest leaves the frame.
+  const cy = view.top + view.height * (view.height / view.width < 0.6 ? 0.56 : 0.42)
+  // A low-resolution view needs its characters larger than life to stay readable.
+  const big = 1 + ((15 - view.tiles) / 3) * 0.3
+
+  const crestHalf = shape.topHalf / 50
+  const damTall = shape.height / 130
+  const thick = 0.7 + 0.8 * shape.size
+  const slope = damTall * 0.75
+  const bow = 0.45 + 0.55 * shape.size
+  // A stream, not a great river: even a full context stays narrower than the dam.
+  const river = flooded ? 2.2 : s.context ? 0.08 + fallWidth(percent, shape.topHalf) / 480 : 0.08
+  const lake = damTall * (0.4 + 0.5 * (percent / 100))
+  const step = damTall * 0.96
+
+  const project = ([x, y, z]: V3): [number, number] => [cx + (x - y) * 0.866 * k, cy + (x + y) * 0.5 * k - z * 0.82 * k]
+  const toWorld = (sx: number, sy: number): [number, number] => {
+    const a = (sx - cx) / (0.866 * k)
+    const b = (sy - cy) / (0.5 * k)
+
+    return [(a + b) / 2, (b - a) / 2]
+  }
+  const dusk = rgb('#39465a')
+  const tint = (color: number) => facet(blend(color, dusk, storm * 0.38))
+  const { lit, flat, faces2, frustum } = solidsFor(project, tint)
+
   // The course: straight through the dam, winding between the panel's sides above and below it, however tall it is.
   const bend = (from: number, direction: number, stop: (y: number) => boolean) => {
     const points: Array<[number, number]> = []
     let y = from
     let side = direction
     while (!stop(y)) {
-      y += direction > 0 ? 150 : -150
+      y += direction > 0 ? 230 : -230
       side = -side
-      points.push(toWorld(view.width * (side > 0 ? 0.76 : 0.24), y))
+      points.push(toWorld(view.width * (side > 0 ? 0.62 : 0.38), y))
     }
 
     return points
   }
-  const below = bend(project([6, -0.5, 0])[1], 1, y => y > view.top + view.height + 60)
-  const above = bend(project([-6.4, 0.5, 0])[1], -1, y => y < view.top - 60).reverse()
-  const course: Array<[number, number]> = [...above, [-6.4, 0.5], [-2.8, 0], [0, 0], [2.8, 0], [6, -0.5], ...below]
+  const below = bend(project([4.6, -0.4, 0])[1], 1, y => y > view.top + view.height + 60)
+  const above = bend(project([-4.6, 0.4, 0])[1], -1, y => y < view.top - 60).reverse()
+  const course: Array<[number, number]> = [...above, [-4.6, 0.4], [-2.4, 0], [0, 0], [2.4, 0], [4.6, -0.4], ...below]
   const trail: Array<[number, number]> = []
   for (let i = 0; i < course.length - 1; i++) {
     const at = (n: number) => course[clamp(n, 0, course.length - 1)] as [number, number]
@@ -174,7 +203,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     }
   }
   trail.push(course[course.length - 1] as [number, number])
-  const widthAt = (x: number) => (x < 0 && !flooded ? Math.min(crestHalf * 0.92, river * (1 + 1.3 * smooth((x + 7) / 5) * smooth(-x / 0.8) + 0.5 * smooth(-x / 3))) : river)
+  const widthAt = (x: number) => (x < 0 && !flooded ? Math.min(crestHalf * 0.92, river * (1 + 2.6 * smooth((x + 5) / 3.5) * smooth(-x / 0.6))) : river)
   const distance = (x: number, y: number) => {
     let best = Infinity
     for (const [px, py] of trail) best = Math.min(best, Math.hypot(x - px, y - py))
@@ -184,7 +213,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
   const height = (x: number, y: number, far: number) => {
     const hills = 0.75 * (Math.sin(x * 0.37 + 1.3) * Math.cos(y * 0.31) + 0.5 * Math.sin(x * 0.83 + y * 0.57) + 0.6)
 
-    return step * smooth((0.5 - x) / 2.2) + Math.max(0, hills) * smooth((far - 0.8) / 3.5)
+    return step * smooth((0.5 - bow - x) / 2.2) + Math.max(0, hills) * smooth((far - 0.8) / 3.5)
   }
 
   // Ground: a jittered triangle mesh, shaded from its real slopes.
@@ -227,7 +256,8 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
   ground.sort((a, b) => a.color - b.color)
 
   // The river as ribbons of facets over the mesh: one stripe per context layer below the dam.
-  const waterZ = (x: number) => (x < 0.2 && !flooded ? lake : 0)
+  const fallsAt = thick / 2 + slope - bow - 0.1
+  const waterZ = (x: number) => (x < fallsAt && !flooded ? lake : 0)
   const crossAt = (i: number) => {
     const here = trail[i] as [number, number]
     const prev = trail[Math.max(0, i - 1)] as [number, number]
@@ -244,7 +274,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     for (let i = 0; i < trail.length - 1; i++) {
       const [a, b] = [crossAt(i), crossAt(i + 1)]
       const edge = (c: typeof a, at: number): V3 => [c.x + c.nx * c.half * at, c.y + c.ny * c.half * at, waterZ(c.x)]
-      if (a.x < 0.2 && !flooded) {
+      if (a.x < fallsAt && !flooded) {
         ground.push({ pts: faces2([edge(a, -1), edge(b, -1), edge(b, 1), edge(a, 1)]), color: tint(blend(rgb('#2f93c8'), rgb('#4cb8dd'), noise(i, 11) * 0.5)) })
         continue
       }
@@ -259,7 +289,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
   }
 
   const path = trail.flatMap(([x, y]) => project([x, y, waterZ(x)]))
-  const damAt = trail.findIndex(([x]) => x >= thick / 2 + slope) / Math.max(1, trail.length - 1)
+  const damAt = trail.findIndex(([x]) => x >= fallsAt) / Math.max(1, trail.length - 1)
   const rng = seeded(21)
   const make = (cls: string, mode: Mode, faces: Face[], low: number, high: number, extra: Partial<Mover> = {}): Mover => ({
     cls,
@@ -283,10 +313,10 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
   const flow: Mover[] = []
   if (hasWater) {
     const lap = Math.max(5, 26 - percent * 0.19) * (flooded ? 0.4 : 1)
-    const count = flooded ? 70 : Math.round(8 + percent * 0.42)
+    const count = flooded ? 70 : Math.round(6 + percent * 0.16)
     for (let i = 0; i < count; i++) {
       const lateral = (rng() * 2 - 1) * river * k * 0.72
-      const long = (5 + rng() * 11) * (1 + percent / 120)
+      const long = (3 + rng() * 6) * (1 + percent / 200)
       flow.push(make('p flow streak', 'flow', [box(0, lateral, long, 0.9, WHITE, 0.75)], lap * 0.85, lap * 1.2))
     }
   }
@@ -318,7 +348,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
       const y = (j + noise(i, j + 7)) * grove
       const [sx, sy] = project([x, y, 0])
       if (sx < -k || sx > view.width + k || sy < view.top - k || sy > view.top + view.height + 2 * k) continue
-      if (distance(x, y) < widthAt(x) + 1.3 || (Math.abs(y) < crestHalf + 1.2 && Math.abs(x) < thick + slope + 0.6)) continue
+      if (distance(x, y) < widthAt(x) + 1.3 || (Math.abs(y) < crestHalf + 1.2 && Math.abs(x + bow / 2) < thick + slope + bow + 0.5)) continue
       solids.push(treeAt(x, y, seed))
     }
   }
@@ -327,56 +357,62 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     const dam: Face[] = []
     const front = thick / 2
     const foot = front + slope
-    const MUD = rgb('#7a5534')
-    const onSlope = (at: number): [number, number] => [foot - slope * at, damTall * at]
-    dam.push(flat([[-front, -crestHalf, damTall], [front, -crestHalf, damTall], [front, crestHalf, damTall], [-front, crestHalf, damTall]], rgb('#8d6640'), 'damBody'))
-    dam.push(flat([[front, -crestHalf, damTall], [foot, -crestHalf - 0.5, 0], [foot, crestHalf + 0.5, 0], [front, crestHalf, damTall]], MUD))
-    dam.push(flat([[-front, crestHalf, damTall], [front, crestHalf, damTall], [foot, crestHalf + 0.5, 0], [-front, crestHalf + 0.5, 0]], blend(MUD, 0, 0.2)))
-    // Twigs are the Headroom share, strewn on the crest and the face.
+    const MUD = rgb('#6f4d30')
+    // A real beaver dam: an arc bowed against the current, a lumpy mound of mud that thins into the banks.
+    const crown = (y: number) => 0.62 + 0.38 * Math.sqrt(clamp(1 - (y / (crestHalf + 0.6)) ** 2, 0, 1))
+    const archX = (y: number) => bow * ((y / (crestHalf + 0.6)) ** 2 - 1)
+    const onSlope = (at: number, y: number): V3 => [archX(y) + foot - slope * at, y, damTall * crown(y) * at]
+    const SEGMENTS = 12
+    const STATIONS = [-front, front, front + slope * 0.5, foot]
+    const LIFTS = [0.72, 1, 0.52, 0]
+    const mound = (n: number, u: number): V3 => {
+      const y = ((n / SEGMENTS) * 2 - 1) * (crestHalf + 0.6)
+      const lump = u === 3 ? 0 : (noise(n, u + 40) - 0.5) * 0.2
+
+      return [archX(y) + (STATIONS[u] ?? 0) + (noise(u + 3, n) - 0.5) * 0.22, y, damTall * crown(y) * ((LIFTS[u] ?? 0) + lump)]
+    }
+    let isMarked = false
+    for (let u = 0; u < 3; u++) {
+      for (let n = 0; n < SEGMENTS; n++) {
+        const [a, b, c, d] = [mound(n, u), mound(n, u + 1), mound(n + 1, u + 1), mound(n + 1, u)]
+        const paint = blend(MUD, rgb('#8d6640'), noise(n, u) * 0.8)
+        dam.push(flat([a, b, c], paint, isMarked ? undefined : 'damBody'), flat([a, c, d], blend(paint, 0, 0.08)))
+        isMarked = true
+      }
+    }
+    // Twigs are the Headroom share: strewn over the mound, and bristling along its crest as they pile up.
     const twigRng = seeded(7)
     for (let i = 0; i < twigCount(stock.twigs * 100); i++) {
-      const at = twigRng()
-      const [x, z] = onSlope(at)
-      const y = (twigRng() * 2 - 1) * (crestHalf + 0.5 * (1 - at))
-      const [px, py] = project([x, y, z])
-      const angle = twigRng() * Math.PI
-      const reach = (0.14 + twigRng() * 0.16) * k
-      const [ax, ay] = [Math.cos(angle) * reach, Math.sin(angle) * reach * 0.6]
+      const y = (twigRng() * 2 - 1) * (crestHalf + 0.3)
+      const [px, py] = project(onSlope(i % 3 === 0 ? 1 : twigRng(), y))
+      const angle = i % 3 === 0 ? -1.2 + twigRng() * 2.4 : twigRng() * Math.PI
+      const reach = (0.16 + twigRng() * 0.2) * k
+      const [ax, ay] = [Math.cos(angle) * reach, Math.sin(angle) * reach * 0.7]
       dam.push({ pts: [px - ax, py - ay - 0.8, px + ax, py + ay - 0.8, px + ax, py + ay + 0.8, px - ax, py - ay + 0.8], color: tint(WOOD[i % WOOD.length] ?? 0), mark: 'twig' })
     }
-    // Rows fill from the foot: Ponytail's poles, then trunks, then logs three to a row.
+    // Timber lies where it was dragged: skewed, overlapping, poking out, the heaviest low down.
+    type Beam = { at: number; y: number; half: number; radius: number; mark: string; color: number; seed: number }
+    const beams: Beam[] = []
+    const beamRng = seeded(13)
     const trunks = visibleCount(stock.trunks, 4, 5)
     const logs = visibleCount(stock.logs, 12, 10)
-    const logRows = Math.ceil(logs / 3)
-    const rows = (s.tools.pompom ? 1 : 0) + trunks + logRows
-    const rowsDrawn: Face[][] = []
-    const radius = rows > 0 ? Math.min(0.26, (damTall / rows) * 0.52) : 0
-    let row = 0
-    const place = () => onSlope((row++ + 0.55) / Math.max(rows, 1))
-    const inThrees = (count: number, mark: string, color: number) => {
-      const [x, z] = place()
-      const length = (crestHalf + 0.5) * 0.66
-      const pieces: Face[] = []
-      for (let i = 0; i < count; i++) {
-        const y = (i - (count - 1) / 2) * length
-        pieces.push(...frustum([x, y - length * 0.47, z + radius], [x, y + length * 0.47, z + radius], radius * 0.9, radius * 0.9, 6, color, SAWN, mark))
-      }
-      rowsDrawn.push(pieces)
+    const reachY = crestHalf + 0.2
+    if (s.tools.pompom) for (let i = 0; i < 3; i++) beams.push({ at: 0.16 + beamRng() * 0.1, y: (i - 1) * reachY * 0.62, half: 0.72, radius: 0.13, mark: 'pole', color: rgb('#b17f4d'), seed: i })
+    for (let i = 0; i < trunks; i++) beams.push({ at: 0.3 + (i / Math.max(1, trunks)) * 0.4, y: (beamRng() - 0.5) * reachY, half: reachY * (0.62 + beamRng() * 0.2), radius: 0.21, mark: 'trunk', color: BARK, seed: i + 10 })
+    for (let i = 0; i < logs; i++) beams.push({ at: 0.22 + beamRng() * 0.72, y: (beamRng() * 2 - 1) * reachY * 0.92, half: 0.42 + beamRng() * 0.34, radius: 0.1 + beamRng() * 0.05, mark: 'rondin', color: rgb('#9c6d3e'), seed: i + 20 })
+    beams.sort((a, b) => b.at - a.at)
+    for (const beam of beams) {
+      const [x, y, z] = onSlope(beam.at, beam.y)
+      const skew = (noise(beam.seed, 5) - 0.5) * 0.9 * beam.half
+      dam.push(...frustum([x - skew, y - beam.half, z + beam.radius], [x + skew, y + beam.half, z + beam.radius + (noise(beam.seed, 6) - 0.5) * 0.25], beam.radius, beam.radius * 0.85, 6, beam.color, SAWN, beam.mark))
     }
-    if (s.tools.pompom) inThrees(3, 'pole', rgb('#b17f4d'))
-    for (let i = 0; i < trunks; i++) {
-      const [x, z] = place()
-      rowsDrawn.push(frustum([x, -crestHalf - 0.8, z + radius], [x, crestHalf + 0.8, z + radius], radius, radius, 7, BARK, SAWN, 'trunk'))
-    }
-    for (let i = 0; i < logRows; i++) inThrees(Math.min(3, logs - i * 3), 'rondin', rgb('#9c6d3e'))
-    dam.push(...rowsDrawn.reverse().flat())
     // Each hole in the dam spits water and carries away what the stock can spare: twigs first, trunks last.
     if (pressure > 0) {
       for (let hole = 0; hole < Math.ceil(pressure * 4); hole++) {
         const side = hole % 2 ? 1 : -1
-        const y = side * crestHalf * (0.86 - hole * 0.07)
-        const [x, z] = onSlope(0.72 - hole * 0.14)
-        const size = 0.12 + 0.16 * pressure
+        const y = side * crestHalf * (0.72 - hole * 0.07)
+        const [x, , z] = onSlope(0.62 - hole * 0.12, y)
+        const size = 0.1 + 0.13 * pressure
         dam.push({ pts: faces2([[x, y - size, z + size], [x + size * 0.4, y - size, z - size], [x + size * 0.4, y + size, z - size], [x, y + size, z + size]]), color: 0x160c06 })
         const [hx, hy] = project([x, y, z])
         for (let i = 0; i < 3 + pressure * 6; i++) {
@@ -390,33 +426,31 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
         if (stock.trunks > 0 && pressure > 0.6 && hole < 2) carried('gone-trunk', 1, 11, 16, () => [box(0, (rng() - 0.5) * river * k, 18, 5, BARK), box(17, 0, 2.5, 5, SAWN)])
       }
     }
-    // The spillway: the context itself, pouring over the crest in one sheet per layer.
+    // The spillway: the context itself, trickling through the crest in one sheet per layer.
     if (s.context && percent > 0) {
       const half = Math.min(river, crestHalf * 0.92)
+      const crestX = archX(0) + front
+      const footX = archX(0) + foot + 0.2
+      const crestZ = damTall + 0.02
       let across = -half
       layers.forEach((share, n) => {
         const next = across + share * half * 2
-        dam.push({
-          pts: faces2([[front, across, damTall + 0.02], [foot + 0.25, across, 0], [foot + 0.25, next, 0], [front, next, damTall + 0.02]]),
-          color: tint(WATER[n % WATER.length] ?? 0),
-          alpha: 0.88,
-          mark: 'band',
-        })
+        dam.push({ pts: faces2([[crestX, across, crestZ], [footX, across, 0], [footX, next, 0], [crestX, next, crestZ]]), color: tint(WATER[n % WATER.length] ?? 0), alpha: 0.9, mark: 'band' })
         across = next
       })
-      const [lx, ly] = project([front, -half, damTall])
-      const [rx, ry] = project([front, half, damTall])
-      const [dropX, dropY] = [(foot + 0.25 - front) * 0.866 * k, (foot + 0.25 - front) * 0.5 * k + damTall * 0.82 * k]
-      for (let i = 0; i < Math.round(5 + percent * 0.22); i++) {
+      const [lx, ly] = project([crestX, -half, crestZ])
+      const [rx, ry] = project([crestX, half, crestZ])
+      const [dropX, dropY] = [(footX - crestX) * 0.866 * k, (footX - crestX) * 0.5 * k + crestZ * 0.82 * k]
+      for (let i = 0; i < Math.round(3 + percent * 0.12); i++) {
         const at = rng()
         const [x, y] = [lx + (rx - lx) * at, ly + (ry - ly) * at]
-        top.push(make('p streak', 'drop', [{ pts: [x - 0.8, y, x + 0.8, y, x + 0.8, y + 7, x - 0.8, y + 7], color: WHITE, alpha: 0.85 }], 0.6, 1.1, { x: dropX, y: dropY }))
+        top.push(make('p streak', 'drop', [{ pts: [x - 0.7, y, x + 0.7, y, x + 0.7, y + 6, x - 0.7, y + 6], color: WHITE, alpha: 0.85 }], 0.6, 1.1, { x: dropX, y: dropY }))
       }
-      const [fx, fy] = [project([foot + 0.3, -half, 0]), project([foot + 0.3, half, 0])]
-      for (let i = 0; i < Math.round(6 + half * 8 + percent * 0.1); i++) {
+      const [fx, fy] = [project([footX, -half, 0]), project([footX, half, 0])]
+      for (let i = 0; i < Math.round(4 + half * 8 + percent * 0.06); i++) {
         const at = rng()
-        const size = 1.6 + rng() * 2.6
-        top.push(make('p foam', 'hop', [box(fx[0] + (fy[0] - fx[0]) * at + (rng() - 0.5) * 10, fx[1] + (fy[1] - fx[1]) * at + (rng() - 0.5) * 6, size, size * 0.7, 0xf2fbff)], 0.7, 1.4, { y: 2 }))
+        const size = 1.4 + rng() * 2
+        top.push(make('p foam', 'hop', [box(fx[0] + (fy[0] - fx[0]) * at + (rng() - 0.5) * 8, fx[1] + (fy[1] - fx[1]) * at + (rng() - 0.5) * 5, size, size * 0.7, 0xf2fbff)], 0.7, 1.4, { y: 2 }))
       }
     }
     solids.push({ depth: 0.01, faces: dam })
@@ -424,7 +458,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
 
   // The crew: one beaver per tool, in its colours, awake when that tool has just been used.
   const beaver = (id: CritterId, x: number, y: number, z: number, mood: number, isScared: boolean): Face[] => {
-    const r = 0.36 * big
+    const r = 0.3 * big
     const FUR = rgb('#96683c')
     const parts = [
       ...frustum([x - r * 0.9, y - r * 1.1, z + 0.02], [x - r * 0.9, y - r * 2.4, z + 0.02], r * 0.5, r * 0.34, 4, rgb('#4a2f1b')),
@@ -451,8 +485,9 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
 
       return
     }
-    const y = (i % 2 ? 1 : -1) * crestHalf * (i < 2 ? 0.86 : 0.6)
-    const faces = beaver(id, 0, y, damTall, mood, isScared)
+    const y = (i % 2 ? 1 : -1) * crestHalf * (i < 2 ? 0.8 : 0.45)
+    const edge = (y / (crestHalf + 0.6)) ** 2
+    const faces = beaver(id, bow * (edge - 1), y, damTall * (0.62 + 0.38 * Math.sqrt(1 - edge)), mood, isScared)
     top.push(make(mood > 0 ? 'busy' : 'calm', mood > 0 ? 'hop' : 'still', faces, 0.5, 0.7, { y: 3 }))
   })
   if (flooded) {

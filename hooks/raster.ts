@@ -4,9 +4,9 @@
 import type { Heat, Stats } from '../types'
 import { blend, clamp, noise } from './engine'
 import type { Face, World } from './iso'
-import { buildWorld, poseOf, strengthFor } from './iso'
+import { buildWorld, iconFaces, poseOf, strengthFor } from './iso'
 import { pressureOf, stockOf } from './model'
-import { formatCount } from './scene'
+import { counterEntries, formatCount } from './scene'
 
 const WHITE = 0xffffff
 const CLEAR = 0xffffffff
@@ -93,7 +93,7 @@ function stillFor(s: Stats, levels: Heat, width: number, height: number): Still 
   const key = JSON.stringify([s, levels, width, height])
   if (still?.key === key) return still
   // A small panel looks closer in, so a tree is still a tree at 60 pixels across.
-  const tiles = 16 + 6 * clamp((width - 60) / 100, 0, 1)
+  const tiles = 12 + 3 * clamp((width - 120) / 100, 0, 1)
   const world = buildWorld(s, levels, { width: 640, top: 0, height: (640 * height) / width, tiles })
   const scale = width / 640
   const layer = (faces: readonly Face[], base: number) => {
@@ -168,9 +168,48 @@ export function counterLine(s: Stats, columns: number): Array<[string, number]> 
   ]
 }
 
+const BLOCK_ROWS = 4
+const ICON_COLUMNS = 6
+const DIM = 0xb9c4bb
+
+// The engine has toBase64; this TypeScript lib does not know it yet.
+const encode = (words: Uint32Array) => (new Uint8Array(words.buffer) as Uint8Array & { toBase64(): string }).toBase64()
+
+// Two by two: each counter gets a little 3D icon, its figure and name, and a line saying what it is.
+function paintBlock(words: Uint32Array, s: Stats, columns: number, firstRow: number) {
+  const half = Math.floor(columns / 2)
+  const cell = (row: number, x: number, code: number, fg: number, bg = PANEL) => {
+    const at = (row * columns + x) * 3
+    words[at] = code
+    words[at + 1] = fg
+    words[at + 2] = bg
+  }
+  for (let row = firstRow; row < firstRow + BLOCK_ROWS; row++) for (let x = 0; x < columns; x++) cell(row, x, 32, DIM)
+  counterEntries(s).forEach((entry, i) => {
+    const left = (i % 2) * half
+    const row = firstRow + Math.floor(i / 2) * 2
+    const icon: Canvas = { width: ICON_COLUMNS * 2, height: 4, pixels: new Uint32Array(ICON_COLUMNS * 8).fill(PANEL) }
+    for (const face of iconFaces(entry.icon, 2.6)) fillFace(icon, face, 1, ICON_COLUMNS, 2)
+    for (let down = 0; down < 2; down++) {
+      for (let x = 0; x < ICON_COLUMNS; x++) {
+        const at = down * 2 * icon.width + x * 2
+        const [glyph, fg, bg] = quadrantOf([icon.pixels[at] ?? 0, icon.pixels[at + 1] ?? 0, icon.pixels[at + icon.width] ?? 0, icon.pixels[at + icon.width + 1] ?? 0])
+        cell(row + down, left + x, glyph, fg, bg)
+      }
+    }
+    const write = (y: number, text: string, color: number) => {
+      const room = half - ICON_COLUMNS - 1
+      for (let n = 0; n < Math.min(room, text.length); n++) cell(y, left + ICON_COLUMNS + n, text.charCodeAt(n), color)
+    }
+    write(row, `${entry.value} ${entry.word}${entry.lost > 0 ? ` -${formatCount(entry.lost)}` : ''}`, entry.lost > 0 ? LOST : INK)
+    write(row + 1, entry.note, DIM)
+  })
+}
+
 // Packs a frame the way Raster takes it: [codePoint, foreground, background] per cell.
 export function frameCells(s: Stats, levels: Heat, t: number, columns: number, rows: number): string {
-  const pictureRows = Math.max(1, rows - 1)
+  const hasBlock = columns >= 56 && rows >= 12
+  const pictureRows = Math.max(1, rows - (hasBlock ? BLOCK_ROWS : 1))
   const across = columns * 2
   const pixels = renderPixels(s, levels, t, across, pictureRows * 2)
   const words = new Uint32Array(columns * rows * 3)
@@ -183,6 +222,11 @@ export function frameCells(s: Stats, levels: Heat, t: number, columns: number, r
       words[at + 1] = fg
       words[at + 2] = bg
     }
+  }
+  if (hasBlock) {
+    paintBlock(words, s, columns, pictureRows)
+
+    return encode(words)
   }
   let x = 0
   const put2 = (code: number, color: number) => {
@@ -197,6 +241,5 @@ export function frameCells(s: Stats, levels: Heat, t: number, columns: number, r
   for (const [text, color] of counterLine(s, columns)) for (const char of text) put2(char.charCodeAt(0), color)
   while (x < columns) put2(32, INK)
 
-  // The engine has toBase64; this TypeScript lib does not know it yet.
-  return (new Uint8Array(words.buffer) as Uint8Array & { toBase64(): string }).toBase64()
+  return encode(words)
 }

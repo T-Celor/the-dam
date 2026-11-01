@@ -166,6 +166,14 @@ async function installMissing($: Dollar) {
   $.ui.toast((await runSetup($)).split('\n').slice(-1)[0] ?? 'Setup finished.')
 }
 
+const OPEN_TRIES = 20
+
+// At session start the terminal may not be drawing yet, so keep asking until a surface seats the panel.
+async function openWhenPlaced($: Dollar, tries = OPEN_TRIES) {
+  const opened = await attempt(() => $.ui.open({ id: PANE, title: TITLE, columns: DOCK_COLUMNS, rows: PANE_ROWS }))
+  if (!opened?.isPlaced && tries > 1) $.clock.after(1_000, () => void openWhenPlaced($, tries - 1))
+}
+
 const CHECK_AFTER_MS = 15_000
 let isCheckPending = false
 let lastEarned: Materials | null = null
@@ -270,7 +278,8 @@ let keptOutputs = 0
 let sessionModel: string | undefined
 let projectCwd: string | undefined
 
-const savedKey = (cwd: string) => `saved:${cwd}`
+// All projects together: a folder of its own for each session must not start the pile again from nothing.
+const SAVED = 'saved'
 const pennantsKey = (cwd: string) => `pennants:${cwd}`
 const wearKey = (cwd: string) => `wear:${cwd}`
 const PARTY_MS = 5_000
@@ -312,11 +321,12 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>)
   await $.fs.write(path, original)
   await update($, heat, h => warm(h, ['hazel']))
   const gain = Math.max(0, result.before - result.after)
-  if (projectCwd) {
-    const saved = Number((await $.store.get(savedKey(projectCwd))) ?? 0) + gain
-    await $.store.set(savedKey(projectCwd), saved)
+  // A count that fails must not throw away the compression itself.
+  await attempt(async () => {
+    const saved = Number((await $.store.get(SAVED)) ?? 0) + gain
+    await $.store.set(SAVED, saved)
     await update($, stats, current => ({ ...current, saved, earned: { ...current.earned, twigs: Math.floor(saved / 100) } }))
-  }
+  })
 
   return { ...record, [field]: result.text + squeezeNote(result.before, result.after, path) }
 }
@@ -382,7 +392,7 @@ async function refresh($: Dollar) {
     readContext($),
     proxyState($),
     attempt(() => $.fs.stat(GRAPH)),
-    projectCwd ? $.store.get(savedKey(projectCwd)) : 0,
+    $.store.get(SAVED),
     projectCwd ? $.store.get(wearKey(projectCwd)) : null,
   ])
   const saved = Number(storedSaved ?? 0)
@@ -415,7 +425,7 @@ export const register: Register = on => {
     await $.command.register({ name: 'the-dam-doctor', description: 'Check that the plugin can find each tool' })
     await $.command.register({ name: 'the-dam-pause', description: 'Pause or resume the animation in the terminal' })
     await $.command.register({ name: 'the-dam-compress', description: 'Turn compression of large tool outputs on or off' })
-    void $.ui.open({ id: PANE, title: TITLE, columns: DOCK_COLUMNS, rows: PANE_ROWS })
+    void openWhenPlaced($)
     void installMissing($)
       .then(() => ensureProxy($))
       .then(() => checkGains($))

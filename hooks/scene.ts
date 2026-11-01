@@ -1,7 +1,7 @@
 import type { CritterId, Heat, Stats } from '../types'
 import { clamp, num, radial, repeat, seeded } from './engine'
-import type { Face, Mover, World } from './iso'
-import { buildWorld, isFlooded, strengthFor } from './iso'
+import type { Face, Icon, Mover, World } from './iso'
+import { buildWorld, iconFaces, isFlooded, strengthFor } from './iso'
 import { NO_MATERIALS, pressureOf, stockOf } from './model'
 
 export { fallWidth, isFlooded, levelOf, strengthFor, twigCount } from './iso'
@@ -76,7 +76,7 @@ const WIDTH = 640
 const HEIGHT = 480
 export const MOST_ASPECT = 2.4
 // How many ground tiles fit across the panel.
-const TILES = 22
+const TILES = 15
 
 const hex = (color: number) => `#${color.toString(16).padStart(6, '0')}`
 const whole = (value: number) => String(Math.round(value))
@@ -189,28 +189,35 @@ svg:hover *{animation-play-state:paused}
 </style>`
 }
 
-const ICONS = {
-  river: 'M0-8C4-2 6 1 6 3.500A6 6 0 0 1-6 3.500C-6 1-4-2 0-8Z',
-  twigs: 'M-8 5L8-5M0 0L5 4',
-  logs: 'M-8-3H6V3H-8Z',
-  trunks: 'M-9-5H6V5H-9Z',
+export type CounterEntry = { icon: Icon; value: string; word: string; lost: number; note: string }
+
+// Each counter says what it is, where it comes from, and why it may still be at zero.
+export function counterEntries(s: Stats): CounterEntry[] {
+  const stock = stockOf(s.earned, s.wear)
+  const headroom = s.proxy === 'up' ? `Headroom: ${formatCount(s.saved)} tokens cut (1 per 100)` : `Headroom proxy ${s.proxy}: nothing cut now`
+
+  return [
+    { icon: 'river', value: s.context ? `${formatCount(s.context.total)}/${formatCount(s.context.max)}` : '?', word: 'river', lost: 0, note: 'Tokens now in your context' },
+    { icon: 'twigs', value: formatCount(stock.twigs), word: 'twigs', lost: s.earned.twigs - stock.twigs, note: headroom },
+    { icon: 'logs', value: formatCount(stock.logs), word: 'logs', lost: s.earned.logs - stock.logs, note: 'Economizer here: tools cut + facts' },
+    { icon: 'trunks', value: formatCount(stock.trunks), word: 'trunks', lost: s.earned.trunks - stock.trunks, note: s.hasGraph ? 'graphify: 1 per 50 graph nodes' : 'graphify: no graph in this folder' },
+  ]
 }
 
-function drawCounter(column: number, icon: string, iconStyle: string, value: string, lost: number): string {
-  const x = 22 + column * 152
-  const gone = lost > 0 ? `<text class="lost" x="${x + 16}" y="473" font-size="13" fill="#ffb27a">-${formatCount(lost)}</text>` : ''
-
-  return `<path transform="translate(${x} 456) scale(1.3)" d="${icon}" ${iconStyle}/><text x="${x + 18}" y="${lost > 0 ? 459 : 463}" font-size="19" font-weight="600" fill="#fff">${value}</text>${gone}`
-}
+const CELL_X = [8, 324]
+const CELL_Y = [392, 435]
 
 // One figure for each thing on screen: the river, then what the dam is made of.
 function drawCounters(s: Stats): string {
-  const stock = stockOf(s.earned, s.wear)
-  const stick = 'fill="none" stroke="#dcb988" stroke-width="2.400" stroke-linecap="round"'
-  const wood = (fill: string) => `fill="${fill}" stroke="#2d1a0d"`
-  const river = s.context ? `${formatCount(s.context.total)}/${formatCount(s.context.max)}` : '?'
+  const cells = counterEntries(s).map((entry, i) => {
+    const x = CELL_X[i % 2] ?? 0
+    const y = CELL_Y[Math.floor(i / 2)] ?? 0
+    const lost = entry.lost > 0 ? `<tspan dx="7" font-size="13" fill="#ffb27a">-${formatCount(entry.lost)}</tspan>` : ''
 
-  return `<g font-family="system-ui,sans-serif"><rect x="8" y="434" width="${WIDTH - 16}" height="42" rx="8" fill="#10100e" opacity=".72"/>${drawCounter(0, ICONS.river, 'fill="#6cc6ec"', river, 0)}${drawCounter(1, ICONS.twigs, stick, formatCount(stock.twigs), s.earned.twigs - stock.twigs)}${drawCounter(2, ICONS.logs, wood('#a97b45'), formatCount(stock.logs), s.earned.logs - stock.logs)}${drawCounter(3, ICONS.trunks, wood('#74492a'), formatCount(stock.trunks), s.earned.trunks - stock.trunks)}</g>`
+    return `<rect x="${x}" y="${y}" width="308" height="41" rx="7" fill="#10100e" opacity=".78"/><g transform="translate(${x + 23} ${y + 21})">${drawFaces(iconFaces(entry.icon, 15), num)}</g><text x="${x + 46}" y="${y + 18}" font-size="16" font-weight="700" fill="#fff"><tspan>${entry.value}</tspan><tspan dx="6" font-size="13" font-weight="500" fill="#cfd8d0">${entry.word}</tspan>${lost}</text><text x="${x + 46}" y="${y + 33}" font-size="12" fill="#b9c4bb">${entry.note}</text>`
+  })
+
+  return `<g font-family="system-ui,sans-serif" shape-rendering="auto">${cells.join('')}</g>`
 }
 
 // A river seen from above in low-poly isometric 3D: the river is the context, and the dam is made of what the tools saved.

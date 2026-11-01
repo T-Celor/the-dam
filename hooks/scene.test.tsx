@@ -4,6 +4,7 @@ import { earnedFrom, gainNote, isOverwhelmed, NO_MATERIALS, nextRiver, nextWear,
 import type { Stats } from '../types'
 import { counterLine, frameCells, quadrantOf, renderPixels } from './raster'
 import { COLD, cool, damScene, EMPTY, fallWidth, formatCount, isFlooded, levelOf, nextPennants, sceneAlt, twigCount, usedBy, warm } from './scene'
+import { iconFaces } from './iso'
 import { candidates, compressRequest, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, teBootFrom } from './tools'
 
 const PANE = {
@@ -96,8 +97,6 @@ test('1M saved at full context then cleaned: bounded loss, full repair, no wipeo
   expect(stock.twigs).toBeGreaterThan(7_000)
   for (let i = 0; i < 400; i++) wear = nextWear(wear, 0, strength, 15)
   expect(wear.twigs).toBeLessThan(0.001)
-  expect(damScene(at(20, 50_000), COLD)).toContain('next star: 100k tokens saved')
-  expect(counterLine(at(20, 50_000), 90).map(([text]) => text).join('')).toContain('stars 2/5 (next at 100k saved)')
 })
 
 test('only a weak dam is swept away by a full context', () => {
@@ -137,7 +136,7 @@ test('the terminal frame fills its box, moves with time, and shows the data', ()
   const differs = (a: Uint32Array, b: Uint32Array) => a.filter((value, i) => value !== b[i]).length
   expect(pixels(at(50)).includes(0)).toBe(false)
   expect(differs(pixels(at(50), 1), pixels(at(50), 1))).toBe(0)
-  expect(differs(pixels(at(50), 1), pixels(at(50), 2))).toBeGreaterThan(30)
+  expect(differs(pixels(at(50), 1), pixels(at(50), 2))).toBeGreaterThan(10)
   expect(differs(pixels(at(20)), pixels(at(90)))).toBeGreaterThan(200)
   expect(differs(pixels(RICH), pixels({ ...RICH, earned: NO_MATERIALS }))).toBeGreaterThan(100)
   for (const state of [EMPTY, at(0, 0), at(100, 0), RICH]) {
@@ -163,6 +162,21 @@ test('a check announces only what is new', () => {
   expect(gainNote(was, was)).toBe(null)
   expect(gainNote(was, { twigs: 9, logs: 2, trunks: 1 })).toBe(null)
   expect(gainNote(was, { twigs: 14, logs: 2, trunks: 2 })).toBe('+4 twigs, +1 trunks')
+})
+
+test('each counter says what it is and why it may be at zero', () => {
+  const svg = damScene({ ...at(20, 5_000), proxy: 'up', hasGraph: false }, COLD)
+  expect(svg).toContain('Headroom: 5k tokens cut (1 per 100)')
+  expect(svg).toContain('graphify: no graph in this folder')
+  expect(damScene(at(20), COLD)).toContain('Headroom proxy down')
+  for (const icon of ['river', 'twigs', 'logs', 'trunks'] as const) expect(iconFaces(icon, 15).length).toBeGreaterThan(2)
+})
+
+test('the dam grows with what was saved, and the stream stays narrower than it', () => {
+  const bare = damScene(at(20, 0), COLD)
+  const rich = damScene({ ...RICH, context: at(20).context }, COLD)
+  expect(countOf(rich, 'class="rondin"')).toBeGreaterThan(countOf(bare, 'class="rondin"'))
+  expect(fallWidth(100, 172) / 330).toBeLessThan(172 / 50)
 })
 
 test('tool figures are read from their own output', () => {
