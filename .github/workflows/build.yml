@@ -4,7 +4,7 @@ name: Build programs
 on:
   push:
     branches: [main]
-    paths: ['dam/**']
+    paths: ['dam/**', '.github/workflows/build.yml']
   workflow_dispatch:
 
 permissions:
@@ -20,13 +20,21 @@ jobs:
           - { os: ubuntu-latest, folder: linux-x64, ext: '' }
           - { os: ubuntu-24.04-arm, folder: linux-arm64, ext: '' }
           - { os: macos-latest, folder: macos-arm64, ext: '' }
-          - { os: macos-13, folder: macos-x64, ext: '' }
+          - { os: macos-latest, folder: macos-x64, ext: '', target: x86_64-apple-darwin }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Build
         working-directory: dam
-        run: cargo build --release --locked
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            rustup target add "${{ matrix.target }}"
+            cargo build --release --locked --target "${{ matrix.target }}"
+            cp target/${{ matrix.target }}/release/dam-* target/release/ 2>/dev/null || { mkdir -p target/release; cp target/${{ matrix.target }}/release/dam-* target/release/; }
+          else
+            cargo build --release --locked
+          fi
       - name: Collect
         shell: bash
         run: |
