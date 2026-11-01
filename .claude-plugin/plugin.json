@@ -1,6 +1,6 @@
 {
   "name": "the-dam",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Runs Headroom, graphify, TokenEconomizer and Ponytail together, with a plain panel of what they really save.",
   "types": "./types/index.d.ts"
 }
