@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
 import type { Gains, ProxyState, Stats } from '../types'
-import { EMPTY, gainNote, reportOf, statusOf } from './model'
+import { EMPTY, gainNote, reportOf, signed, statusOf } from './model'
 import type { Located } from './tools'
 import {
   candidates,
@@ -165,7 +165,7 @@ async function checkGains($: Dollar) {
   const now = await read($, stats)
   const note = lastGains ? gainNote(lastGains, now) : null
   lastGains = now
-  if (note) $.ui.toast(`The dam: ${note}`)
+  if (note) $.ui.toast(signed(note))
 }
 
 function checkSoon($: Dollar) {

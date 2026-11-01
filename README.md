@@ -3,16 +3,19 @@
 Runs Headroom, graphify, TokenEconomizer and Ponytail together in Claude Code. Nothing graphical: one status line, and `/the-dam` for the detail.
 
 ```
-the dam: 12.3k saved, context 31%
+🦫 12.3k saved · context 31%
 ```
 
 ```
-Context: 310k of 1M tokens (31%)
-Headroom: 12.3k tokens saved
-TokenEconomizer: 2 tools pruned, 5 facts learned
-graphify: no graph in this folder, run /graphify
-Ponytail: active
+🦫 The dam
+  Context 31% (310k of 1M tokens)
+  ✓ Headroom: 12.3k tokens saved
+  ✓ TokenEconomizer: 2 tools pruned, 5 facts learned
+  … graphify: no graph in this folder, run /graphify
+  ✓ Ponytail: active
 ```
+
+✓ works, … is waiting for something, ✗ is off or missing.
 
 Tokens saved are counted across all projects. Pruned tools, facts and graph nodes belong to the current folder. TokenEconomizer and graphify report counts, not tokens, and Ponytail reports no figure at all, so none of them is turned into a token saving.
 

@@ -20,11 +20,11 @@ test('a check announces only what is new', () => {
 test('the status line and the report state the real figures', () => {
   const context = { percent: 31, total: 310_000, max: 1_000_000 }
   const s = { ...EMPTY, tools: ALL, proxy: 'up' as const, context, saved: 5_000, pruned: 2, facts: 3, nodes: 400, hasGraph: true }
-  expect(statusOf(s)).toBe('the dam: 5k saved, context 31%')
-  expect(statusOf(EMPTY)).toBe('the dam: 0 saved')
-  expect(reportOf(s)).toBe('Context: 310k of 1M tokens (31%)\nHeadroom: 5k tokens saved\nTokenEconomizer: 2 tools pruned, 3 facts learned\ngraphify: 400 graph nodes\nPonytail: active')
-  expect(reportOf({ ...s, hasGraph: false })).toContain('no graph in this folder')
-  expect(reportOf({ ...s, proxy: 'off' })).toContain('compression off')
+  expect(statusOf(s)).toBe('🦫 5k saved · context 31%')
+  expect(statusOf(EMPTY)).toBe('🦫 0 saved')
+  expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Headroom: 5k tokens saved\n  ✓ TokenEconomizer: 2 tools pruned, 3 facts learned\n  ✓ graphify: 400 graph nodes\n  ✓ Ponytail: active')
+  expect(reportOf({ ...s, hasGraph: false })).toContain('… graphify: no graph in this folder')
+  expect(reportOf({ ...s, proxy: 'off' })).toContain('✗ Headroom: 5k tokens saved, compression off')
   expect(reportOf(EMPTY).split('not installed').length - 1).toBe(4)
 })
 
