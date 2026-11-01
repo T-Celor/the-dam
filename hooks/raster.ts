@@ -1,5 +1,5 @@
-// The terminal's dam: a software renderer for the same world the panel draws. Each cell is one sextant glyph,
-// so it holds six smoothed pixels in two colours. The still layers are kept until the stats change; only the movers cost anything per frame.
+// The terminal's dam: a software renderer for the same world the panel draws. Each cell is one quadrant glyph,
+// so it holds four smoothed pixels in two colours. The still layers are kept until the stats change; only the movers cost anything per frame.
 
 import type { Heat, Stats } from '../types'
 import { blend, clamp, noise } from './engine'
@@ -132,7 +132,7 @@ export function renderPixels(s: Stats, levels: Heat, t: number, width: number, h
 const QUADRANTS = [0x20, 0x2598, 0x259d, 0x2580, 0x2596, 0x258c, 0x259e, 0x259b, 0x2597, 0x259a, 0x2590, 0x259c, 0x2584, 0x2599, 0x259f, 0x2588]
 const gap = (a: number, b: number) => Math.abs((a >> 16) - (b >> 16)) + Math.abs(((a >> 8) & 255) - ((b >> 8) & 255)) + Math.abs((a & 255) - (b & 255))
 
-// A cell shows two colours, so it takes the two furthest apart among its four pixels and sends each pixel to the nearer.
+// A cell shows two colours: it splits its four pixels around the two furthest apart, and shows the mean of each side.
 export function quadrantOf(corners: readonly [number, number, number, number]): [number, number, number] {
   let [fg, bg, widest] = [corners[0], corners[0], -1]
   for (let a = 0; a < 4; a++) {
@@ -143,8 +143,10 @@ export function quadrantOf(corners: readonly [number, number, number, number]): 
   }
   if (widest === 0) return [0x20, fg, fg]
   const mask = corners.reduce((bits, color, i) => (gap(color, fg) <= gap(color, bg) ? bits | (1 << i) : bits), 0)
+  const near = corners.filter((_, i) => mask & (1 << i))
+  const far = corners.filter((_, i) => !(mask & (1 << i)))
 
-  return [QUADRANTS[mask] ?? 0x20, fg, bg]
+  return [QUADRANTS[mask] ?? 0x20, mean(near), mean(far)]
 }
 
 const INK = 0xffffff
@@ -169,16 +171,6 @@ export function counterLine(s: Stats, columns: number): Array<[string, number]> 
   ]
 }
 
-// Sextant glyphs skip the two half blocks that already exist, so the code points close up around them.
-export function sextantGlyph(mask: number): number {
-  if (mask === 0) return 0x20
-  if (mask === 63) return 0x2588
-  if (mask === 21) return 0x258c
-  if (mask === 42) return 0x2590
-
-  return 0x1fb00 + mask - 1 - (mask > 21 ? 1 : 0) - (mask > 42 ? 1 : 0)
-}
-
 const mean = (colors: readonly number[]) => {
   const total = [0, 0, 0]
   for (const color of colors) {
@@ -191,30 +183,8 @@ const mean = (colors: readonly number[]) => {
   return (channel(0) << 16) | (channel(1) << 8) | channel(2)
 }
 
-// As quadrantOf, for six pixels, and each of the two colours is the mean of the pixels it stands for.
-export function sextantOf(pixels: readonly number[]): [number, number, number] {
-  let [fg, bg, widest] = [pixels[0] ?? 0, pixels[0] ?? 0, -1]
-  for (let a = 0; a < 6; a++) {
-    for (let b = a + 1; b < 6; b++) {
-      const distance = gap(pixels[a] ?? 0, pixels[b] ?? 0)
-      if (distance > widest) [fg, bg, widest] = [pixels[a] ?? 0, pixels[b] ?? 0, distance]
-    }
-  }
-  if (widest === 0) return [0x20, fg, fg]
-  let mask = 0
-  const [near, far]: [number[], number[]] = [[], []]
-  pixels.forEach((color, i) => {
-    if (gap(color, fg) <= gap(color, bg)) {
-      mask |= 1 << i
-      near.push(color)
-    } else far.push(color)
-  })
-
-  return [sextantGlyph(mask), mean(near), mean(far)]
-}
-
-// Four rendered pixels across and six down per cell of about 8 by 18: each is 2 wide and 3 tall.
-const SUB_RATIO = 1.5
+// Four rendered pixels across and down per cell of about 8 by 18: each is 2 wide and 4.5 tall.
+const SUB_RATIO = 2.25
 const BLOCK_ROWS = 4
 const ICON_COLUMNS = 6
 const DIM = 0xb9c4bb
@@ -258,20 +228,17 @@ export function frameCells(s: Stats, levels: Heat, t: number, columns: number, r
   const hasBlock = columns >= 56 && rows >= 12
   const pictureRows = Math.max(1, rows - (hasBlock ? BLOCK_ROWS : 1))
   const across = columns * 4
-  const pixels = renderPixels(s, levels, t, across, pictureRows * 6, SUB_RATIO)
+  const pixels = renderPixels(s, levels, t, across, pictureRows * 4, SUB_RATIO)
   const words = new Uint32Array(columns * rows * 3)
   for (let row = 0; row < pictureRows; row++) {
     for (let x = 0; x < columns; x++) {
       const at = (row * columns + x) * 3
-      const subs: number[] = []
-      for (let down = 0; down < 3; down++) {
-        for (let side = 0; side < 2; side++) {
-          const from = (row * 6 + down * 2) * across + x * 4 + side * 2
-          // Each glyph pixel averages four rendered ones, which is what softens the edges.
-          subs.push(mean([pixels[from] ?? 0, pixels[from + 1] ?? 0, pixels[from + across] ?? 0, pixels[from + across + 1] ?? 0]))
-        }
+      const smooth = (down: number, side: number) => {
+        const from = (row * 4 + down * 2) * across + x * 4 + side * 2
+        // Each glyph pixel averages four rendered ones, which is what softens the edges.
+        return mean([pixels[from] ?? 0, pixels[from + 1] ?? 0, pixels[from + across] ?? 0, pixels[from + across + 1] ?? 0])
       }
-      const [glyph, fg, bg] = sextantOf(subs)
+      const [glyph, fg, bg] = quadrantOf([smooth(0, 0), smooth(0, 1), smooth(1, 0), smooth(1, 1)])
       words[at] = glyph
       words[at + 1] = fg
       words[at + 2] = bg

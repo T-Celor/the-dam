@@ -197,7 +197,7 @@ export function counterEntries(s: Stats): CounterEntry[] {
   const headroom = s.proxy === 'up' ? `Headroom: ${formatCount(s.saved)} tokens cut (1 per 100)` : `Headroom proxy ${s.proxy}: nothing cut now`
 
   return [
-    { icon: 'river', value: s.context ? `${formatCount(s.context.total)}/${formatCount(s.context.max)}` : '?', word: 'river', lost: 0, note: 'Tokens now in your context' },
+    { icon: 'river', value: s.context ? `${formatCount(s.context.total)}/${formatCount(s.context.max)}` : '?', word: 'river', lost: 0, note: `In your context. Base: ${s.tools.pompom ? 'Ponytail' : 'no Ponytail'}` },
     { icon: 'twigs', value: formatCount(stock.twigs), word: 'twigs', lost: s.earned.twigs - stock.twigs, note: headroom },
     { icon: 'logs', value: formatCount(stock.logs), word: 'logs', lost: s.earned.logs - stock.logs, note: 'Economizer here: tools cut + facts' },
     { icon: 'trunks', value: formatCount(stock.trunks), word: 'trunks', lost: s.earned.trunks - stock.trunks, note: s.hasGraph ? 'graphify: 1 per 50 graph nodes' : 'graphify: no graph in this folder' },

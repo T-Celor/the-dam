@@ -82,11 +82,6 @@ export function isOverwhelmed(percent: number, strength: number): boolean {
   return percent >= 100 && strength < 0.4
 }
 
-// How many pieces to draw: at least one once there is any, never more than `most`.
-export function visibleCount(stock: number, most: number, scale: number): number {
-  return stock <= 0 ? 0 : Math.max(1, Math.round(most * approach(stock, scale)))
-}
-
 export type Shape = { height: number; topHalf: number; footHalf: number; size: number }
 
 // The dam's outline grows with its strength, fast at first and more slowly later.

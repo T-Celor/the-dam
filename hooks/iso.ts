@@ -3,7 +3,7 @@
 
 import type { CritterId, Heat, Stats } from '../types'
 import { blend, clamp, noise, rgb, seeded } from './engine'
-import { isOverwhelmed, pressureOf, shapeOf, stockOf, strengthOf, visibleCount } from './model'
+import { isOverwhelmed, pressureOf, shapeOf, stockOf, strengthOf } from './model'
 
 export type Face = { pts: number[]; color: number; alpha?: number; mark?: string }
 export type Piece = { depth: number; faces: Face[]; sway?: boolean }
@@ -16,6 +16,10 @@ export type View = { width: number; top: number; height: number; tiles: number }
 type V3 = readonly [number, number, number]
 
 const MAX_TWIGS = 170
+// What fits on the dam and stays readable; the counter goes on beyond it.
+const MOST_TWIGS = 90
+const MOST_LOGS = 40
+const MOST_TRUNKS = 12
 const FALL_WIDTH = 300
 const LIGHT: V3 = [-0.33, 0.52, 0.79]
 const WHITE = 0xffffff
@@ -211,7 +215,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     return best
   }
   const height = (x: number, y: number, far: number) => {
-    const hills = 0.75 * (Math.sin(x * 0.37 + 1.3) * Math.cos(y * 0.31) + 0.5 * Math.sin(x * 0.83 + y * 0.57) + 0.6)
+    const hills = 0.45 * (Math.sin(x * 0.37 + 1.3) * Math.cos(y * 0.31) + 0.5 * Math.sin(x * 0.83 + y * 0.57) + 0.6)
 
     return step * smooth((0.5 - bow - x) / 2.2) + Math.max(0, hills) * smooth((far - 0.8) / 3.5)
   }
@@ -220,7 +224,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
   const ground: Face[] = []
   const corners = [toWorld(0, view.top), toWorld(view.width, view.top), toWorld(0, view.top + view.height), toWorld(view.width, view.top + view.height)]
   // Coarser in a tall view, so the mesh stays within what the panel accepts.
-  const CELL = 1.7 * Math.max(1, Math.sqrt(view.height / view.width / 0.75))
+  const CELL = 2.8 * Math.max(1, Math.sqrt(view.height / view.width / 0.75))
   const [minX, maxX] = [Math.min(...corners.map(c => c[0])) - 3, Math.max(...corners.map(c => c[0])) + 3]
   const [minY, maxY] = [Math.min(...corners.map(c => c[1])) - 3, Math.max(...corners.map(c => c[1])) + 3]
   const vertex = (i: number, j: number): V3 => {
@@ -229,7 +233,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
 
     return [x, y, height(x, y, distance(x, y))]
   }
-  const grass = ['#8cc36b', '#7cb661', '#9ccc74', '#6fa957'].map(rgb)
+  const grass = ['#8fc46f', '#8ac069'].map(rgb)
   const SAND = rgb('#dcc98f')
   const tri = (a: V3, b: V3, c: V3, seed: number) => {
     const pts = faces2([a, b, c])
@@ -239,8 +243,9 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     if (Math.max(...xs) < -margin || Math.min(...xs) > view.width + margin || Math.max(...ys) < view.top - margin || Math.min(...ys) > view.top + view.height + margin) return
     const mx = (a[0] + b[0] + c[0]) / 3
     const my = (a[1] + b[1] + c[1]) / 3
-    const isShore = distance(mx, my) < widthAt(mx) + 0.9
-    ground.push({ pts, color: lit(isShore ? SAND : (grass[Math.floor(noise(seed, 3) * 4)] ?? 0), a, b, c) })
+    const isShore = distance(mx, my) < widthAt(mx) + 0.5
+    const base = isShore ? SAND : (grass[Math.floor(noise(seed, 3) * 2)] ?? 0)
+    ground.push({ pts, color: facet(blend(tint(base), lit(base, a, b, c), 0.3)) })
   }
   const firstI = Math.floor(minX / CELL)
   const firstJ = Math.floor(minY / CELL)
@@ -313,7 +318,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
   const flow: Mover[] = []
   if (hasWater) {
     const lap = Math.max(5, 26 - percent * 0.19) * (flooded ? 0.4 : 1)
-    const count = flooded ? 70 : Math.round(6 + percent * 0.16)
+    const count = flooded ? 70 : Math.round(5 + percent * 0.08)
     for (let i = 0; i < count; i++) {
       const lateral = (rng() * 2 - 1) * river * k * 0.72
       const long = (3 + rng() * 6) * (1 + percent / 200)
@@ -339,16 +344,16 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
   }
   let seed = 0
   // Sparser in a tall view, so the forest stays within what the panel accepts.
-  const grove = 1.9 * Math.max(1, Math.sqrt(view.height / view.width / 0.75))
+  const grove = 2.9 * Math.max(1, Math.sqrt(view.height / view.width / 0.75))
   for (let i = Math.floor(minX / grove); i * grove < maxX; i++) {
     for (let j = Math.floor(minY / grove); j * grove < maxY; j++) {
       seed++
-      if (noise(i, j + 50) < 0.4) continue
+      if (noise(i, j + 50) < 0.55) continue
       const x = (i + noise(i + 7, j)) * grove
       const y = (j + noise(i, j + 7)) * grove
       const [sx, sy] = project([x, y, 0])
       if (sx < -k || sx > view.width + k || sy < view.top - k || sy > view.top + view.height + 2 * k) continue
-      if (distance(x, y) < widthAt(x) + 1.3 || (Math.abs(y) < crestHalf + 1.2 && Math.abs(x + bow / 2) < thick + slope + bow + 0.5)) continue
+      if (distance(x, y) < widthAt(x) + 1.7 || (Math.abs(y) < crestHalf + 1.8 && Math.abs(x + bow / 2) < thick + slope + bow + 1.4)) continue
       solids.push(treeAt(x, y, seed))
     }
   }
@@ -375,14 +380,14 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     for (let u = 0; u < 3; u++) {
       for (let n = 0; n < SEGMENTS; n++) {
         const [a, b, c, d] = [mound(n, u), mound(n, u + 1), mound(n + 1, u + 1), mound(n + 1, u)]
-        const paint = blend(MUD, rgb('#8d6640'), noise(n, u) * 0.8)
+        const paint = blend(MUD, rgb('#7d5a38'), noise(n, u) * 0.5)
         dam.push(flat([a, b, c], paint, isMarked ? undefined : 'damBody'), flat([a, c, d], blend(paint, 0, 0.08)))
         isMarked = true
       }
     }
     // Twigs are the Headroom share: strewn over the mound, and bristling along its crest as they pile up.
     const twigRng = seeded(7)
-    for (let i = 0; i < twigCount(stock.twigs * 100); i++) {
+    for (let i = 0; i < Math.min(stock.twigs, MOST_TWIGS); i++) {
       const y = (twigRng() * 2 - 1) * (crestHalf + 0.3)
       const [px, py] = project(onSlope(i % 3 === 0 ? 1 : twigRng(), y))
       const angle = i % 3 === 0 ? -1.2 + twigRng() * 2.4 : twigRng() * Math.PI
@@ -390,21 +395,30 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
       const [ax, ay] = [Math.cos(angle) * reach, Math.sin(angle) * reach * 0.7]
       dam.push({ pts: [px - ax, py - ay - 0.8, px + ax, py + ay - 0.8, px + ax, py + ay + 0.8, px - ax, py - ay + 0.8], color: tint(WOOD[i % WOOD.length] ?? 0), mark: 'twig' })
     }
-    // Timber lies where it was dragged: skewed, overlapping, poking out, the heaviest low down.
+    // One log on the counter is one log here. Each piece keeps its own place, so a gain adds to the dam and moves nothing.
     type Beam = { at: number; y: number; half: number; radius: number; mark: string; color: number; seed: number }
     const beams: Beam[] = []
-    const beamRng = seeded(13)
-    const trunks = visibleCount(stock.trunks, 4, 5)
-    const logs = visibleCount(stock.logs, 12, 10)
     const reachY = crestHalf + 0.2
-    if (s.tools.pompom) for (let i = 0; i < 3; i++) beams.push({ at: 0.16 + beamRng() * 0.1, y: (i - 1) * reachY * 0.62, half: 0.72, radius: 0.13, mark: 'pole', color: rgb('#b17f4d'), seed: i })
-    for (let i = 0; i < trunks; i++) beams.push({ at: 0.3 + (i / Math.max(1, trunks)) * 0.4, y: (beamRng() - 0.5) * reachY, half: reachY * (0.62 + beamRng() * 0.2), radius: 0.21, mark: 'trunk', color: BARK, seed: i + 10 })
-    for (let i = 0; i < logs; i++) beams.push({ at: 0.22 + beamRng() * 0.72, y: (beamRng() * 2 - 1) * reachY * 0.92, half: 0.42 + beamRng() * 0.34, radius: 0.1 + beamRng() * 0.05, mark: 'rondin', color: rgb('#9c6d3e'), seed: i + 20 })
+    const place = (i: number) => (i * 0.618) % 1
+    const spread = (i: number) => (noise(i, 77) * 2 - 1) * reachY * 0.9
+    for (let i = 0; i < Math.min(stock.trunks, MOST_TRUNKS); i++) beams.push({ at: 0.28 + place(i + 3) * 0.3, y: spread(i + 100) * 0.3, half: reachY * (0.6 + noise(i, 78) * 0.2), radius: 0.21, mark: 'trunk', color: BARK, seed: i + 10 })
+    for (let i = 0; i < Math.min(stock.logs, MOST_LOGS); i++) beams.push({ at: 0.3 + place(i) * 0.62, y: spread(i), half: 0.5 + noise(i, 79) * 0.3, radius: 0.13, mark: 'rondin', color: rgb('#9c6d3e'), seed: i + 20 })
     beams.sort((a, b) => b.at - a.at)
     for (const beam of beams) {
       const [x, y, z] = onSlope(beam.at, beam.y)
-      const skew = (noise(beam.seed, 5) - 0.5) * 0.9 * beam.half
+      const skew = (noise(beam.seed, 5) - 0.5) * 0.5 * beam.half
       dam.push(...frustum([x - skew, y - beam.half, z + beam.radius], [x + skew, y + beam.half, z + beam.radius + (noise(beam.seed, 6) - 0.5) * 0.25], beam.radius, beam.radius * 0.85, 6, beam.color, SAWN, beam.mark))
+    }
+    // The Ponytail base: three pale poles along the foot, each tied with its ribbon.
+    if (s.tools.pompom) {
+      const span = (crestHalf + 0.4) * 0.64
+      for (let i = 2; i >= 0; i--) {
+        const y = (i - 1) * span
+        const [x, , z] = onSlope(0.1, y)
+        const [from, to] = [y - span * 0.47, y + span * 0.47]
+        dam.push(...frustum([x, from, z + 0.2], [x, to, z + 0.2], 0.2, 0.2, 7, rgb('#e0c08c'), SAWN, 'pole'))
+        dam.push(...frustum([x, y - 0.1, z + 0.2], [x, y + 0.1, z + 0.2], 0.23, 0.23, 7, HAT.pompom))
+      }
     }
     // Each hole in the dam spits water and carries away what the stock can spare: twigs first, trunks last.
     if (pressure > 0) {

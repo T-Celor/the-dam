@@ -7,12 +7,14 @@ A Claude Code panel that shows one thing: a small river in low-poly isometric 3D
 | On screen | Comes from | Rate |
 |---|---|---|
 | River | Context in use | Width and speed follow the percent; the counter gives tokens used and available |
-| Small dam (3 poles) | Ponytail installed | Ponytail reports no token figure, so it is the base |
+| Base (3 pale poles, tied with a ribbon, at the foot) | Ponytail installed | Ponytail reports no token figure, so it is the base |
 | Twigs | Headroom output compression, all projects together | 1 per 100 tokens |
 | Logs | TokenEconomizer in this folder: tools pruned plus facts injected | 1 each |
 | Trunks | graphify: nodes in this folder's `graphify-out/graph.json` | 1 per 50 nodes |
 
 Logs and trunks are counts, not tokens: these tools do not report a measured token saving.
+
+What the counter says is what stands on the dam: one log is one log, each in its own place, so a gain adds a piece and moves nothing. The picture stops adding at 90 twigs, 40 logs and 12 trunks, where the dam is full, and the counters go on.
 
 ## The math
 

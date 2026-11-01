@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
-import { earnedFrom, gainNote, isOverwhelmed, NO_MATERIALS, nextRiver, nextWear, pressureOf, stockOf, strengthOf, visibleCount } from './model'
+import { earnedFrom, gainNote, isOverwhelmed, NO_MATERIALS, nextRiver, nextWear, pressureOf, stockOf, strengthOf } from './model'
 import type { Stats } from '../types'
-import { counterLine, frameCells, quadrantOf, renderPixels, sextantGlyph, sextantOf } from './raster'
+import { counterLine, frameCells, quadrantOf, renderPixels } from './raster'
 import { COLD, cool, damScene, EMPTY, fallWidth, formatCount, isFlooded, levelOf, nextPennants, sceneAlt, twigCount, usedBy, warm } from './scene'
 import { iconFaces } from './iso'
 import { candidates, compressRequest, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, teBootFrom } from './tools'
@@ -49,8 +49,8 @@ test('Ponytail alone is the small dam, and each tool adds its own material', () 
   expect(countOf(damScene(small, COLD), 'class="trunk"')).toBe(0)
   expect(countOf(damScene({ ...at(20, 0, none) }, COLD), 'class="pole"')).toBe(0)
   const grown = { ...small, earned: earnedFrom({ saved: 0, pruned: 4, facts: 0, nodes: 120 }) }
-  expect(countOf(damScene(grown, COLD), 'class="rondin"')).toBeGreaterThan(0)
-  expect(countOf(damScene(grown, COLD), 'class="trunk"')).toBe(visibleCount(3, 4, 5))
+  expect(countOf(damScene(grown, COLD), 'class="rondin"')).toBe(4)
+  expect(countOf(damScene(grown, COLD), 'class="trunk"')).toBe(3)
   expect(strengthOf(true, grown.earned, NO_MATERIALS)).toBeGreaterThan(strengthOf(true, NO_MATERIALS, NO_MATERIALS))
   expect(strengthOf(true, NO_MATERIALS, NO_MATERIALS)).toBe(0.15)
 })
@@ -58,9 +58,6 @@ test('Ponytail alone is the small dam, and each tool adds its own material', () 
 test('strength and visible pieces saturate, whatever the figures', () => {
   const huge = earnedFrom({ saved: 1e15, pruned: 1e6, facts: 1e6, nodes: 1e9 })
   expect(strengthOf(true, huge, NO_MATERIALS)).toBeLessThan(1.01)
-  expect(visibleCount(1e9, 12, 10)).toBe(12)
-  expect(visibleCount(1, 12, 10)).toBe(1)
-  expect(visibleCount(0, 12, 10)).toBe(0)
   expect(damScene({ ...RICH, earned: huge }, COLD).length).toBeLessThan(131_072)
 })
 
@@ -146,8 +143,6 @@ test('the terminal frame fills its box, moves with time, and shows the data', ()
   expect(line).toBe('river 1M/1M twigs 9k -1k logs 30 trunks 8')
   expect(frameCells(at(50), COLD, 1, 30, 10).length).toBe(4800)
   expect(quadrantOf([5, 5, 5, 5])).toEqual([0x20, 5, 5])
-  expect([0, 1, 20, 21, 22, 41, 42, 43, 62, 63].map(sextantGlyph)).toEqual([0x20, 0x1fb00, 0x1fb13, 0x258c, 0x1fb14, 0x1fb27, 0x2590, 0x1fb28, 0x1fb3b, 0x2588])
-  expect(sextantOf([0xffffff, 0xffffff, 0, 0, 0, 0])).toEqual([sextantGlyph(3), 0xffffff, 0])
   expect(quadrantOf([0xffffff, 0xffffff, 0, 0])).toEqual([0x2580, 0xffffff, 0])
   expect(quadrantOf([0xffffff, 0, 0, 0xfefefe])[0]).toBe(0x259a)
 })
@@ -179,6 +174,14 @@ test('the dam grows with what was saved, and the stream stays narrower than it',
   const rich = damScene({ ...RICH, context: at(20).context }, COLD)
   expect(countOf(rich, 'class="rondin"')).toBeGreaterThan(countOf(bare, 'class="rondin"'))
   expect(fallWidth(100, 172) / 330).toBeLessThan(172 / 50)
+})
+
+test('what the counter says is what stands on the dam, up to what fits', () => {
+  const dam = (pruned: number, nodes: number) => damScene({ ...at(20, 0), earned: earnedFrom({ saved: 0, pruned, facts: 0, nodes }) }, COLD)
+  for (const logs of [0, 1, 2, 7, 30]) expect(countOf(dam(logs, 0), 'class="rondin"')).toBe(logs)
+  for (const trunks of [0, 1, 5]) expect(countOf(dam(0, trunks * 50), 'class="trunk"')).toBe(trunks)
+  expect(countOf(dam(1_000, 0), 'class="rondin"')).toBe(40)
+  expect(countOf(damScene({ ...at(20, 300), earned: earnedFrom({ saved: 300, pruned: 0, facts: 0, nodes: 0 }) }, COLD), 'class="twig"')).toBe(3)
 })
 
 test('tool figures are read from their own output', () => {
