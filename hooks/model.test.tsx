@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { EMPTY, formatCount, gainNote, reportOf, statusOf } from './model'
-import { candidates, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, worthGraphing } from './tools'
+import { candidates, graphNodes, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, worthGraphing } from './tools'
 
 const ALL = { squeezer: true, graphify: true, economizer: true, ponytail: true }
 
@@ -25,7 +25,7 @@ test('the status line and the report state the real figures', () => {
   expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Compression: 5k tokens saved\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ graphify: 400 graph nodes\n  ✓ Ponytail: active')
   expect(reportOf({ ...s, hasGraph: false })).toContain('… graphify: no graph in this folder')
   expect(reportOf({ ...s, isCompressing: false })).toContain('✗ Compression: 5k tokens saved, turned off')
-  expect(reportOf(EMPTY).split('not installed').length - 1).toBe(4)
+  expect(reportOf(EMPTY).split('not installed').length - 1).toBe(3)
 })
 
 test('only a real project is worth a graph', () => {
@@ -42,20 +42,19 @@ test('tool figures are read from their own output', () => {
   expect(graphNodes('{"nodes":[{},{}]}')).toBe(2)
 })
 
-const NOTHING = { squeezer: null, graphify: null, python: null, teBoot: null, hasPonytail: false }
-const EVERYTHING = { squeezer: 'h', graphify: 'g', python: 'p', teBoot: 't', hasPonytail: true }
+const NOTHING = { squeezer: null, graphify: null, python: null, teBoot: null, hasNode: false }
+const EVERYTHING = { squeezer: 'h', graphify: 'g', python: 'p', teBoot: 't', hasNode: true }
 
 test('setup installs only what is missing, and nothing twice', () => {
   expect(setupSteps(EVERYTHING, '/home', false, '/plugin')).toEqual([])
   expect(missingNames(EVERYTHING)).toEqual([])
-  expect(missingNames(NOTHING)).toEqual(['compressor', 'graphify', 'Python', 'Ponytail'])
+  expect(missingNames(NOTHING)).toEqual(['dam', 'graphify', 'Python'])
   const labels = setupSteps(NOTHING, '/home', false, '/plugin').map(step => step.label)
   expect(labels.some(label => label.includes('TokenEconomizer'))).toBe(false)
-  expect(labels.includes('plugin Ponytail')).toBe(true)
+  expect(labels.includes('compressor')).toBe(true)
 })
 
 test('tools are found from the files Claude keeps', () => {
-  expect(parseInstalled('{"plugins":{"ponytail@ponytail":[]}}')).toBe(true)
   expect(candidates('x', undefined)).toEqual(['x'])
 })
 

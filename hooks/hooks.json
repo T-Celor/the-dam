@@ -2,7 +2,7 @@
   "modules": [
     "./register.tsx"
   ],
-  "description": "TokenEconomizer: inject learned repo facts at session start, guard prompt-turns against failing loops, and fold each finished session into what is learned.",
+  "description": "The dam: TokenEconomizer and Ponytail hooks, plus the module that compresses outputs and reports.",
   "hooks": {
     "SessionStart": [
       {
@@ -11,6 +11,17 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/te-hook\"",
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT.split(String.fromCharCode(92)).join('/'), 'hooks/ponytail-activate.js'))\"",
+            "timeout": 15,
+            "statusMessage": "Loading ponytail mode..."
           }
         ]
       }
@@ -22,6 +33,16 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/te-hook\"",
             "timeout": 20
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT.split(String.fromCharCode(92)).join('/'), 'hooks/ponytail-mode-tracker.js'))\"",
+            "timeout": 15,
+            "statusMessage": "Tracking ponytail mode..."
           }
         ]
       }
@@ -66,6 +87,18 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/te-hook\"",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"require(require('path').join(process.env.CLAUDE_PLUGIN_ROOT.split(String.fromCharCode(92)).join('/'), 'hooks/ponytail-subagent.js'))\"",
+            "timeout": 15,
+            "statusMessage": "Loading ponytail mode..."
           }
         ]
       }

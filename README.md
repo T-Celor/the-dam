@@ -1,6 +1,6 @@
 # The dam
 
-Runs a small Rust compressor, graphify, TokenEconomizer and Ponytail together in Claude Code. Nothing graphical: one status line, and `/the-dam` for the detail.
+One plugin for what Headroom, graphify, TokenEconomizer and Ponytail do. Nothing graphical: Nothing graphical: one status line, and `/the-dam` for the detail.
 
 ```
 🦫 12.3k saved · context 31%
@@ -35,7 +35,7 @@ Restart Claude Code. The rest starts by itself at each session: whatever is miss
 
 ## Compression
 
-`Bash` outputs between 6000 and 29000 characters go through `dam-squeeze` (source in `squeeze/`, Windows build in `bin/`) before the model reads them. It drops no line: runs of lines that differ only by numbers become a template and a table of what varies, identical lines a count, repeated blocks a reference, shared prefixes and the directories of search hits and path listings are written once, and a JSON array of records becomes a table. Several of these folds follow the rules of Headroom's `lossless_compaction.py` (Apache 2.0), rewritten in Rust. Errors, warnings and values that stand out stay plain lines, and code keeps its shape. Every result is decoded and compared with the source before it is used, trailing spaces aside; `dam-squeeze --decode` gives the original back. Even so, so the full output is saved in `~/.claude/the-dam-outputs/` (the last 20) and the model gets the path. `Read` and `Edit` are never compressed. Longer outputs stay as they are, since Claude Code already saves those and shows a preview. If the compressor fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged.
+`Bash` outputs between 6000 and 29000 characters go through `dam squeeze` (source in `dam/`, Windows build in `bin/`) before the model reads them. It drops no line: runs of lines that differ only by numbers become a template and a table of what varies, identical lines a count, repeated blocks a reference, shared prefixes and the directories of search hits and path listings are written once, and a JSON array of records becomes a table. Several of these folds follow the rules of Headroom's `lossless_compaction.py` (Apache 2.0), rewritten in Rust. Errors, warnings and values that stand out stay plain lines, and code keeps its shape. Every result is decoded and compared with the source before it is used, trailing spaces aside; `dam squeeze --decode` gives the original back. Even so, so the full output is saved in `~/.claude/the-dam-outputs/` (the last 20) and the model gets the path. `Read` and `Edit` are never compressed. Longer outputs stay as they are, since Claude Code already saves those and shows a preview. If the compressor fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged.
 
 ## Graph
 
@@ -50,7 +50,9 @@ At session start, in a git repository with at least 20 tracked code files and no
 - Every 15 seconds: reads the context again, so the status line follows a `/compact`.
 - Prompt: tells the model about the graph, only where one exists.
 
-Ponytail runs its own hooks.
+## Ponytail
+
+[Ponytail](https://github.com/DietrichGebert/ponytail) by Dietrich Gebert ships inside this plugin too (`skills/`, `hooks/ponytail-*.js`), under the MIT licence in `skills/PONYTAIL-LICENSE`, and needs Node.js. Its task board and webhook are left out. Disable the separate plugin if you have it: `claude plugin disable ponytail@ponytail`.
 
 ## TokenEconomizer
 

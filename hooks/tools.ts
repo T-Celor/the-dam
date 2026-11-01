@@ -3,41 +3,30 @@ export type Located = {
   graphify: string | null
   python: string | null
   teBoot: string | null
-  hasPonytail: boolean
+  hasNode: boolean
 }
 
 export type Step = { label: string; argv: readonly string[] }
 
-const PONYTAIL_REPO = 'DietrichGebert/ponytail'
 
 // uv tool's bin folder is often missing from the PATH of an app-launched session.
 export function candidates(name: string, home: string | undefined): string[] {
   return home ? [`${home}/.local/bin/${name}.exe`, `${home}/.local/bin/${name}`, name] : [name]
 }
 
-// Read from Claude's own plugin files: `claude` is a .cmd shim on Windows, slow and awkward to spawn.
-export function parseInstalled(text: string): boolean {
-  const { plugins } = JSON.parse(text)
-  const ids = Object.keys(plugins ?? {})
-
-  return ids.some(id => id.startsWith('ponytail@'))
-}
-
 export function missingNames(found: Located): string[] {
   return [
-    found.squeezer ? null : 'compressor',
+    found.squeezer ? null : 'dam',
     found.graphify ? null : 'graphify',
     found.python ? null : 'Python',
-    found.hasPonytail ? null : 'Ponytail',
   ].filter(name => name !== null)
 }
 
 // Only what is missing, so a second run does nothing.
 export function setupSteps(found: Located, home: string, isWindows: boolean, root: string): Step[] {
-  const claude = (...args: string[]) => (isWindows ? ['cmd', '/c', 'claude', ...args] : ['claude', ...args])
   const steps: Step[] = []
   // The plugin ships a Windows build; elsewhere it builds from its own source.
-  if (!found.squeezer) steps.push({ label: 'compressor', argv: ['cargo', 'install', '--path', `${root}/squeeze`] })
+  if (!found.squeezer) steps.push({ label: 'compressor', argv: ['cargo', 'install', '--path', `${root}/dam`] })
   if (!found.graphify) {
     steps.push({ label: 'graphify', argv: ['uv', 'tool', 'install', 'graphifyy'] })
     steps.push({
@@ -46,10 +35,6 @@ export function setupSteps(found: Located, home: string, isWindows: boolean, roo
     })
   }
   if (!found.python) steps.push({ label: 'Python', argv: ['uv', 'python', 'install', '3.12'] })
-  if (!found.hasPonytail) {
-    steps.push({ label: 'marketplace Ponytail', argv: claude('plugin', 'marketplace', 'add', PONYTAIL_REPO) })
-    steps.push({ label: 'plugin Ponytail', argv: claude('plugin', 'install', 'ponytail@ponytail') })
-  }
 
   return steps
 }

@@ -10,7 +10,6 @@ import {
   graphNodes,
   missingNames,
   parseEconomizer,
-  parseInstalled,
   setupSteps,
   squeezableField,
   squeezed,
@@ -70,7 +69,6 @@ let located: Located | null = null
 async function locate($: Dollar): Promise<Located> {
   if (located) return located
   const home = await homeOf($)
-  const installed = await attempt(async () => parseInstalled(await $.fs.read(`${home}/.claude/plugins/installed_plugins.json`)))
   const uvPython = await attempt(async () => {
     const run = await $.process.run(['uv', 'python', 'find', '3.12'])
 
@@ -78,11 +76,11 @@ async function locate($: Dollar): Promise<Located> {
   })
   const envPython = await $.env.get('TE_PYTHON')
   located = {
-    squeezer: await firstExisting($, [`${$.plugin.root}/bin/dam-squeeze.exe`, ...candidates('dam-squeeze', home && `${home}/.cargo`)]),
+    squeezer: await firstExisting($, [`${$.plugin.root}/bin/dam.exe`, ...candidates('dam', home && `${home}/.cargo`)]),
     graphify: await firstExisting($, candidates('graphify', home)),
     python: await firstPython($, [envPython, uvPython, 'python3', 'py'].filter(name => !!name) as string[]),
     teBoot: `${$.plugin.root}/scripts/te_bootstrap.py`,
-    hasPonytail: installed ?? false,
+    hasNode: (await attempt(() => $.process.run(['node', '--version'])))?.exitCode === 0,
   }
   const answer = located
   // Only a complete answer is kept, so one slow start never reads as "not installed" all session.
@@ -176,7 +174,7 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>)
   const { squeezer } = await locate($)
   if (!field || !squeezer || (await $.store.get(COMPRESS_OFF))) return null
   const original = record[field] as string
-  const run = await attempt(() => $.process.run([squeezer], { stdin: original, timeoutMs: SQUEEZE_TIMEOUT_MS }))
+  const run = await attempt(() => $.process.run([squeezer, 'squeeze'], { stdin: original, timeoutMs: SQUEEZE_TIMEOUT_MS }))
   if (run?.exitCode !== 0) return null
   const result = squeezed(original, run.stdout)
   if (!result) return null
@@ -257,7 +255,7 @@ async function refresh($: Dollar) {
     ...current,
     ...gains,
     context: context ?? current.context,
-    tools: { squeezer: !!tools.squeezer, graphify: !!tools.graphify, ponytail: tools.hasPonytail, economizer: !!tools.python },
+    tools: { squeezer: !!tools.squeezer, graphify: !!tools.graphify, ponytail: tools.hasNode, economizer: !!tools.python },
     isCompressing: !isOff,
     hasGraph: graph !== null,
   }))

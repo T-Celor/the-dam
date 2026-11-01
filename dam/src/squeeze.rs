@@ -2,9 +2,7 @@
 // anything: repeated lines become a template and a table of what varies, shared prefixes are
 // written once. `--decode` gives the original back, and every result is decoded and compared
 // before it is used, so a mistake here can only cost compression.
-mod folds;
-mod json;
-
+use crate::{folds, json};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 
@@ -386,16 +384,11 @@ fn squeeze(text: &str) -> String {
     best.filter(|result| result.len() < text.len()).unwrap_or_else(|| text.to_string())
 }
 
-fn main() -> io::Result<()> {
-    let arg = std::env::args().nth(1);
-    if arg.as_deref() == Some("--version") {
-        println!("dam-squeeze {}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
-    }
+pub fn run(arg: Option<&str>) -> io::Result<()> {
     let mut bytes = Vec::new();
     io::stdin().read_to_end(&mut bytes)?;
     let text = String::from_utf8_lossy(&bytes);
-    let out = if arg.as_deref() == Some("--decode") {
+    let out = if arg == Some("--decode") {
         decode(&text).map_or_else(|| text.to_string(), |lines| lines.join("\n") + "\n")
     } else {
         squeeze(&text)

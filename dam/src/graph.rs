@@ -1,8 +1,6 @@
 // dam-graph: a code graph made and queried locally. `update` writes .dam-graph/graph.tsv,
 // `query "question"` answers from it. No network and no model, by construction.
-mod scan;
-
-use scan::{lang_of, Kind, Scan};
+use crate::scan::{self, lang_of, Kind, Scan};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -385,10 +383,8 @@ fn answer(graph: &Graph, question: &str) -> String {
     out
 }
 
-fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+pub fn run(args: &[String]) {
     match args.first().map(String::as_str) {
-        Some("--version") => println!("dam-graph {}", env!("CARGO_PKG_VERSION")),
         Some("update") => {
             let graph = build();
             match save(&graph) {
@@ -402,12 +398,12 @@ fn main() {
         Some("query") if args.len() > 1 => match load(GRAPH_FILE) {
             Ok(graph) => print!("{}", answer(&graph, &args[1..].join(" "))),
             Err(error) => {
-                eprintln!("no graph here, run `dam-graph update`: {error}");
+                eprintln!("no graph here, run `dam graph update`: {error}");
                 std::process::exit(1);
             }
         },
         _ => {
-            eprintln!("usage: dam-graph update | dam-graph query \"question\"");
+            eprintln!("usage: dam graph update | dam graph query \"question\"");
             std::process::exit(2);
         }
     }

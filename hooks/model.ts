@@ -74,7 +74,7 @@ export function reportOf(s: Stats): string {
     ['Compression', compressionRow(s)],
     ['TokenEconomizer', s.tools.economizer ? [OK, economizerLine(s)] : [OFF, MISSING]],
     ['graphify', !s.tools.graphify ? [OFF, MISSING] : s.hasGraph ? [OK, `${formatCount(s.nodes)} graph nodes`] : [WAIT, 'no graph in this folder, run /graphify']],
-    ['Ponytail', s.tools.ponytail ? [OK, 'active'] : [OFF, MISSING]],
+    ['Ponytail', s.tools.ponytail ? [OK, 'active'] : [OFF, 'needs Node.js']],
   ]
 
   return [signed('The dam'), `  Context ${context}`, ...rows.map(([name, [mark, detail]]) => `  ${mark} ${name}: ${detail}`)].join('\n')
