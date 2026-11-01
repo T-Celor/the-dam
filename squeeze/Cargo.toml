@@ -1,6 +1,6 @@
 [package]
 name = "dam-squeeze"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Condenses long command output for a coding agent, keeping errors and dropping repetition."
 

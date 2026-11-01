@@ -1,19 +1,22 @@
 // Reads a command's output on stdin and writes a shorter one on stdout. It only removes
-// what repeats: a line goes when many lines share its exact shape and it says nothing new.
+// what repeats: a line goes when it sits in an unbroken run of lines of one shape and says nothing new.
 // The caller keeps the full output and tells the model where it is.
+mod json;
+
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 
 const WORTH_SQUEEZING_CHARS: usize = 6000;
 const HEAD_LINES: usize = 15;
 const TAIL_LINES: usize = 15;
-// Under this many lines of one shape, the lines are content and all stay.
+// Under this many lines in a row of one shape, the lines are content and all stay.
 const REPEATED_FROM: usize = 20;
 const KEPT_OF_A_SHAPE: usize = 3;
 const MOST_ALARMS_OF_A_SHAPE: usize = 20;
 // A value this far above the shape's usual ones is the line someone is looking for.
 const OUTLIER_TIMES: f64 = 5.0;
 const RARE_SHARE: f64 = 0.02;
+const JSON_NOTE: &str = "JSON array as a table: the first line names the fields, then one row per record. An empty cell means the field is absent.";
 
 const ALARMS: [&str; 13] = [
     "error", "fail", "fatal", "panic", "exception", "traceback", "warning", "denied", "not found", "cannot", "assert", "timeout", "timed out",
@@ -88,36 +91,47 @@ fn is_search_hit(line: &str) -> bool {
     !path.is_empty() && !path.contains(' ') && !number.is_empty() && number.chars().all(|c| c.is_ascii_digit())
 }
 
-fn looks_like_json(text: &str) -> bool {
-    let start = text.trim_start();
-    start.starts_with('[') || start.starts_with('{')
+// A record of JSON Lines is data of its own, however alike it looks.
+fn is_record(line: &str) -> bool {
+    line.trim_start().starts_with(['{', '[']) && json::is_valid(line)
 }
 
 fn squeeze(text: &str) -> String {
-    // Every record of a JSON answer is data of its own, however alike they look.
-    if text.chars().count() < WORTH_SQUEEZING_CHARS || looks_like_json(text) {
+    if text.chars().count() < WORTH_SQUEEZING_CHARS {
         return text.to_string();
+    }
+    // Whole JSON: as a table when it is an array of records and reads back identically, else as it came.
+    if json::is_valid(text) {
+        return json::table(text).map_or_else(|| text.to_string(), |table| format!("{JSON_NOTE}
+{table}
+"));
     }
     let lines: Vec<&str> = text.lines().collect();
     let (shapes, numbers): (Vec<String>, Vec<Vec<f64>>) = lines.iter().map(|line| shape_of(line)).unzip();
-    let mut by_shape: HashMap<&str, Vec<usize>> = HashMap::new();
-    for (i, shape) in shapes.iter().enumerate() {
-        by_shape.entry(shape).or_default().push(i);
-    }
     let mut keep = vec![true; lines.len()];
-    for members in by_shape.values().filter(|members| members.len() >= REPEATED_FROM) {
-        for &i in members {
-            keep[i] = is_search_hit(lines[i]);
+    let mut start = 0;
+    while start < lines.len() {
+        let mut end = start + 1;
+        while end < lines.len() && shapes[end] == shapes[start] {
+            end += 1;
         }
-        for &i in members.iter().take(KEPT_OF_A_SHAPE - 1).chain(members.last()) {
-            keep[i] = true;
+        // Only an unbroken run: alike lines spread among others (a `port:` in each block) are not repetition.
+        if end - start >= REPEATED_FROM {
+            let members: Vec<usize> = (start..end).collect();
+            for &i in &members {
+                keep[i] = is_search_hit(lines[i]) || is_record(lines[i]);
+            }
+            for &i in members.iter().take(KEPT_OF_A_SHAPE - 1).chain(members.last()) {
+                keep[i] = true;
+            }
+            for i in stand_outs(&members, &numbers) {
+                keep[i] = true;
+            }
+            for &i in members.iter().filter(|&&i| is_alarm(lines[i])).take(MOST_ALARMS_OF_A_SHAPE) {
+                keep[i] = true;
+            }
         }
-        for i in stand_outs(members, &numbers) {
-            keep[i] = true;
-        }
-        for &i in members.iter().filter(|&&i| is_alarm(lines[i])).take(MOST_ALARMS_OF_A_SHAPE) {
-            keep[i] = true;
-        }
+        start = end;
     }
     for (i, kept) in keep.iter_mut().enumerate() {
         *kept |= i < HEAD_LINES || i + TAIL_LINES >= lines.len();
@@ -207,8 +221,44 @@ mod tests {
     }
 
     #[test]
-    fn json_is_never_cut() {
-        let text = format!("[{}]", (0..1000).map(|i| format!("{{\"id\": {i}}}")).collect::<Vec<_>>().join(",\n"));
+    fn every_json_record_stays_as_a_table_row() {
+        let text = format!("[{}]", (0..1000).map(|i| format!("{{\"id\": {i}, \"plan\": \"pro\"}}")).collect::<Vec<_>>().join(",
+"));
+        let out = squeeze(&text);
+        assert!(out.len() < text.len() / 2);
+        for i in 0..1000 {
+            assert!(out.contains(&format!("
+{i},pro
+")), "{i}");
+        }
+    }
+
+    #[test]
+    fn json_that_is_no_table_is_left_alone() {
+        let text = format!("{{\"values\": [{}]}}", (0..3000).map(|i| i.to_string()).collect::<Vec<_>>().join(",
+"));
+        assert_eq!(squeeze(&text), text);
+    }
+
+    #[test]
+    fn json_lines_keep_every_record() {
+        let text: String = (0..800).map(|i| format!("{{\"id\": {i}, \"ok\": true}}
+")).collect();
+        assert_eq!(squeeze(&text), text);
+    }
+
+    #[test]
+    fn a_log_that_opens_with_a_bracket_is_still_a_log() {
+        let text: String = (0..800).map(|i| format!("[INFO] handled request {i} status 200 ok
+")).collect();
+        assert!(squeeze(&text).contains("similar lines omitted"));
+    }
+
+    #[test]
+    fn alike_lines_spread_among_blocks_all_stay() {
+        let text: String = (0..400).map(|i| format!("server_{}:
+  port: {}
+", "abcdefghij".repeat(i % 3 + 1), 8000 + i)).collect();
         assert_eq!(squeeze(&text), text);
     }
 
