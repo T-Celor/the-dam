@@ -287,7 +287,8 @@ export const register: Register = on => {
   // Tells the model about the graph only where one exists, so other projects pay nothing.
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
-    if (!(await read($, stats)).hasGraph) return composed
+    // The file itself, as the figures may not have been read yet when the first prompt comes.
+    if (!(await attempt(() => $.fs.stat(GRAPH)))) return composed
 
     return {
       sections: [...composed.sections, { id: 'the-dam:graph', text: graphNudge((await locate($)).graph ?? 'dam-graph'), scope: 'session' as const }],
