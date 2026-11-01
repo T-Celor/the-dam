@@ -185,26 +185,27 @@ const mean = (colors: readonly number[]) => {
 
 // Four rendered pixels across and down per cell of about 8 by 18: each is 2 wide and 4.5 tall.
 const SUB_RATIO = 2.25
-const BLOCK_ROWS = 4
+const WIDE_BLOCK = 80
 const ICON_COLUMNS = 6
 const DIM = 0xb9c4bb
 
 // The engine has toBase64; this TypeScript lib does not know it yet.
 const encode = (words: Uint32Array) => (new Uint8Array(words.buffer) as Uint8Array & { toBase64(): string }).toBase64()
 
-// Two by two: each counter gets a little 3D icon, its figure and name, and a line saying what it is.
-function paintBlock(words: Uint32Array, s: Stats, columns: number, firstRow: number) {
-  const half = Math.floor(columns / 2)
+// Each counter gets a little 3D icon, its figure and name, and a line saying what it is.
+function paintBlock(words: Uint32Array, s: Stats, columns: number, firstRow: number, rows: number) {
+  const across = columns >= WIDE_BLOCK ? 2 : 1
+  const half = Math.floor(columns / across)
   const cell = (row: number, x: number, code: number, fg: number, bg = PANEL) => {
     const at = (row * columns + x) * 3
     words[at] = code
     words[at + 1] = fg
     words[at + 2] = bg
   }
-  for (let row = firstRow; row < firstRow + BLOCK_ROWS; row++) for (let x = 0; x < columns; x++) cell(row, x, 32, DIM)
+  for (let row = firstRow; row < rows; row++) for (let x = 0; x < columns; x++) cell(row, x, 32, DIM)
   counterEntries(s).forEach((entry, i) => {
-    const left = (i % 2) * half
-    const row = firstRow + Math.floor(i / 2) * 2
+    const left = (i % across) * half
+    const row = firstRow + Math.floor(i / across) * 2
     const icon: Canvas = { width: ICON_COLUMNS * 2, height: 4, pixels: new Uint32Array(ICON_COLUMNS * 8).fill(PANEL) }
     for (const face of iconFaces(entry.icon, 2.6)) fillFace(icon, face, 1, ICON_COLUMNS, 2)
     for (let down = 0; down < 2; down++) {
@@ -225,8 +226,10 @@ function paintBlock(words: Uint32Array, s: Stats, columns: number, firstRow: num
 
 // Packs a frame the way Raster takes it: [codePoint, foreground, background] per cell.
 export function frameCells(s: Stats, levels: Heat, t: number, columns: number, rows: number): string {
-  const hasBlock = columns >= 56 && rows >= 12
-  const pictureRows = Math.max(1, rows - (hasBlock ? BLOCK_ROWS : 1))
+  // Two by two when wide, stacked when narrow, and one plain line when there is no room for either.
+  const blockRows = columns >= WIDE_BLOCK ? 4 : 8
+  const hasBlock = (columns >= WIDE_BLOCK && rows >= 12) || (columns >= 36 && rows >= 20)
+  const pictureRows = Math.max(1, rows - (hasBlock ? blockRows : 1))
   const across = columns * 4
   const pixels = renderPixels(s, levels, t, across, pictureRows * 4, SUB_RATIO)
   const words = new Uint32Array(columns * rows * 3)
@@ -245,7 +248,7 @@ export function frameCells(s: Stats, levels: Heat, t: number, columns: number, r
     }
   }
   if (hasBlock) {
-    paintBlock(words, s, columns, pictureRows)
+    paintBlock(words, s, columns, pictureRows, rows)
 
     return encode(words)
   }
