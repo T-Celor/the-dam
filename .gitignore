@@ -1,4 +1,4 @@
 .claude-plugin/types/
-squeeze/target/
-damgraph/target/
 dam/target/
+__pycache__/
+*.pyc

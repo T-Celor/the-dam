@@ -126,12 +126,7 @@ pub fn filter_skill(body: &str, level: &str) -> String {
 }
 
 fn skill_path() -> PathBuf {
-    let root = env("CLAUDE_PLUGIN_ROOT").map(PathBuf::from).or_else(|| {
-        let exe = std::env::current_exe().ok()?;
-        Some(exe.parent()?.parent()?.to_path_buf())
-    });
-
-    root.unwrap_or_default().join("skills").join("ponytail").join("SKILL.md")
+    crate::plugin_root().unwrap_or_default().join("skills").join("ponytail").join("SKILL.md")
 }
 
 fn instructions(level: &str) -> String {

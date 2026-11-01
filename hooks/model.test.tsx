@@ -55,7 +55,7 @@ test('setup installs only what is missing, and nothing twice', () => {
 })
 
 test('tools are found from the files Claude keeps', () => {
-  expect(candidates('x', '/p', undefined)).toEqual(['/p/bin/x.exe', 'x'])
+  expect(candidates('x', '/p', undefined)).toEqual(['/p/bin/windows-x64/x.exe', '/p/bin/linux-x64/x', '/p/bin/linux-arm64/x', '/p/bin/macos-arm64/x', '/p/bin/macos-x64/x', 'x'])
 })
 
 test('only big Bash text gets squeezed, never file bytes or search hits', () => {

@@ -459,9 +459,7 @@ fn find_python() -> Option<(String, Vec<&'static str>)> {
 }
 
 fn bootstrap() -> Option<PathBuf> {
-    let root = env("CLAUDE_PLUGIN_ROOT").map(PathBuf::from).or_else(|| Some(std::env::current_exe().ok()?.parent()?.parent()?.to_path_buf()))?;
-
-    Some(root.join("scripts").join("te_bootstrap.py"))
+    Some(crate::plugin_root()?.join("scripts").join("te_bootstrap.py"))
 }
 
 // What is not ported yet: the same hook, handed over whole.

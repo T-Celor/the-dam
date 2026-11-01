@@ -1,12 +1,17 @@
 {
   "name": "the-dam",
   "owner": {
-    "name": "tcelor"
+    "name": "Tristan Celor",
+    "url": "https://github.com/T-Celor"
   },
+  "description": "The dam: spend fewer tokens in Claude Code without losing a line.",
   "plugins": [
     {
       "name": "the-dam",
-      "source": "./"
+      "source": "./",
+      "description": "Lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.",
+      "category": "productivity",
+      "homepage": "https://github.com/T-Celor/the-dam"
     }
   ]
 }

@@ -11,7 +11,10 @@ export type Step = { label: string; argv: readonly string[] }
 
 // The build the plugin ships, then one built here: cargo's folder is often missing from an app-launched session's PATH.
 export function candidates(name: string, root: string, home: string | undefined): string[] {
-  return [`${root}/bin/${name}.exe`, ...(home ? [`${home}/.cargo/bin/${name}.exe`, `${home}/.cargo/bin/${name}`] : []), name]
+  const folders = ['windows-x64', 'linux-x64', 'linux-arm64', 'macos-arm64', 'macos-x64']
+  const built = folders.flatMap(folder => (folder.startsWith('windows') ? [`${root}/bin/${folder}/${name}.exe`] : [`${root}/bin/${folder}/${name}`]))
+
+  return [...built, ...(home ? [`${home}/.cargo/bin/${name}.exe`, `${home}/.cargo/bin/${name}`] : []), name]
 }
 
 export function missingNames(found: Located): string[] {

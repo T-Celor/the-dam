@@ -1,8 +1,10 @@
 [package]
 name = "dam"
-version = "0.1.0"
+version = "0.13.0"
 edition = "2021"
-description = "Condenses command output without loss and builds a code graph, all locally."
+description = "Lossless output compression, a local code graph and agent hooks for Claude Code."
+license = "Apache-2.0"
+repository = "https://github.com/T-Celor/the-dam"
 
 [profile.release]
 opt-level = 3

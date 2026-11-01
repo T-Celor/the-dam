@@ -79,7 +79,7 @@ def state_of(home):
 def transcript_payloads(sid):
     """Hook payloads rebuilt from real session logs: the tool_response each tool really returned."""
     streams = []
-    for path in sorted(glob.glob(os.path.expanduser('~') + '/.claude/projects/*/*.jsonl'))[:60]:
+    for path in sorted(glob.glob(os.path.expanduser('~') + '/.claude/projects/*/*.jsonl'))[:int(os.environ.get('MAX_REAL', '25'))]:
         pend, events, turn = {}, [], 0
         for line in open(path, encoding='utf-8', errors='ignore'):
             try:
@@ -119,7 +119,7 @@ def transcript_payloads(sid):
                             resp = {'stdout': json.dumps(resp)[:30000]}
                         events.append(dict(base, hook_event_name='PostToolUse', tool_response=resp))
         if events:
-            streams.append(events)
+            streams.append(events[:150])
     return streams
 
 
@@ -186,7 +186,10 @@ for n, stream in enumerate(streams):
         outs += bool(a)
         # A verdict for whatever job each side has out, so the judge's path runs too.
         for home in (home_py, home_rs):
-            doc = json.load(open(f'{paths.repo_state_dir(repo, "claude", dict(CLEAN, TOKENECONOMIZER_HOME=home))}/sessions/{sid}.json'))
+            session_file = f'{paths.repo_state_dir(repo, "claude", dict(CLEAN, TOKENECONOMIZER_HOME=home))}/sessions/{sid}.json'
+            if not os.path.exists(session_file):
+                continue
+            doc = json.load(open(session_file))
             pending = (doc.get('turn') or {}).get('judge_pending')
             if pending:
                 seq = int(pending['id'].split(':')[2])

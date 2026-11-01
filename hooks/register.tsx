@@ -41,14 +41,11 @@ async function homeOf($: Dollar) {
   return ((await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')))?.replace(/\\/g, '/')
 }
 
-// A file on disk answers at once; starting a tool to ask its version can take seconds under load.
+// Run, not just looked at: a build for another system exists here and cannot start.
 async function firstExisting($: Dollar, names: readonly string[]) {
   for (const name of names) {
-    if (name.includes('/') && (await attempt(() => $.fs.stat(name)))) return name
-  }
-  for (const name of names) {
-    if (name.includes('/')) continue
-    const run = await attempt(() => $.process.run([name, '--version'], { timeoutMs: 60_000 }))
+    if (name.includes('/') && !(await attempt(() => $.fs.stat(name)))) continue
+    const run = await attempt(() => $.process.run([name, '--version'], { timeoutMs: 10_000 }))
     if (run?.exitCode === 0) return name
   }
 
@@ -218,8 +215,11 @@ async function buildGraph($: Dollar) {
   const excluded = (await attempt(() => $.fs.read(path))) ?? ''
   if (!excluded.includes('.dam-graph')) await $.fs.write(path, `${excluded.trimEnd()}\n.dam-graph/\n`.trimStart())
   await attempt(() => $.process.run([graph, 'update'], { timeoutMs: GRAPH_TIMEOUT_MS }))
-  await checkGains($)
 }
+
+// The first prompt waits a moment for the first graph, so that the model is told about it.
+let graphReady: Promise<unknown> = Promise.resolve()
+const GRAPH_WAIT_MS = 3_000
 
 async function readContext($: Dollar): Promise<Stats['context']> {
   const usage = await attempt(() => $.session.usage({ breakdown: 'summary' }))
@@ -269,8 +269,8 @@ export const register: Register = on => {
     void attempt(async () => {
       await installMissing($)
       await checkGains($)
-      await buildGraph($)
     })
+    graphReady = attempt(() => buildGraph($).then(() => checkGains($)))
     $.clock.every(CONTEXT_EVERY_MS, () => void refreshContext($))
 
     return next(e)
@@ -288,6 +288,7 @@ export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     // The file itself, as the figures may not have been read yet when the first prompt comes.
+    await attempt(() => Promise.race([graphReady, $.clock.sleep(GRAPH_WAIT_MS)]))
     if (!(await attempt(() => $.fs.stat(GRAPH)))) return composed
 
     return {

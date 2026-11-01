@@ -1,7 +1,23 @@
 {
   "name": "the-dam",
-  "version": "0.12.3",
+  "version": "0.13.0",
+  "description": "Spend fewer tokens without losing a line: lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.",
+  "author": {
+    "name": "Tristan Celor",
+    "url": "https://github.com/T-Celor"
+  },
+  "homepage": "https://github.com/T-Celor/the-dam",
+  "repository": "https://github.com/T-Celor/the-dam",
+  "license": "Apache-2.0",
+  "keywords": [
+    "tokens",
+    "compression",
+    "code-graph",
+    "context",
+    "cost",
+    "rust"
+  ],
+  "icon": "./.claude-plugin/icon.png",
   "commands": "./commands/",
-  "description": "One plugin for compression, the code graph, TokenEconomizer and Ponytail, with a status line of what they really do.",
   "types": "./types/index.d.ts"
 }

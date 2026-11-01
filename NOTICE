@@ -1,0 +1,29 @@
+The dam
+Copyright 2026 Tristan Celor
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This project builds on the following work, none of whose authors endorse it.
+
+TokenEconomizer, Copyright (c) Microsoft Corporation, Apache License 2.0
+https://github.com/microsoft/TokenEconomizer
+  Bundled unchanged in lib/tokeneconomizer, scripts/te, scripts/te-hook,
+  scripts/te_bootstrap.py and commands/. Licence in lib/LICENSE.
+  dam/src/loopguard.rs and dam/src/economizer.rs are Rust rewrites of parts of it,
+  changed in language and limited to Claude Code.
+
+Ponytail, Copyright (c) 2026 DietrichGebert, MIT License
+https://github.com/DietrichGebert/ponytail
+  skills/ is taken from it. Licence in skills/PONYTAIL-LICENSE.
+  dam/src/ponytail.rs is a Rust rewrite of its Claude Code hooks.
+
+Headroom, Copyright 2025 Headroom Contributors, Apache License 2.0
+https://github.com/headroomlabs-ai/headroom
+  dam/src/folds.rs follows the rules of its transforms/lossless_compaction.py,
+  rewritten in Rust.
+
+graphify, https://graphify.com
+  dam-graph is an independent implementation with a similar purpose. It contains no graphify
+  code. graphify was used as the reference for its measurements.
+
+Rust dependencies of dam-economizer, each under MIT or Apache-2.0: fancy-regex, md5, serde_json.

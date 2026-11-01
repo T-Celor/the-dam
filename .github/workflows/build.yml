@@ -1,0 +1,61 @@
+name: Build programs
+
+# The plugin ships a build for each system, so that nobody needs a Rust toolchain to install it.
+on:
+  push:
+    branches: [main]
+    paths: ['dam/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, folder: windows-x64, ext: .exe }
+          - { os: ubuntu-latest, folder: linux-x64, ext: '' }
+          - { os: ubuntu-24.04-arm, folder: linux-arm64, ext: '' }
+          - { os: macos-latest, folder: macos-arm64, ext: '' }
+          - { os: macos-13, folder: macos-x64, ext: '' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        working-directory: dam
+        run: cargo build --release --locked
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p out
+          for name in dam-squeeze dam-graph dam-ponytail dam-economizer; do
+            cp "dam/target/release/$name${{ matrix.ext }}" out/
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.folder }}
+          path: out/
+
+  commit:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: built
+      - name: Commit what changed
+        run: |
+          for folder in built/*; do
+            mkdir -p "bin/$(basename "$folder")"
+            cp "$folder"/* "bin/$(basename "$folder")/"
+          done
+          chmod +x bin/*/*
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bin
+          git diff --cached --quiet || git commit -m "Build programs [skip ci]"
+          git push
