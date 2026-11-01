@@ -3,6 +3,7 @@
 pub mod folds;
 pub mod graph;
 pub mod json;
+pub mod loopguard;
 pub mod ponytail;
 pub mod scan;
 pub mod squeeze;
