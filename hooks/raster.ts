@@ -1,5 +1,5 @@
-// The terminal's dam: a software renderer for the same world the panel draws. Each cell is one half-block,
-// so it holds two pixels. The still layers are kept until the stats change; only the movers cost anything per frame.
+// The terminal's dam: a software renderer for the same world the panel draws. Each cell is one quadrant glyph,
+// so it holds four pixels in two colours. The still layers are kept until the stats change; only the movers cost anything per frame.
 
 import type { Heat, Stats } from '../types'
 import { blend, clamp, noise } from './engine'
@@ -137,7 +137,25 @@ export function renderPixels(s: Stats, levels: Heat, t: number, width: number, h
   return c.pixels
 }
 
-const UPPER_HALF = 0x2580
+// Quadrant glyphs by which corners take the foreground: top left 1, top right 2, bottom left 4, bottom right 8.
+const QUADRANTS = [0x20, 0x2598, 0x259d, 0x2580, 0x2596, 0x258c, 0x259e, 0x259b, 0x2597, 0x259a, 0x2590, 0x259c, 0x2584, 0x2599, 0x259f, 0x2588]
+const gap = (a: number, b: number) => Math.abs((a >> 16) - (b >> 16)) + Math.abs(((a >> 8) & 255) - ((b >> 8) & 255)) + Math.abs((a & 255) - (b & 255))
+
+// A cell shows two colours, so it takes the two furthest apart among its four pixels and sends each pixel to the nearer.
+export function quadrantOf(corners: readonly [number, number, number, number]): [number, number, number] {
+  let [fg, bg, widest] = [corners[0], corners[0], -1]
+  for (let a = 0; a < 4; a++) {
+    for (let b = a + 1; b < 4; b++) {
+      const distance = gap(corners[a] ?? 0, corners[b] ?? 0)
+      if (distance > widest) [fg, bg, widest] = [corners[a] ?? 0, corners[b] ?? 0, distance]
+    }
+  }
+  if (widest === 0) return [0x20, fg, fg]
+  const mask = corners.reduce((bits, color, i) => (gap(color, fg) <= gap(color, bg) ? bits | (1 << i) : bits), 0)
+
+  return [QUADRANTS[mask] ?? 0x20, fg, bg]
+}
+
 const INK = 0xffffff
 const LOST = 0xffb27a
 const PANEL = 0x10100e
@@ -173,14 +191,17 @@ export function counterLine(s: Stats, columns: number): Array<[string, number]> 
 // Packs a frame the way Raster takes it: [codePoint, foreground, background] per cell.
 export function frameCells(s: Stats, levels: Heat, t: number, columns: number, rows: number): string {
   const pictureRows = Math.max(1, rows - 1)
-  const pixels = renderPixels(s, levels, t, columns, pictureRows * 2)
+  const across = columns * 2
+  const pixels = renderPixels(s, levels, t, across, pictureRows * 2)
   const words = new Uint32Array(columns * rows * 3)
   for (let row = 0; row < pictureRows; row++) {
     for (let x = 0; x < columns; x++) {
       const at = (row * columns + x) * 3
-      words[at] = UPPER_HALF
-      words[at + 1] = pixels[row * 2 * columns + x] ?? 0
-      words[at + 2] = pixels[(row * 2 + 1) * columns + x] ?? 0
+      const [high, low] = [row * 2 * across + x * 2, (row * 2 + 1) * across + x * 2]
+      const [glyph, fg, bg] = quadrantOf([pixels[high] ?? 0, pixels[high + 1] ?? 0, pixels[low] ?? 0, pixels[low + 1] ?? 0])
+      words[at] = glyph
+      words[at + 1] = fg
+      words[at + 2] = bg
     }
   }
   let x = 0

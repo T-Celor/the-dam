@@ -78,4 +78,4 @@ The desktop picture has a text alternative with every figure. The reduced-motion
 
 The panel draws SVG in a frame with no script or canvas, so the browser plays the movement back with CSS, the water following the river's course with a motion path. The source stays under the panel's 131072-character limit.
 
-The terminal has no SVG, so it is pixel art: `hooks/raster.ts` fills the same polygons pixel by pixel, two pixels per cell, ten frames a second, and repaints in place. It keeps the still layers until the figures change.
+The terminal has no SVG, so it is pixel art: `hooks/raster.ts` fills the same polygons pixel by pixel, four pixels per cell with quadrant glyphs, ten frames a second, and repaints in place. It keeps the still layers until the figures change.

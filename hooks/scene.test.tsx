@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { earnedFrom, gainNote, isOverwhelmed, NO_MATERIALS, nextRiver, nextWear, pressureOf, stockOf, strengthOf, visibleCount } from './model'
 import type { Stats } from '../types'
-import { counterLine, frameCells, renderPixels } from './raster'
+import { counterLine, frameCells, quadrantOf, renderPixels } from './raster'
 import { COLD, cool, damScene, EMPTY, fallWidth, formatCount, isFlooded, levelOf, nextPennants, sceneAlt, starsOf, twigCount, usedBy, warm } from './scene'
 import { candidates, compressRequest, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, teBootFrom } from './tools'
 
@@ -147,6 +147,9 @@ test('the terminal frame fills its box, moves with time, and shows the data', ()
   const line = counterLine({ ...RICH, wear: { twigs: 0.1, logs: 0, trunks: 0 } }, 60).map(([text]) => text).join('')
   expect(line).toBe('river 1M/1M twigs 9k -1k logs 30 trunks 8 stars 4/5')
   expect(frameCells(at(50), COLD, 1, 30, 10).length).toBe(4800)
+  expect(quadrantOf([5, 5, 5, 5])).toEqual([0x20, 5, 5])
+  expect(quadrantOf([0xffffff, 0xffffff, 0, 0])).toEqual([0x2580, 0xffffff, 0])
+  expect(quadrantOf([0xffffff, 0, 0, 0xfefefe])[0]).toBe(0x259a)
 })
 
 test('even the tallest, richest scene fits what the panel accepts', () => {
