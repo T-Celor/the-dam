@@ -6,7 +6,7 @@ import { EMPTY, gainNote, reportOf, signed, statusOf } from './model'
 import type { Located } from './tools'
 import {
   candidates,
-  GRAPH_NUDGE,
+  graphNudge,
   graphNodes,
   missingNames,
   parseEconomizer,
@@ -17,7 +17,7 @@ import {
   worthGraphing,
 } from './tools'
 
-const GRAPH = 'graphify-out/graph.json'
+const GRAPH = '.dam-graph/graph.tsv'
 // Change the tag when Stats changes: it declines what an earlier version stored.
 const stats = atom({ plugin: 'the-dam', key: 'stats' } as const, EMPTY, { shape: 'stats-15' })
 const CONTEXT_EVERY_MS = 15_000
@@ -76,11 +76,11 @@ async function locate($: Dollar): Promise<Located> {
   })
   const envPython = await $.env.get('TE_PYTHON')
   located = {
-    squeezer: await firstExisting($, [`${$.plugin.root}/bin/dam.exe`, ...candidates('dam', home && `${home}/.cargo`)]),
-    graphify: await firstExisting($, candidates('graphify', home)),
+    squeezer: await firstExisting($, candidates('dam-squeeze', $.plugin.root, home)),
+    graph: await firstExisting($, candidates('dam-graph', $.plugin.root, home)),
+    ponytail: await firstExisting($, candidates('dam-ponytail', $.plugin.root, home)),
     python: await firstPython($, [envPython, uvPython, 'python3', 'py'].filter(name => !!name) as string[]),
     teBoot: `${$.plugin.root}/scripts/te_bootstrap.py`,
-    hasNode: (await attempt(() => $.process.run(['node', '--version'])))?.exitCode === 0,
   }
   const answer = located
   // Only a complete answer is kept, so one slow start never reads as "not installed" all session.
@@ -95,7 +95,7 @@ async function runSetup($: Dollar): Promise<string> {
   const home = await homeOf($)
   if (!home) return 'Could not find your home folder, so nothing was installed.'
   const isWindows = (await $.env.get('USERPROFILE')) !== undefined
-  const steps = setupSteps(found, home, isWindows, $.plugin.root)
+  const steps = setupSteps(found, $.plugin.root)
   const report: string[] = []
   for (const step of steps) {
     $.ui.toast(`Installing ${step.label}...`)
@@ -174,7 +174,7 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>)
   const { squeezer } = await locate($)
   if (!field || !squeezer || (await $.store.get(COMPRESS_OFF))) return null
   const original = record[field] as string
-  const run = await attempt(() => $.process.run([squeezer, 'squeeze'], { stdin: original, timeoutMs: SQUEEZE_TIMEOUT_MS }))
+  const run = await attempt(() => $.process.run([squeezer], { stdin: original, timeoutMs: SQUEEZE_TIMEOUT_MS }))
   if (run?.exitCode !== 0) return null
   const result = squeezed(original, run.stdout)
   if (!result) return null
@@ -194,21 +194,21 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>)
 }
 
 let hasEditedCode = false
-const GRAPH_TIMEOUT_MS = 600_000
+const GRAPH_TIMEOUT_MS = 120_000
 
-// Keeps the graph on the code: AST only, no LLM, and only where someone already built one.
+// Keeps the graph on the code after an edit, only where there is one.
 async function reweave($: Dollar) {
   if (!hasEditedCode) return
-  const { graphify } = await locate($)
-  if (!graphify || !(await attempt(() => $.fs.stat(GRAPH)))) return
+  const { graph } = await locate($)
+  if (!graph || !(await attempt(() => $.fs.stat(GRAPH)))) return
   hasEditedCode = false
-  await attempt(() => $.process.run([graphify, 'update', '.'], { timeoutMs: 120_000 }))
+  await attempt(() => $.process.run([graph, 'update'], { timeoutMs: 120_000 }))
 }
 
-// A first graph for a real project, from the code's structure alone: no LLM, so no tokens.
+// Rebuilt at every opening of a real project, as it takes about a second: a `git pull` cannot leave it behind.
 async function buildGraph($: Dollar) {
-  const { graphify } = await locate($)
-  if (!graphify || (await attempt(() => $.fs.stat(GRAPH)))) return
+  const { graph } = await locate($)
+  if (!graph) return
   const listing = await attempt(() => $.process.run(['git', 'ls-files']))
   if (listing?.exitCode !== 0 || !worthGraphing(listing.stdout)) return
   const excludePath = await attempt(() => $.process.run(['git', 'rev-parse', '--git-path', 'info/exclude']))
@@ -216,8 +216,8 @@ async function buildGraph($: Dollar) {
   // Out of git's sight without touching the project's own .gitignore.
   const path = excludePath.stdout.trim()
   const excluded = (await attempt(() => $.fs.read(path))) ?? ''
-  if (!excluded.includes('graphify-out')) await $.fs.write(path, `${excluded.trimEnd()}\ngraphify-out/\n`.trimStart())
-  await attempt(() => $.process.run([graphify, 'update', '.'], { timeoutMs: GRAPH_TIMEOUT_MS }))
+  if (!excluded.includes('.dam-graph')) await $.fs.write(path, `${excluded.trimEnd()}\n.dam-graph/\n`.trimStart())
+  await attempt(() => $.process.run([graph, 'update'], { timeoutMs: GRAPH_TIMEOUT_MS }))
   await checkGains($)
 }
 
@@ -255,7 +255,7 @@ async function refresh($: Dollar) {
     ...current,
     ...gains,
     context: context ?? current.context,
-    tools: { squeezer: !!tools.squeezer, graphify: !!tools.graphify, ponytail: tools.hasNode, economizer: !!tools.python },
+    tools: { squeezer: !!tools.squeezer, graphify: !!tools.graph, ponytail: !!tools.ponytail, economizer: !!tools.python },
     isCompressing: !isOff,
     hasGraph: graph !== null,
   }))
@@ -290,7 +290,7 @@ export const register: Register = on => {
     if (!(await read($, stats)).hasGraph) return composed
 
     return {
-      sections: [...composed.sections, { id: 'the-dam:graphify', text: GRAPH_NUDGE, scope: 'session' as const }],
+      sections: [...composed.sections, { id: 'the-dam:graph', text: graphNudge((await locate($)).graph ?? 'dam-graph'), scope: 'session' as const }],
     }
   })
 

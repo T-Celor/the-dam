@@ -44,7 +44,7 @@ fn walk(dir: &Path, out: &mut Vec<String>) {
 }
 
 // What git tracks, so ignored and generated files stay out; every file where there is no git.
-fn source_files() -> Vec<String> {
+pub fn source_files() -> Vec<String> {
     let listed = Command::new("git").args(["ls-files", "-z"]).output().ok().filter(|run| run.status.success());
     let mut files = match listed {
         Some(run) => String::from_utf8_lossy(&run.stdout).split('\0').filter(|f| !f.is_empty()).map(str::to_string).collect(),
@@ -54,7 +54,8 @@ fn source_files() -> Vec<String> {
             found
         }
     };
-    files.retain(|f| lang_of(f).is_some() && !f.split('/').any(|part| SKIPPED_DIRS.contains(&part)));
+    // A minified bundle is someone else's code on one line: nothing a graph can say about it helps.
+    files.retain(|f| lang_of(f).is_some() && !f.contains(".min.") && !f.split('/').any(|part| SKIPPED_DIRS.contains(&part)));
     files.sort();
 
     files
@@ -83,6 +84,10 @@ fn scan_all(files: &[String]) -> Vec<Scan> {
             .collect();
         handles.into_iter().flat_map(|handle| handle.join().unwrap_or_default()).collect()
     })
+}
+
+fn graph_file_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 fn stem(path: &str) -> &str {
@@ -151,7 +156,7 @@ fn build() -> Graph {
     let mut imported: Vec<HashSet<usize>> = vec![HashSet::new(); scans.len()];
     for (f, scan) in scans.iter().enumerate() {
         for import in &scan.imports {
-            if let Some(target) = import_targets(import, &by_last, &graph.files).filter(|&t| t != f) {
+            if let Some(target) = import_targets(import, &by_last, &graph.files).filter(|&t| t != f && lang_of(&graph.files[t]) == lang_of(&graph.files[f])) {
                 imported[f].insert(target);
             }
         }
@@ -160,9 +165,23 @@ fn build() -> Graph {
         }
     }
 
-    // Same file, then imported files, then a name that is unique everywhere; otherwise no edge, as a wrong one misleads.
-    let python_files: Vec<bool> = graph.files.iter().map(|file| lang_of(file) == Some(scan::Lang::Python)).collect();
-    let resolve = |f: usize, name: &str, is_member: bool, nodes: &[Node]| -> Option<usize> {
+    let families: Vec<Option<scan::Lang>> = graph.files.iter().map(|file| lang_of(file)).collect();
+    let file_types: Vec<HashMap<&str, &str>> = scans.iter().map(|scan| scan.types.iter().rev().map(|(var, kind)| (var.as_str(), kind.as_str())).collect()).collect();
+    let same_lang = |a: usize, b: usize| families[a] == families[b];
+    // By the receiver's type when the file says it, then the same file, imported files,
+    // and a name that is unique everywhere; otherwise no edge, as a wrong one misleads.
+    let resolve = |f: usize, name: &str, is_member: bool, receiver: Option<&str>, nodes: &[Node]| -> Option<usize> {
+        if let Some(receiver) = receiver {
+            let type_name = file_types[f].get(receiver).copied().or(receiver.chars().next().filter(|c| c.is_uppercase()).map(|_| receiver));
+            if let Some(places) = type_name.and_then(|t| by_name.get(t)) {
+                let places = places.iter().map(|&id| nodes[id].file).filter(|&file| same_lang(f, file));
+                let mut found: Vec<usize> = places.filter_map(|file| first_def[file].get(name).copied()).collect();
+                found.sort_by_key(|&id| !imported[f].contains(&nodes[id].file));
+                if let Some(&id) = found.first() {
+                    return Some(id);
+                }
+            }
+        }
         if !is_member {
             if let Some(&id) = first_def[f].get(name) {
                 return Some(id);
@@ -172,28 +191,32 @@ fn build() -> Graph {
         if is_member && USUAL_METHODS.contains(&name) {
             return None;
         }
-        let all = by_name.get(name)?;
-        let mut from_imports = all.iter().copied().filter(|&id| imported[f].contains(&nodes[id].file));
-        if let Some(id) = from_imports.next() {
+        let all: Vec<usize> = by_name.get(name)?.iter().copied().filter(|&id| same_lang(f, nodes[id].file)).collect();
+        // A module used by name: `hook.main(` after importing `hook`.
+        let named = receiver.and_then(|r| all.iter().copied().find(|&id| imported[f].contains(&nodes[id].file) && stem(graph_file_name(&graph.files[nodes[id].file])) == r));
+        if named.is_some() {
+            return named;
+        }
+        if let Some(&id) = all.iter().find(|&&id| imported[f].contains(&nodes[id].file)) {
             return Some(id);
         }
-        // Python imports whatever it uses, so a member call on an object from nowhere is no evidence.
-        let needs_import = is_member && python_files[f];
-        (all.len() == 1 && !needs_import).then(|| all[0])
+
+        (all.len() == 1).then(|| all[0])
     };
     let mut seen = HashSet::new();
     for (f, scan) in scans.iter().enumerate() {
         let id_of = |def: usize| first_def[f].get(scan.defs[def].name.as_str()).copied();
         for call in &scan.calls {
             let from = call.owner.and_then(id_of).unwrap_or(f);
-            if let Some(to) = resolve(f, &call.name, call.is_member, &nodes).filter(|&to| to != from) {
+            // Calling itself is recursion when bare, and only a same-named method elsewhere when on an object.
+            if let Some(to) = resolve(f, &call.name, call.is_member, call.receiver.as_deref(), &nodes).filter(|&to| to != from || !call.is_member) {
                 if seen.insert((from, to, 'c')) {
                     edges.push((from, to, 'c'));
                 }
             }
         }
         for (def, base) in &scan.bases {
-            if let (Some(from), Some(to)) = (id_of(*def), resolve(f, base, false, &nodes)) {
+            if let (Some(from), Some(to)) = (id_of(*def), resolve(f, base, false, None, &nodes)) {
                 if from != to && seen.insert((from, to, 'b')) {
                     edges.push((from, to, 'b'));
                 }
@@ -398,12 +421,12 @@ pub fn run(args: &[String]) {
         Some("query") if args.len() > 1 => match load(GRAPH_FILE) {
             Ok(graph) => print!("{}", answer(&graph, &args[1..].join(" "))),
             Err(error) => {
-                eprintln!("no graph here, run `dam graph update`: {error}");
+                eprintln!("no graph here, run `dam-graph update`: {error}");
                 std::process::exit(1);
             }
         },
         _ => {
-            eprintln!("usage: dam graph update | dam graph query \"question\"");
+            eprintln!("usage: dam-graph update | dam-graph query \"question\"");
             std::process::exit(2);
         }
     }

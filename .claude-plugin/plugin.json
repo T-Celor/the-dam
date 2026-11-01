@@ -1,6 +1,6 @@
 {
   "name": "the-dam",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "commands": "./commands/",
   "description": "One plugin for compression, the code graph, TokenEconomizer and Ponytail, with a status line of what they really do.",
   "types": "./types/index.d.ts"

@@ -47,6 +47,8 @@ pub struct Call {
     pub owner: Option<usize>,
     pub name: String,
     pub is_member: bool,
+    // What the call hangs off: `store` in `self.store.get(`, `Foo` in `Foo::new(`.
+    pub receiver: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -55,6 +57,8 @@ pub struct Scan {
     pub calls: Vec<Call>,
     pub bases: Vec<(usize, String)>,
     pub imports: Vec<String>,
+    // A variable's name and type, wherever the file makes it plain.
+    pub types: Vec<(String, String)>,
 }
 
 const NOT_CALLS: [&str; 35] = [
@@ -163,7 +167,57 @@ fn calls_in(line: &[u8], skip: Option<&str>, owner: Option<usize>, out: &mut Vec
             let head = &line[..start - 1];
             !(head.ends_with(b"self") || head.ends_with(b"this"))
         };
-        out.push(Call { owner, name: name.into_owned(), is_member });
+        let separator = if start > 0 && line[start - 1] == b'.' {
+            1
+        } else if start > 1 && &line[start - 2..start] == b"::" {
+            2
+        } else {
+            0
+        };
+        let receiver = (separator > 0).then(|| {
+            let end = start - separator;
+            let from = line[..end].iter().rposition(|&b| !is_ident(b)).map_or(0, |at| at + 1);
+            String::from_utf8_lossy(&line[from..end]).into_owned()
+        }).filter(|r| !r.is_empty() && r != "self" && r != "this");
+        out.push(Call { owner, name: name.into_owned(), is_member, receiver });
+    }
+}
+
+fn is_type_name(word: &str) -> bool {
+    word.chars().next().is_some_and(char::is_uppercase)
+}
+
+// `Foo x`, `x: Foo`, `x = Foo(`, `x = new Foo(`, `let x = Foo::new(`: what a later `x.go(` calls into.
+fn types_in(line: &[u8], out: &mut Vec<(String, String)>) {
+    let mut words: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < line.len() {
+        if is_ident(line[i]) {
+            let start = i;
+            while i < line.len() && is_ident(line[i]) {
+                i += 1;
+            }
+            words.push((start, i));
+        } else {
+            i += 1;
+        }
+    }
+    let text = |at: usize| String::from_utf8_lossy(&line[words[at].0..words[at].1]).into_owned();
+    let gap = |at: usize| String::from_utf8_lossy(&line[words[at].1..words[at + 1].0]).into_owned();
+    for at in 0..words.len().saturating_sub(1) {
+        let (first, between, second) = (text(at), gap(at), text(at + 1));
+        let between = between.trim();
+        if between.is_empty() && gap(at) != "" && is_type_name(&first) && !is_type_name(&second) {
+            out.push((second, first));
+        } else if between == ":" && is_type_name(&second) {
+            out.push((first, second));
+        } else if between == "=" {
+            let is_word = |word: &str| second == word && at + 2 < words.len() && gap(at + 1).trim().is_empty();
+            let target = if is_word("new") || is_word("await") { text(at + 2) } else { second };
+            if is_type_name(&target) {
+                out.push((first, target));
+            }
+        }
     }
 }
 
@@ -259,7 +313,33 @@ fn scan_python(lines: &[&[u8]], scan: &mut Scan) {
 }
 
 // What a line opens: its name, its kind, and whether it is only a declaration if `;` comes first.
-fn def_on(code: &[u8], lang: Lang, in_type: bool, in_function: bool) -> Option<(String, Kind, bool)> {
+fn def_on(code: &[u8], lang: Lang, in_type: bool, in_function: bool, at_top: bool) -> Option<(String, Kind, bool)> {
+    if lang == Lang::Rust {
+        let text = String::from_utf8_lossy(code);
+        let bare = text.strip_prefix("pub(crate) ").or(text.strip_prefix("pub(super) ")).or(text.strip_prefix("pub ")).unwrap_or(&text);
+        if let Some(rest) = bare.strip_prefix("const ").or(bare.strip_prefix("static ")) {
+            let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+            if !rest.starts_with("fn ") && !rest.starts_with("unsafe ") {
+                let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                if !name.is_empty() {
+                    return Some((name, Kind::Type, false));
+                }
+            }
+        }
+    }
+    if lang == Lang::Script {
+        let text = String::from_utf8_lossy(code);
+        let bare = text.strip_prefix("export default ").or(text.strip_prefix("export ")).unwrap_or(&text);
+        let value = bare.strip_prefix("const ").or(bare.strip_prefix("let ")).or(bare.strip_prefix("var "));
+        if let (true, Some(rest)) = (at_top, value) {
+            let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
+            if !name.is_empty() {
+                let right = rest.split_once('=').map_or("", |(_, right)| right.trim_start());
+                let is_function = right.contains("=>") || right.starts_with("function") || right.starts_with("async");
+                return Some((name, if is_function { Kind::Function } else { Kind::Type }, false));
+            }
+        }
+    }
     let types: &[&str] = match lang {
         Lang::Rust => &["struct", "enum", "trait", "union"],
         Lang::Script => &["class", "interface", "enum"],
@@ -324,10 +404,19 @@ fn def_on(code: &[u8], lang: Lang, in_type: bool, in_function: bool) -> Option<(
         }
         let end = head.iter().rposition(|&b| b != b' ')? + 1;
         let start = head[..end].iter().rposition(|&b| !is_ident(b)).map_or(0, |at| at + 1);
+        // `_fetch<T>(`: the name stands before its type parameters.
+        let (end, start) = if head[..end].ends_with(b">") {
+            let open = head[..end].iter().position(|&b| b == b'<').unwrap_or(end);
+            let close = head[..open].iter().rposition(|&b| b != b' ').map_or(0, |at| at + 1);
+            let first = head[..close].iter().rposition(|&b| !is_ident(b)).map_or(0, |at| at + 1);
+            (close, first)
+        } else {
+            (end, start)
+        };
         let name = String::from_utf8_lossy(&head[start..end]).into_owned();
         let tail = String::from_utf8_lossy(&code[paren..]);
         let tail = tail.trim_end();
-        let shape = tail.contains('{') || tail.ends_with(')') || tail.ends_with(',') || tail.ends_with(';') && in_type || tail.contains("throws ") || tail.ends_with("=>");
+        let shape = tail.ends_with('(') || tail.contains('{') || tail.ends_with(')') || tail.ends_with(',') || tail.ends_with(';') && in_type || tail.contains("throws ") || tail.ends_with("=>");
         if name.is_empty() || !shape || NOT_CALLS.contains(&name.as_str()) || name.as_bytes()[0].is_ascii_digit() {
             return None;
         }
@@ -337,17 +426,63 @@ fn def_on(code: &[u8], lang: Lang, in_type: bool, in_function: bool) -> Option<(
     None
 }
 
+fn paren_balance(line: &[u8]) -> i32 {
+    line.iter().map(|&b| i32::from(b == b'(') - i32::from(b == b')')).sum()
+}
+
 fn scan_braces(lines: &[&[u8]], lang: Lang, scan: &mut Scan) {
     // A scope is (the depth it opened at, its definition).
     let mut scopes: Vec<(usize, usize)> = Vec::new();
     let mut depth = 0usize;
     let mut pending: Option<(usize, bool)> = None;
     let mut extra_owner: Option<String> = None;
+    let mut annotation_depth = 0i32;
+    // Enums still listing their members, as opposed to Java's methods after the `;`.
+    let mut listing_enums: Vec<usize> = Vec::new();
     for (n, line) in lines.iter().enumerate() {
         let Some(indent) = line.iter().position(|&b| b != b' ' && b != b'\t') else { continue };
         let code = &line[indent..];
-        // An annotation such as `@Path("x")` looks like a signature and opens nothing.
-        if code[0] == b'@' {
+        // An annotation such as `@Path("x")` looks like a signature and opens nothing;
+        // it can run over several lines and can stand before the method on one line.
+        let mut code = code;
+        if annotation_depth > 0 {
+            let closes = paren_balance(code);
+            annotation_depth += closes;
+            if annotation_depth > 0 {
+                continue;
+            }
+            annotation_depth = 0;
+            continue;
+        }
+        while code.first() == Some(&b'@') {
+            let mut at = 1;
+            while at < code.len() && (is_ident(code[at]) || code[at] == b'.') {
+                at += 1;
+            }
+            let rest = &code[at..];
+            if rest.first() == Some(&b'(') {
+                let mut depth = 0i32;
+                let mut close = None;
+                for (n, &b) in rest.iter().enumerate() {
+                    depth += i32::from(b == b'(') - i32::from(b == b')');
+                    if depth == 0 {
+                        close = Some(n);
+                        break;
+                    }
+                }
+                match close {
+                    Some(n) => at += n + 1,
+                    None => {
+                        annotation_depth = depth;
+                        at = code.len();
+                    }
+                }
+            }
+            code = &code[at..];
+            let skip = code.iter().position(|&b| b != b' ' && b != b'\t').unwrap_or(code.len());
+            code = &code[skip..];
+        }
+        if code.is_empty() {
             continue;
         }
         let top = scopes.last().map(|&(_, def)| def);
@@ -361,8 +496,24 @@ fn scan_braces(lines: &[&[u8]], lang: Lang, scan: &mut Scan) {
             let target = target.trim_start().trim_start_matches('<');
             extra_owner = target.split(|c: char| !c.is_alphanumeric() && c != '_').find(|w| !w.is_empty() && w.chars().next().is_some_and(char::is_uppercase)).map(str::to_string);
         }
-        if pending.is_none() {
-            if let Some((name, kind, drops)) = def_on(code, lang, in_type, in_function) {
+        let in_enum = top.is_some_and(|def| listing_enums.contains(&def));
+        if in_enum && !code.starts_with(b"#") {
+            let text = String::from_utf8_lossy(code).into_owned();
+            let list = text.split(';').next().unwrap_or("");
+            for member in list.split(',') {
+                let name: String = member.trim().chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                if is_type_name(&name) {
+                    scan.defs.push(Def { name, kind: Kind::Type, line: n + 1 });
+                }
+            }
+            if text.contains(';') {
+                listing_enums.retain(|&def| Some(def) != top);
+            }
+        } else if pending.is_none() {
+            if let Some((name, kind, drops)) = def_on(code, lang, in_type, in_function, scopes.is_empty()) {
+                if kind == Kind::Type && find_word(code, "enum").is_some() {
+                    listing_enums.push(scan.defs.len());
+                }
                 skip = Some(name.clone());
                 scan.defs.push(Def { name, kind, line: n + 1 });
                 pending = Some((scan.defs.len() - 1, drops));
@@ -428,6 +579,7 @@ pub fn scan(text: &[u8], lang: Lang) -> Scan {
     let raw: Vec<&[u8]> = raw_lines.iter().map(Vec::as_slice).collect();
     let mut out = Scan::default();
     for (n, line) in lines.iter().enumerate() {
+        types_in(line, &mut out.types);
         imports_of(&String::from_utf8_lossy(raw.get(n).unwrap_or(&&b""[..])), &String::from_utf8_lossy(line), lang, &mut out.imports);
     }
     if lang == Lang::Python {
@@ -530,6 +682,32 @@ mod tests {
         let s = scan(b"def f(\n    a,\n    b=g(),\n) -> int:\n    return h(a)\n\ndef k():\n    pass\n", Lang::Python);
         assert_eq!(names(&s), ["f", "k"]);
         assert_eq!(called(&s, "f"), ["g", "h"]);
+    }
+
+    #[test]
+    fn enum_members_consts_and_generics_are_definitions() {
+        let r = scan(b"pub const LIMIT: u32 = 3;\nconst fn make() {}\npub enum Mode {\n    Fast,\n    Slow(u8),\n}\n", Lang::Rust);
+        assert_eq!(names(&r), ["LIMIT", "make", "Mode", "Fast", "Slow"]);
+        let j = scan(b"public enum Size {\n  SMALL(1), LARGE(2);\n  public int get() {\n    return 1;\n  }\n}\n", Lang::Java);
+        assert_eq!(names(&j), ["Size", "SMALL", "LARGE", "get"]);
+        let t = scan(b"const TABLE = { a: 1 };\nclass C {\n  private async fetch<T>(p: string) {\n    go();\n  }\n}\n", Lang::Script);
+        assert_eq!(names(&t), ["TABLE", "C", "fetch"]);
+    }
+
+    #[test]
+    fn annotations_on_several_lines_or_before_a_method_open_nothing() {
+        let s = scan(b"class A {\n  @Op(summary = \"x\",\n     text = \"y\")\n  @GET public int one() {\n    return go();\n  }\n  Uni<R> two(\n    @Q(\"a\") String a\n  );\n}\n", Lang::Java);
+        assert_eq!(names(&s), ["A", "one", "two"]);
+        assert_eq!(called(&s, "one"), ["go"]);
+    }
+
+    #[test]
+    fn receivers_and_variable_types_are_read() {
+        let s = scan(b"def f():\n    x = Store()\n    self.y.get(1)\n    x.put(2)\n", Lang::Python);
+        assert_eq!(s.types, [("x".to_string(), "Store".to_string())]);
+        assert_eq!(s.calls.iter().map(|c| c.receiver.clone()).collect::<Vec<_>>(), [None, Some("y".to_string()), Some("x".to_string())]);
+        let j = scan(b"class A { private Svc svc; Tool t = new Tool(); int f(Other o) { return 0; } }", Lang::Java);
+        assert!(j.types.contains(&("svc".to_string(), "Svc".to_string())) && j.types.contains(&("t".to_string(), "Tool".to_string())) && j.types.contains(&("o".to_string(), "Other".to_string())));
     }
 
     #[test]

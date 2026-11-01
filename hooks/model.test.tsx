@@ -22,10 +22,10 @@ test('the status line and the report state the real figures', () => {
   const s = { ...EMPTY, tools: ALL, context, saved: 5_000, pruned: 2, pending: 4, facts: 3, loops: 1, overhead: 10_500, nodes: 400, hasGraph: true }
   expect(statusOf(s)).toBe('🦫 5k saved · context 31%')
   expect(statusOf(EMPTY)).toBe('🦫 0 saved')
-  expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Compression: 5k tokens saved\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ graphify: 400 graph nodes\n  ✓ Ponytail: active')
-  expect(reportOf({ ...s, hasGraph: false })).toContain('… graphify: no graph in this folder')
+  expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Compression: 5k tokens saved\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ Code graph: 400 nodes\n  ✓ Ponytail: active')
+  expect(reportOf({ ...s, hasGraph: false })).toContain('… Code graph: not for this folder')
   expect(reportOf({ ...s, isCompressing: false })).toContain('✗ Compression: 5k tokens saved, turned off')
-  expect(reportOf(EMPTY).split('not installed').length - 1).toBe(3)
+  expect(reportOf(EMPTY).split('not installed').length - 1).toBe(4)
 })
 
 test('only a real project is worth a graph', () => {
@@ -39,23 +39,23 @@ test('only a real project is worth a graph', () => {
 test('tool figures are read from their own output', () => {
   expect(parseEconomizer('{"toolprune":{"applied":[1,2],"proposal":[3]},"microskills":{"injected_lines":5},"ledger":{"nudges":2,"aborts":1,"overhead_tokens":10548.15}}')).toEqual({ pruned: 2, pending: 1, facts: 5, loops: 3, overhead: 10548 })
   expect(parseEconomizer('{}')).toEqual({ pruned: 0, pending: 0, facts: 0, loops: 0, overhead: 0 })
-  expect(graphNodes('{"nodes":[{},{}]}')).toBe(2)
+  expect(graphNodes('P\ta.py\nN\tF\ta.py\t0\t1\nN\tf\tgo\t0\t2\nE\t0\t1\td\n')).toBe(2)
 })
 
-const NOTHING = { squeezer: null, graphify: null, python: null, teBoot: null, hasNode: false }
-const EVERYTHING = { squeezer: 'h', graphify: 'g', python: 'p', teBoot: 't', hasNode: true }
+const NOTHING = { squeezer: null, graph: null, ponytail: null, python: null, teBoot: null }
+const EVERYTHING = { squeezer: 'h', graph: 'g', ponytail: 'y', python: 'p', teBoot: 't' }
 
 test('setup installs only what is missing, and nothing twice', () => {
-  expect(setupSteps(EVERYTHING, '/home', false, '/plugin')).toEqual([])
+  expect(setupSteps(EVERYTHING, '/plugin')).toEqual([])
   expect(missingNames(EVERYTHING)).toEqual([])
-  expect(missingNames(NOTHING)).toEqual(['dam', 'graphify', 'Python'])
-  const labels = setupSteps(NOTHING, '/home', false, '/plugin').map(step => step.label)
+  expect(missingNames(NOTHING)).toEqual(['dam', 'Python'])
+  const labels = setupSteps(NOTHING, '/plugin').map(step => step.label)
   expect(labels.some(label => label.includes('TokenEconomizer'))).toBe(false)
-  expect(labels.includes('compressor')).toBe(true)
+  expect(labels.includes('dam')).toBe(true)
 })
 
 test('tools are found from the files Claude keeps', () => {
-  expect(candidates('x', undefined)).toEqual(['x'])
+  expect(candidates('x', '/p', undefined)).toEqual(['/p/bin/x.exe', 'x'])
 })
 
 test('only big Bash text gets squeezed, never file bytes or search hits', () => {

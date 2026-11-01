@@ -267,9 +267,81 @@ pub fn table(text: &str) -> Option<String> {
     (read_back(&out)? == rows && out.len() < text.len()).then_some(out)
 }
 
+// The top-level fields of an object, keys with their quotes, values as written.
+pub fn entries(text: &str) -> Option<Vec<(String, String)>> {
+    let mut reader = Reader::new(text);
+    reader.skip_space();
+    let found = reader.entries(0)?;
+
+    Some(found.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect())
+}
+
+// A top-level string field, unescaped.
+pub fn field(text: &str, name: &str) -> Option<String> {
+    let wanted = format!("\"{name}\"");
+    let (_, raw) = entries(text)?.into_iter().find(|(key, _)| *key == wanted)?;
+
+    unquote(&raw)
+}
+
+fn unquote(raw: &str) -> Option<String> {
+    let inner = raw.strip_prefix('"')?.strip_suffix('"')?;
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next()? {
+            'n' => out.push('\n'),
+            't' => out.push('\t'),
+            'r' => out.push('\r'),
+            'b' => out.push('\u{8}'),
+            'f' => out.push('\u{c}'),
+            'u' => {
+                let hex: String = chars.by_ref().take(4).collect();
+                out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?).unwrap_or('\u{fffd}'));
+            }
+            other => out.push(other),
+        }
+    }
+
+    Some(out)
+}
+
+pub fn quote(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fields_read_and_strings_quote_back() {
+        let text = r#"{"source": "compact", "n": 1, "prompt": "a \"b\"\nc\u00e9"}"#;
+        assert_eq!(field(text, "source").as_deref(), Some("compact"));
+        assert_eq!(field(text, "prompt").as_deref(), Some("a \"b\"\ncé"));
+        assert_eq!(field(text, "n"), None);
+        assert_eq!(field("not json", "x"), None);
+        assert_eq!(unquote(&quote("a\"\\\n\t\u{1}é")).as_deref(), Some("a\"\\\n\t\u{1}é"));
+    }
 
     #[test]
     fn records_become_a_table() {

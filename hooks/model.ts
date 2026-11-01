@@ -73,8 +73,8 @@ export function reportOf(s: Stats): string {
   const rows: Array<[string, [string, string]]> = [
     ['Compression', compressionRow(s)],
     ['TokenEconomizer', s.tools.economizer ? [OK, economizerLine(s)] : [OFF, MISSING]],
-    ['graphify', !s.tools.graphify ? [OFF, MISSING] : s.hasGraph ? [OK, `${formatCount(s.nodes)} graph nodes`] : [WAIT, 'no graph in this folder, run /graphify']],
-    ['Ponytail', s.tools.ponytail ? [OK, 'active'] : [OFF, 'needs Node.js']],
+    ['Code graph', !s.tools.graphify ? [OFF, MISSING] : s.hasGraph ? [OK, `${formatCount(s.nodes)} nodes`] : [WAIT, 'not for this folder: under 20 tracked code files']],
+    ['Ponytail', s.tools.ponytail ? [OK, 'active'] : [OFF, MISSING]],
   ]
 
   return [signed('The dam'), `  Context ${context}`, ...rows.map(([name, [mark, detail]]) => `  ${mark} ${name}: ${detail}`)].join('\n')

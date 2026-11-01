@@ -1,48 +1,39 @@
 export type Located = {
   squeezer: string | null
-  graphify: string | null
+  graph: string | null
   python: string | null
   teBoot: string | null
-  hasNode: boolean
+  ponytail: string | null
 }
 
 export type Step = { label: string; argv: readonly string[] }
 
 
-// uv tool's bin folder is often missing from the PATH of an app-launched session.
-export function candidates(name: string, home: string | undefined): string[] {
-  return home ? [`${home}/.local/bin/${name}.exe`, `${home}/.local/bin/${name}`, name] : [name]
+// The build the plugin ships, then one built here: cargo's folder is often missing from an app-launched session's PATH.
+export function candidates(name: string, root: string, home: string | undefined): string[] {
+  return [`${root}/bin/${name}.exe`, ...(home ? [`${home}/.cargo/bin/${name}.exe`, `${home}/.cargo/bin/${name}`] : []), name]
 }
 
 export function missingNames(found: Located): string[] {
   return [
-    found.squeezer ? null : 'dam',
-    found.graphify ? null : 'graphify',
+    found.squeezer && found.graph && found.ponytail ? null : 'dam',
     found.python ? null : 'Python',
   ].filter(name => name !== null)
 }
 
 // Only what is missing, so a second run does nothing.
-export function setupSteps(found: Located, home: string, isWindows: boolean, root: string): Step[] {
+export function setupSteps(found: Located, root: string): Step[] {
   const steps: Step[] = []
   // The plugin ships a Windows build; elsewhere it builds from its own source.
-  if (!found.squeezer) steps.push({ label: 'compressor', argv: ['cargo', 'install', '--path', `${root}/dam`] })
-  if (!found.graphify) {
-    steps.push({ label: 'graphify', argv: ['uv', 'tool', 'install', 'graphifyy'] })
-    steps.push({
-      label: 'skill graphify',
-      argv: [candidates('graphify', home)[isWindows ? 0 : 1] ?? 'graphify', 'install', '--platform', 'claude'],
-    })
-  }
+  if (!found.squeezer || !found.graph || !found.ponytail) steps.push({ label: 'dam', argv: ['cargo', 'install', '--path', `${root}/dam`] })
   if (!found.python) steps.push({ label: 'Python', argv: ['uv', 'python', 'install', '3.12'] })
 
   return steps
 }
 
-export const GRAPH_NUDGE =
-  'A graphify knowledge graph of this project exists at graphify-out/graph.json. ' +
-  'For questions about architecture or how code connects, run `graphify query "<question>"` ' +
-  'before broad Grep or Read sweeps; it costs far fewer tokens.'
+export function graphNudge(program: string): string {
+  return `A code graph of this project is ready. For questions about architecture or how code connects, run \`"${program}" query "<question>"\` before broad Grep or Read sweeps; it costs far fewer tokens.`
+}
 
 const WORTH_SQUEEZING_CHARS = 6000
 // Claude Code hands over at most this much of a longer output, which it saves itself and shows as a preview.
@@ -93,6 +84,7 @@ export function worthGraphing(listing: string): boolean {
   return listing.split('\n').filter(path => CODE_FILE.test(path.trim())).length >= WORTH_GRAPHING_FILES
 }
 
+// The number of nodes in dam-graph's table.
 export function graphNodes(text: string): number {
-  return (JSON.parse(text) as { nodes?: unknown[] }).nodes?.length ?? 0
+  return text.split('\n').filter(line => line.startsWith('N\t')).length
 }

@@ -1,6 +1,6 @@
 # The dam
 
-One plugin for what Headroom, graphify, TokenEconomizer and Ponytail do. Nothing graphical: Nothing graphical: one status line, and `/the-dam` for the detail.
+One plugin for what Headroom, graphify, TokenEconomizer and Ponytail do, as one Rust application with a small program per job (`bin/dam-squeeze`, `bin/dam-graph`, `bin/dam-ponytail`). TokenEconomizer is the one part still in Python. Nothing graphical: Nothing graphical: one status line, and `/the-dam` for the detail.
 
 ```
 🦫 12.3k saved · context 31%
@@ -11,13 +11,13 @@ One plugin for what Headroom, graphify, TokenEconomizer and Ponytail do. Nothing
   Context 31% (310k of 1M tokens)
   ✓ Compression: 12.3k tokens saved
   ✓ TokenEconomizer: 2 tools pruned (4 pending), 5 facts learned, 1 loops stopped, 10.5k tokens spent
-  … graphify: no graph in this folder, run /graphify
+  ✓ Code graph: 2.2k nodes
   ✓ Ponytail: active
 ```
 
 ✓ works, … is waiting for something, ✗ is off or missing.
 
-Tokens saved are an estimate (four characters per token), counted across all projects. Pruned tools, facts and graph nodes belong to the current folder. TokenEconomizer measures no token saving as it goes, so the plugin shows what it did: tools pruned (and those it will prune once the project has been idle for an hour), facts learned, loops stopped, and the tokens its own work cost. graphify reports nodes, and Ponytail no figure at all.
+Tokens saved are an estimate (four characters per token), counted across all projects. Pruned tools, facts and graph nodes belong to the current folder. TokenEconomizer measures no token saving as it goes, so the plugin shows what it did: tools pruned (and those it will prune once the project has been idle for an hour), facts learned, loops stopped, and the tokens its own work cost. The code graph reports nodes, and Ponytail no figure at all.
 
 ## Getting started
 
@@ -35,15 +35,15 @@ Restart Claude Code. The rest starts by itself at each session: whatever is miss
 
 ## Compression
 
-`Bash` outputs between 6000 and 29000 characters go through `dam squeeze` (source in `dam/`, Windows build in `bin/`) before the model reads them. It drops no line: runs of lines that differ only by numbers become a template and a table of what varies, identical lines a count, repeated blocks a reference, shared prefixes and the directories of search hits and path listings are written once, and a JSON array of records becomes a table. Several of these folds follow the rules of Headroom's `lossless_compaction.py` (Apache 2.0), rewritten in Rust. Errors, warnings and values that stand out stay plain lines, and code keeps its shape. Every result is decoded and compared with the source before it is used, trailing spaces aside; `dam squeeze --decode` gives the original back. Even so, so the full output is saved in `~/.claude/the-dam-outputs/` (the last 20) and the model gets the path. `Read` and `Edit` are never compressed. Longer outputs stay as they are, since Claude Code already saves those and shows a preview. If the compressor fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged.
+`Bash` outputs between 6000 and 29000 characters go through `dam-squeeze` (source in `dam/`, Windows build in `bin/`) before the model reads them. It drops no line: runs of lines that differ only by numbers become a template and a table of what varies, identical lines a count, repeated blocks a reference, shared prefixes and the directories of search hits and path listings are written once, and a JSON array of records becomes a table. Several of these folds follow the rules of Headroom's `lossless_compaction.py` (Apache 2.0), rewritten in Rust. Errors, warnings and values that stand out stay plain lines, and code keeps its shape. Every result is decoded and compared with the source before it is used, trailing spaces aside; `dam-squeeze --decode` gives the original back. Even so, so the full output is saved in `~/.claude/the-dam-outputs/` (the last 20) and the model gets the path. `Read` and `Edit` are never compressed. Longer outputs stay as they are, since Claude Code already saves those and shows a preview. If the compressor fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged.
 
 ## Graph
 
-At session start, in a git repository with at least 20 tracked code files and no graph yet, the plugin builds one in the background with `graphify update .`, from the code's structure alone: no LLM, no tokens. `graphify-out/` goes in `.git/info/exclude`, so your `.gitignore` stays as it is. For a graph that also understands docs and meaning, run `/graphify`, which uses the model.
+At each session start, in a git repository with at least 20 tracked code files, `dam-graph update` rebuilds `.dam-graph/graph.tsv` in about a second: who defines, calls, extends and imports what, in Python, JavaScript, TypeScript, Rust, Java, C#, Go, C, C++ and Kotlin. It reads the code with a scanner, without a model or a network. `dam-graph query "question"` answers from it. `.dam-graph/` goes in `.git/info/exclude`, so your `.gitignore` stays as it is. Unlike graphify, it does not read docs, images or papers, and does not cluster or draw the graph.
 
 ## Hooks
 
-- Session start: scans for the four tools and installs what is missing, and builds a first graph if the project deserves one. Whatever is already in place is skipped.
+- Session start: scans for the four tools and installs what is missing, and rebuilds the code graph if the project deserves one. Whatever is already in place is skipped.
 - Tool call: condenses large outputs, then schedules a gain check within 15 seconds. An error here never blocks the tool.
 - Turn end: updates the graph if code changed and a graph exists (no LLM), then runs a gain check.
 - Gain check: reads every tool's figures again, updates the status line and shows a toast with what is new, such as `+1.5k tokens saved`.
@@ -52,7 +52,7 @@ At session start, in a git repository with at least 20 tracked code files and no
 
 ## Ponytail
 
-[Ponytail](https://github.com/DietrichGebert/ponytail) by Dietrich Gebert ships inside this plugin too (`skills/`, `hooks/ponytail-*.js`), under the MIT licence in `skills/PONYTAIL-LICENSE`, and needs Node.js. Its task board and webhook are left out. Disable the separate plugin if you have it: `claude plugin disable ponytail@ponytail`.
+The rules of [Ponytail](https://github.com/DietrichGebert/ponytail) by Dietrich Gebert ship in `skills/`, under the MIT licence in `skills/PONYTAIL-LICENSE`, and `dam-ponytail` rewrites its hooks in Rust for Claude Code: the rules at session start and for subagents, the levels, the codebase map. Its task board, webhook and statusline badge are left out. Disable the separate plugin if you have it: `claude plugin disable ponytail@ponytail`.
 
 ## TokenEconomizer
 
