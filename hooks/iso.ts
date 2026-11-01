@@ -5,13 +5,15 @@ import type { CritterId, Heat, Stats } from '../types'
 import { blend, clamp, noise, rgb, seeded } from './engine'
 import { isOverwhelmed, pressureOf, shapeOf, stockOf, strengthOf } from './model'
 
-export type Face = { pts: number[]; color: number; alpha?: number; mark?: string }
+// `group` joins the faces of one object: the terminal outlines the object, not each facet.
+export type Face = { pts: number[]; color: number; alpha?: number; mark?: string; group?: number }
 export type Piece = { depth: number; faces: Face[]; sway?: boolean }
 // flow follows the river; drop goes in a line; hop bounces; jump is a fish's arc; still holds.
 export type Mode = 'flow' | 'drop' | 'hop' | 'jump' | 'still'
 export type Mover = { cls: string; mode: Mode; faces: Face[]; seconds: number; phase: number; x: number; y: number; from: number; to: number }
 export type World = { ground: Face[]; flow: Mover[]; solids: Piece[]; top: Mover[]; path: number[]; isFlooded: boolean }
-export type View = { width: number; top: number; height: number; tiles: number }
+// `isUntinted` keeps every hue as it is: with few colours, a dusk tint would turn the dam the colour of the grass.
+export type View = { width: number; top: number; height: number; tiles: number; isUntinted?: boolean }
 
 type V3 = readonly [number, number, number]
 
@@ -59,7 +61,7 @@ const smooth = (t: number) => {
 const facet = (color: number) => (color & 0xf8f8f8) | 0x040404
 
 const WATER = ['#2a8fc4', '#38a6d6', '#4cb8dd', '#3a9db8', '#5f8fd8', '#7fc8e4', '#3f86ad'].map(rgb)
-const BARK = rgb('#7d5230')
+const BARK = rgb('#a8602a')
 const SAWN = rgb('#e2c08e')
 const WOOD = ['#c9a06a', '#a97b45', '#8a5e34', '#dcb988', '#75502c'].map(rgb)
 const HAT: Record<CritterId, number> = { hazel: rgb('#f2bf2e'), mimi: rgb('#2f7ea3'), pompom: rgb('#8d6fd0'), truffle: rgb('#d9533c') }
@@ -178,7 +180,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     return [(a + b) / 2, (b - a) / 2]
   }
   const dusk = rgb('#39465a')
-  const tint = (color: number) => facet(blend(color, dusk, storm * 0.38))
+  const tint = (color: number) => facet(view.isUntinted ? color : blend(color, dusk, storm * 0.38))
   const { lit, flat, faces2, frustum } = solidsFor(project, tint)
 
   // The course: straight through the dam, winding between the panel's sides above and below it, however tall it is.
@@ -410,7 +412,8 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     for (const beam of beams) {
       const [x, y, z] = onSlope(beam.at, beam.y)
       const skew = (noise(beam.seed, 5) - 0.5) * 0.5 * beam.half
-      dam.push(...frustum([x - skew, y - beam.half, z + beam.radius], [x + skew, y + beam.half, z + beam.radius + (noise(beam.seed, 6) - 0.5) * 0.25], beam.radius, beam.radius * 0.85, 6, beam.color, SAWN, beam.mark))
+      const piece = frustum([x - skew, y - beam.half, z + beam.radius], [x + skew, y + beam.half, z + beam.radius + (noise(beam.seed, 6) - 0.5) * 0.25], beam.radius, beam.radius * 0.85, 6, beam.color, SAWN, beam.mark)
+      dam.push(...piece.map(face => ({ ...face, group: beam.seed + 1 })))
     }
     // The Ponytail base: three pale poles along the foot, each tied with its ribbon.
     if (s.tools.pompom) {
@@ -419,8 +422,8 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
         const y = (i - 1) * span
         const [x, , z] = onSlope(0.1, y)
         const [from, to] = [y - span * 0.47, y + span * 0.47]
-        dam.push(...frustum([x, from, z + 0.2], [x, to, z + 0.2], 0.2, 0.2, 7, rgb('#e0c08c'), SAWN, 'pole'))
-        dam.push(...frustum([x, y - 0.1, z + 0.2], [x, y + 0.1, z + 0.2], 0.23, 0.23, 7, HAT.pompom))
+        const pole = [...frustum([x, from, z + 0.2], [x, to, z + 0.2], 0.2, 0.2, 7, rgb('#e0c08c'), SAWN, 'pole'), ...frustum([x, y - 0.1, z + 0.2], [x, y + 0.1, z + 0.2], 0.23, 0.23, 7, HAT.pompom)]
+        dam.push(...pole.map(face => ({ ...face, group: 1000 + i })))
       }
     }
     // Each hole in the dam spits water and carries away what the stock can spare: twigs first, trunks last.
@@ -476,11 +479,11 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
   // The crew: one beaver per tool, in its colours, awake when that tool has just been used.
   const beaver = (id: CritterId, x: number, y: number, z: number, mood: number, isScared: boolean): Face[] => {
     const r = 0.3 * big
-    const FUR = rgb('#96683c')
+    const FUR = rgb('#b98a58')
     const parts = [
       ...frustum([x - r * 0.9, y - r * 1.1, z + 0.02], [x - r * 0.9, y - r * 2.4, z + 0.02], r * 0.5, r * 0.34, 4, rgb('#7a5534')),
       ...frustum([x, y, z], [x, y, z + r * 1.6], r, r * 0.74, 6, FUR, rgb('#b98a58')),
-      ...frustum([x, y, z + r * 1.6], [x, y, z + r * 2.6], r * 0.8, r * 0.56, 6, rgb('#a8784a'), rgb('#b98a58')),
+      ...frustum([x, y, z + r * 1.6], [x, y, z + r * 2.6], r * 0.8, r * 0.56, 6, rgb('#c49a68'), rgb('#d2ad7e')),
       ...frustum([x, y, z + r * 2.6], [x, y, z + r * 3.5], r * 0.68, 0, 6, HAT[id]),
     ]
     const [hx, hy] = project([x + r * 0.4, y + r * 0.4, z + r * 2.05])
@@ -489,7 +492,7 @@ export function buildWorld(s: Stats, levels: Heat, view: View): World {
     parts.push(box(hx - size * 2.2, hy, size, mood > 0 ? size : size * 0.4, eye), box(hx + size * 2.2, hy, size, mood > 0 ? size : size * 0.4, eye), box(hx, hy + size * 2.4, size * 1.1, size * 1.2, WHITE))
     if (isScared) top.push(make('p sweat', 'drop', [box(hx + size * 6, hy - size * 4, size, size, rgb('#9fdcf5'))], 0.8, 1.1, { x: 5, y: 16 }))
 
-    return parts
+    return parts.map(face => ({ ...face, group: 2000 }))
   }
   const crew = CREW.filter(id => s.tools[id])
   const isScared = pressure > 0 || flooded

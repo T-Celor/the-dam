@@ -9,12 +9,16 @@ import { pressureOf, stockOf } from './model'
 import { counterEntries, formatCount } from './scene'
 
 const WHITE = 0xffffff
+const INK_LINE = 0x121212
+const GRASS = 0x87af5f
+const GRASS_DARK = 0x5f875f
+const STORM_FROM = 70
 // The terminal rounds every colour to the xterm 256 cube, which turns browns mauve and greens mint.
 // So the picture only uses colours of that cube: what is asked for is what shows, on any terminal.
 const PALETTE = [
   0x87af5f, 0x5f875f, 0xd7d787, 0xafaf87,
   0x0087d7, 0x00afd7, 0x005f87, 0xffffff, 0xd7ffff,
-  0xaf875f, 0x875f00, 0xd7af5f, 0xffd787,
+  0xaf875f, 0x875f00, 0xaf5f00, 0xd7af5f, 0xffd787,
   0x008700, 0x005f00, 0x00875f, 0x005f5f,
   0xffd700, 0x875fd7, 0x0087af, 0xd75f00,
 ]
@@ -113,6 +117,27 @@ function drawGame(c: Canvas, s: Stats, t: number) {
   }
 }
 
+// At this size a shape only reads against its neighbour with a dark edge, as in pixel art.
+function drawFaces(c: Canvas, faces: readonly Face[], scale: number, dx = 0, dy = 0, angle = 0, alpha = 1) {
+  const reachY = c.ratio ?? 1
+  for (let i = 0; i < faces.length; i++) {
+    const group = faces[i]?.group
+    const isFirst = group !== undefined && faces[i - 1]?.group !== group
+    if (isFirst && alpha > 0.5) {
+      let end = i
+      while (faces[end]?.group === group) end++
+      for (const [ox, oy] of [[-1, 0], [1, 0], [0, -reachY], [0, reachY]] as const) {
+        for (let n = i; n < end; n++) {
+          const face = faces[n]
+          if (face) fillFace(c, { ...face, color: INK_LINE, alpha: 1 }, scale, dx + ox / scale, dy + oy / scale, angle)
+        }
+      }
+    }
+    const face = faces[i]
+    if (face) fillFace(c, face, scale, dx, dy, angle, alpha)
+  }
+}
+
 type Still = { key: string; world: World; ground: Uint32Array; solids: Uint32Array; scale: number }
 let still: Still | null = null
 
@@ -122,15 +147,20 @@ function stillFor(s: Stats, levels: Heat, width: number, height: number, ratio: 
   // A small panel looks closer in, so a tree is still a tree at 60 pixels across.
   // A low panel steps back too, so the whole dam stays in frame.
   const tiles = (10 + 5 * clamp((width - 90) / 100, 0, 1)) * Math.max(1, 0.8 / ((height * ratio) / width))
-  const world = buildWorld(s, levels, { width: 640, top: 0, height: (640 * height * ratio) / width, tiles })
+  const world = buildWorld(s, levels, { width: 640, top: 0, height: (640 * height * ratio) / width, tiles, isUntinted: true })
   const scale = width / 640
   const layer = (faces: readonly Face[], base: number) => {
     const c: Canvas = { width, height, ratio, pixels: new Uint32Array(width * height).fill(base) }
-    for (const face of faces) fillFace(c, face, scale)
+    drawFaces(c, faces, scale)
 
     return c.pixels
   }
-  still = { key, world, scale, ground: layer(world.ground, 0x7cb661), solids: layer(world.solids.flatMap(piece => piece.faces), CLEAR) }
+  const ground = layer(world.ground, 0x7cb661)
+  // High water darkens the land only, so the dam keeps its colours when it matters most.
+  if ((s.river ?? s.context?.percent ?? 0) >= STORM_FROM) {
+    for (let i = 0; i < ground.length; i++) if (snap(ground[i] ?? 0) === GRASS) ground[i] = GRASS_DARK
+  }
+  still = { key, world, scale, ground, solids: layer(world.solids.flatMap(piece => piece.faces), CLEAR) }
 
   return still
 }
@@ -143,7 +173,7 @@ export function renderPixels(s: Stats, levels: Heat, t: number, width: number, h
   const drawMovers = (movers: World['flow']) => {
     for (const m of movers) {
       const pose = poseOf(m, world.path, t)
-      for (const face of m.faces) fillFace(c, face, scale, pose.dx, pose.dy, pose.angle, pose.alpha)
+      drawFaces(c, m.faces, scale, pose.dx, pose.dy, pose.angle, pose.alpha)
     }
   }
   drawMovers(world.flow)
