@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { earnedFrom, gainNote, isOverwhelmed, NO_MATERIALS, nextRiver, nextWear, pressureOf, stockOf, strengthOf, visibleCount } from './model'
 import type { Stats } from '../types'
 import { counterLine, frameCells, quadrantOf, renderPixels } from './raster'
-import { COLD, cool, damScene, EMPTY, fallWidth, formatCount, isFlooded, levelOf, nextPennants, sceneAlt, starsOf, twigCount, usedBy, warm } from './scene'
+import { COLD, cool, damScene, EMPTY, fallWidth, formatCount, isFlooded, levelOf, nextPennants, sceneAlt, twigCount, usedBy, warm } from './scene'
 import { candidates, compressRequest, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, teBootFrom } from './tools'
 
 const PANE = {
@@ -98,7 +98,6 @@ test('1M saved at full context then cleaned: bounded loss, full repair, no wipeo
   expect(wear.twigs).toBeLessThan(0.001)
   expect(damScene(at(20, 50_000), COLD)).toContain('next star: 100k tokens saved')
   expect(counterLine(at(20, 50_000), 90).map(([text]) => text).join('')).toContain('stars 2/5 (next at 100k saved)')
-  expect(starsOf(RICH.saved)).toBe(4)
 })
 
 test('only a weak dam is swept away by a full context', () => {
@@ -145,7 +144,7 @@ test('the terminal frame fills its box, moves with time, and shows the data', ()
     for (const [width, height] of [[24, 6], [60, 48], [200, 100]] as const) expect(renderPixels(state, COLD, 3.3, width, height).length).toBe(width * height)
   }
   const line = counterLine({ ...RICH, wear: { twigs: 0.1, logs: 0, trunks: 0 } }, 60).map(([text]) => text).join('')
-  expect(line).toBe('river 1M/1M twigs 9k -1k logs 30 trunks 8 stars 4/5')
+  expect(line).toBe('river 1M/1M twigs 9k -1k logs 30 trunks 8')
   expect(frameCells(at(50), COLD, 1, 30, 10).length).toBe(4800)
   expect(quadrantOf([5, 5, 5, 5])).toEqual([0x20, 5, 5])
   expect(quadrantOf([0xffffff, 0xffffff, 0, 0])).toEqual([0x2580, 0xffffff, 0])
@@ -169,13 +168,6 @@ test('a check announces only what is new', () => {
 test('tool figures are read from their own output', () => {
   expect(parseEconomizer('{"toolprune":{"applied":[1,2]},"microskills":{"injected_lines":5}}')).toEqual({ pruned: 2, facts: 5 })
   expect(graphNodes('{"nodes":[{},{}]}')).toBe(2)
-})
-
-test('stars mark each tenfold saving', () => {
-  expect([0, 999, 1_000, 10_000, 1_000_000, 10_000_000, 1e12].map(starsOf)).toEqual([0, 0, 1, 2, 4, 5, 5])
-  const gold = (saved: number) => countOf(damScene(at(20, saved), COLD), 'class="star on"')
-  expect(gold(0)).toBe(0)
-  expect(gold(50_000)).toBe(2)
 })
 
 test('bringing high water down wins a pennant, a full context loses half', () => {
@@ -213,7 +205,6 @@ test('the alternative carries every figure the picture shows', () => {
   expect(alt).toContain('Messages')
   expect(alt).toContain('50 twigs')
   expect(alt).toContain('5k tokens saved')
-  expect(alt).toContain('1 of 5 stars')
   expect(alt).toContain('0 floods averted')
   expect(sceneAlt(at(100, 0))).toContain('torrent')
   expect(sceneAlt(EMPTY)).toContain('not measured')

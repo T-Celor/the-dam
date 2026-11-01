@@ -5,7 +5,7 @@ import type { ProxyState, Stats } from '../types'
 import type { Materials } from './model'
 import { earnedFrom, gainNote, nextRiver, nextWear, NO_MATERIALS, pressureOf } from './model'
 import { frameCells } from './raster'
-import { COLD, cool, damScene, EMPTY, MOST_ASPECT, nextPennants, sceneAlt, starsOf, strengthFor, usedBy, warm } from './scene'
+import { COLD, cool, damScene, EMPTY, MOST_ASPECT, nextPennants, sceneAlt, strengthFor, usedBy, warm } from './scene'
 import type { Located } from './tools'
 import {
   candidates,
@@ -316,7 +316,6 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>)
     const saved = Number((await $.store.get(savedKey(projectCwd))) ?? 0) + gain
     await $.store.set(savedKey(projectCwd), saved)
     await update($, stats, current => ({ ...current, saved, earned: { ...current.earned, twigs: Math.floor(saved / 100) } }))
-    if (starsOf(saved) > starsOf(saved - gain)) void celebrate($)
   }
 
   return { ...record, [field]: result.text + squeezeNote(result.before, result.after, path) }

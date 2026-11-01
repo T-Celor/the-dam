@@ -6,7 +6,7 @@ import { blend, clamp, noise } from './engine'
 import type { Face, World } from './iso'
 import { buildWorld, poseOf, strengthFor } from './iso'
 import { pressureOf, stockOf } from './model'
-import { formatCount, nextStarAt, starsOf } from './scene'
+import { formatCount } from './scene'
 
 const WHITE = 0xffffff
 const CLEAR = 0xffffffff
@@ -70,16 +70,6 @@ function fillFace(c: Canvas, face: Face, scale: number, dx = 0, dy = 0, angle = 
 
 function drawGame(c: Canvas, s: Stats, t: number) {
   const size = Math.max(1, Math.floor(c.width / 90))
-  const earned = starsOf(s.saved)
-  for (let i = 0; i < 5; i++) {
-    const x = 2 + i * 4 * size
-    const y = 2
-    const isOn = i < earned
-    const shine = isOn && Math.floor(t * 2 + i) % 5 === 0
-    const color = isOn ? (shine ? 0xfff2a8 : 0xf2bf2e) : 0x3b2a1a
-    fill(c, x + size, y, size, size * 3, color)
-    fill(c, x, y + size, size * 3, size, color)
-  }
   for (let i = 0; i < Math.min(7, s.pennants); i++) {
     const x = c.width - 4 - i * 4 * size
     const flap = Math.floor(t * 3 + i) % 2
@@ -160,15 +150,6 @@ const INK = 0xffffff
 const LOST = 0xffb27a
 const PANEL = 0x10100e
 
-// A star is earned at each tenfold saving, so the row says how many there are and what the next one takes.
-function starWords(saved: number, columns: number): Array<[string, number]> {
-  if (columns < 54) return []
-  const next = nextStarAt(saved)
-  const goal = columns >= 80 && next !== null ? ` (next at ${formatCount(next)} saved)` : ''
-
-  return [[` stars ${starsOf(saved)}/5${goal}`, 0xf2bf2e]]
-}
-
 // The bottom row is text, so the counters stay sharp whatever the panel's size.
 export function counterLine(s: Stats, columns: number): Array<[string, number]> {
   const stock = stockOf(s.earned, s.wear)
@@ -184,7 +165,6 @@ export function counterLine(s: Stats, columns: number): Array<[string, number]> 
     ...piece(words[1] ?? '', stock.twigs, s.earned.twigs),
     ...piece(words[2] ?? '', stock.logs, s.earned.logs),
     ...piece(words[3] ?? '', stock.trunks, s.earned.trunks),
-    ...starWords(s.saved, columns),
   ]
 }
 

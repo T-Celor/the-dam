@@ -24,13 +24,11 @@ All of it is in `hooks/model.ts`.
 - At a full context a dam with S below 0.4 is swept away. A stronger dam holds and leaks.
 - When you clean the context, the river drains by half the gap every 15 seconds.
 
-Tokens saved and stars are never lost.
+Tokens saved are never lost.
 
 graphify only counts where a project already has a graph: the plugin never creates `graphify-out/` by itself.
 
 ## The game
-
-Stars are your savings level: you earn one at 1k, 10k, 100k, 1M and 10M tokens saved in this project, and you never lose them. The picture says what the next one takes. Earning one sets off confetti.
 
 Bring the water down by at least 20 points from 70% or more, usually by compacting, and you win a pennant for this project. Reaching 100% loses half of them. Below 30% the water is calm and fish jump.
 

@@ -1,5 +1,5 @@
 import type { CritterId, Heat, Stats } from '../types'
-import { clamp, linear, num, radial, repeat, seeded } from './engine'
+import { clamp, num, radial, repeat, seeded } from './engine'
 import type { Face, Mover, World } from './iso'
 import { buildWorld, isFlooded, strengthFor } from './iso'
 import { NO_MATERIALS, pressureOf, stockOf } from './model'
@@ -59,17 +59,10 @@ export function formatCount(n: number): string {
   return String(Math.round(n))
 }
 
-const STAR_AT = [1_000, 10_000, 100_000, 1_000_000, 10_000_000]
 const MAX_PENNANTS = 7
 const AVERT_FROM = 70
 const AVERT_DROP = 20
 const CALM_BELOW = 30
-
-export const nextStarAt = (saved: number): number | null => STAR_AT.find(at => saved < at) ?? null
-
-export function starsOf(saved: number): number {
-  return STAR_AT.filter(at => saved >= at).length
-}
 
 // The game's one rule: bring high water down and earn a pennant; let it reach the top and lose half.
 export function nextPennants(pennants: number, before: number | null, after: number): number {
@@ -134,23 +127,6 @@ function drawWorld(world: World): string {
   return `${drawFaces(world.ground, whole, true)}${world.isFlooded ? `<g class="rush">${flow}</g>` : flow}${solids}${world.top.map(drawMover).join('')}`
 }
 
-const STAR = 'M0-9L2.600-3 9-2.600 4.200 1.600 5.600 8 0 4.700-5.600 8-4.200 1.600-9-2.600-2.600-3Z'
-
-function drawStars(saved: number): string {
-  const stars = starsOf(saved)
-  const next = nextStarAt(saved)
-  const goal = next === null ? 'all stars earned' : `next star: ${formatCount(next)} tokens saved`
-  const row = STAR_AT.map((_, i) => {
-    const place = `translate(${28 + i * 23} 26)`
-
-    return i < stars
-      ? `<g transform="${place}"><circle r="14" fill="url(#halo)"/><path class="star on" d="${STAR}" fill="url(#gold)" stroke="#8a6410" stroke-width="1" style="animation-delay:${i * -0.5}s"/></g>`
-      : `<path class="star" transform="${place}" d="${STAR}" fill="#2b1a0e" fill-opacity=".55" stroke="#c9a06a" stroke-width=".8"/>`
-  }).join('')
-
-  return `<g transform="scale(1.3)"><rect x="12" y="11" width="124" height="30" rx="7" fill="#1c1009" opacity=".35" transform="translate(0 2)"/><rect x="12" y="11" width="124" height="30" rx="7" fill="url(#bark)"/>${row}<text x="141" y="30" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#fff" stroke="#10100e" stroke-width="2.500" paint-order="stroke">${goal}</text></g>`
-}
-
 // Flags on a rope slung across the top corner.
 function drawPennants(count: number): string {
   const shown = Math.min(MAX_PENNANTS, count)
@@ -174,9 +150,6 @@ function drawParty(): string {
 
 function drawDefs(extra: number): string {
   return `<defs>${[
-    linear('bark', [[0, '#b17f4d'], [0.42, '#7d5230'], [1, '#2f1c0e']]),
-    radial('halo', [[0, '#fff3c4', 0.85], [1, '#fff3c4', 0]]),
-    linear('gold', [[0, '#ffe680'], [1, '#e29a12']]),
     radial('edge', [[0.72, '#000', 0], [1, '#04121c', 0.2]]),
   ].join('')}<clipPath id="frame"><rect y="${-extra}" width="${WIDTH}" height="${HEIGHT + extra}" rx="14"/></clipPath></defs>`
 }
@@ -198,7 +171,6 @@ svg{display:block;width:100%;height:100%}
 .bob{animation:bob 1.3s ease-in-out infinite alternate}
 .shake{animation:shake .3s ease-in-out infinite}
 .flap{transform-box:fill-box;transform-origin:top center;animation:flap 1s ease-in-out infinite alternate}
-.on{transform-box:fill-box;transform-origin:center;animation:twinkle 2.4s ease-in-out infinite alternate}
 .flash{opacity:0;animation:flash 7s linear infinite}
 .confetti{opacity:0;animation:confetti 2s ease-in 2 forwards}
 @keyframes ride{0%{offset-distance:var(--a);opacity:0}8%{opacity:1}92%{opacity:1}100%{offset-distance:var(--b);opacity:0}}
@@ -210,7 +182,6 @@ svg{display:block;width:100%;height:100%}
 @keyframes bob{from{transform:translateY(-3px)}to{transform:translateY(3px)}}
 @keyframes shake{25%{transform:translateX(-1px)}75%{transform:translateX(1px)}}
 @keyframes flap{from{transform:skewX(-9deg)}to{transform:skewX(11deg)}}
-@keyframes twinkle{to{transform:scale(1.14)}}
 @keyframes flash{0%,91%,93%,100%{opacity:0}92%,94%{opacity:.4}}
 @keyframes confetti{0%{opacity:1;transform:none}100%{opacity:1;transform:translateY(500px) rotate(520deg)}}
 svg:hover *{animation-play-state:paused}
@@ -252,7 +223,7 @@ export function damScene(s: Stats, levels: Heat, aspect = HEIGHT / WIDTH): strin
   const world = buildWorld(s, levels, { width: WIDTH, top: -extra, height: tall, tiles: TILES })
   const flash = pressure > 0.6 ? `<rect class="flash" y="${-extra}" width="${WIDTH}" height="${tall}" fill="#fff"/>` : ''
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-extra} ${WIDTH} ${tall}" shape-rendering="crispEdges" role="img"><title>${sceneAlt(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</title>${styleFor(world.path)}${drawDefs(extra)}<g clip-path="url(#frame)"><rect y="${-extra}" width="${WIDTH}" height="${tall}" fill="#7cb661"/><g class="${pressure > 0.4 ? 'shake' : 'world'}">${drawWorld(world)}</g>${flash}<rect y="${-extra}" width="${WIDTH}" height="${tall}" fill="url(#edge)"/><g transform="translate(0 ${-extra})">${drawStars(s.saved)}${drawPennants(s.pennants)}</g>${drawCounters(s)}${s.isParty ? drawParty() : ''}</g></svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-extra} ${WIDTH} ${tall}" shape-rendering="crispEdges" role="img"><title>${sceneAlt(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</title>${styleFor(world.path)}${drawDefs(extra)}<g clip-path="url(#frame)"><rect y="${-extra}" width="${WIDTH}" height="${tall}" fill="#7cb661"/><g class="${pressure > 0.4 ? 'shake' : 'world'}">${drawWorld(world)}</g>${flash}<rect y="${-extra}" width="${WIDTH}" height="${tall}" fill="url(#edge)"/><g transform="translate(0 ${-extra})">${drawPennants(s.pennants)}</g>${drawCounters(s)}${s.isParty ? drawParty() : ''}</g></svg>`
 }
 
 export function sceneAlt(s: Stats): string {
@@ -267,5 +238,5 @@ export function sceneAlt(s: Stats): string {
   const dam = isFlooded(s) ? 'A torrent is sweeping over the dam' : pressure > 0 ? 'The dam is leaking' : 'The dam holds'
   const lost = s.earned.twigs - stock.twigs + (s.earned.logs - stock.logs) + (s.earned.trunks - stock.trunks)
 
-  return `${water}. ${dam}: ${formatCount(stock.twigs)} twigs, ${formatCount(stock.logs)} logs, ${formatCount(stock.trunks)} trunks${lost > 0 ? `, ${formatCount(lost)} washed away` : ''}. ${formatCount(s.saved)} tokens saved in this project, ${starsOf(s.saved)} of ${STAR_AT.length} stars, ${s.pennants} floods averted.`
+  return `${water}. ${dam}: ${formatCount(stock.twigs)} twigs, ${formatCount(stock.logs)} logs, ${formatCount(stock.trunks)} trunks${lost > 0 ? `, ${formatCount(lost)} washed away` : ''}. ${formatCount(s.saved)} tokens saved in this project, ${s.pennants} floods averted.`
 }
