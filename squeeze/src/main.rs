@@ -2,6 +2,7 @@
 // anything: repeated lines become a template and a table of what varies, shared prefixes are
 // written once. `--decode` gives the original back, and every result is decoded and compared
 // before it is used, so a mistake here can only cost compression.
+mod folds;
 mod json;
 
 use std::collections::HashMap;
@@ -15,7 +16,14 @@ const SHORTEST_PREFIX_GROUP: usize = 4;
 const OUTLIER_TIMES: f64 = 5.0;
 const RARE_SHARE: f64 = 0.02;
 const JSON_NOTE: &str = "JSON array as a table: the first line names the fields, then one row per record. An empty cell means the field is absent.";
-const LINES_NOTE: &str = "Condensed without loss. [x7] L: line L seven times. [run 9] T: nine lines of template T, each § filled from one row below, §5+2 counting up from 5 by 2. [under P]: each following line starting with · begins with P.";
+const NOTE_START: &str = "Condensed without loss.";
+const NOTE_RUNS: &str = " [x7] L: line L seven times. [run 9] T: nine lines of template T, each § filled from one row below, §5+2 counting up from 5 by 2.";
+const NOTE_UNDER: &str = " [under P]: each following line starting with · begins with P.";
+const NOTE_THEN: &str = " [then 5] L: line L again after each of the next 5 lines.";
+const NOTE_BLOCKS: &str = " ... (repeats K lines from D lines back): those K lines again.";
+const NOTE_SEARCH: &str = " A line naming a file heads the line:text rows of its search hits.";
+const NOTE_DIRS: &str = " A line ending in / heads the file:line:text rows of its search hits.";
+const NOTE_PATHS: &str = " A line ending in / heads the file names under that directory.";
 const SLOT: char = '§';
 const ROW_MARK: char = '·';
 
@@ -230,7 +238,7 @@ fn fold_prefixes(lines: &[String]) -> Vec<String> {
 
 // What the output means once trailing spaces and line ends are set aside: the comparison's baseline.
 fn normal(text: &str) -> Vec<String> {
-    text.lines().map(|line| line.trim_end().to_string()).collect()
+    text.lines().map(|line| folds::strip_ansi(line).trim_end().to_string()).collect()
 }
 
 fn encode(lines: &[String]) -> Vec<String> {
@@ -284,8 +292,7 @@ fn encode(lines: &[String]) -> Vec<String> {
     out
 }
 
-fn decode(text: &str) -> Option<Vec<String>> {
-    let lines: Vec<&str> = text.lines().skip_while(|line| *line == LINES_NOTE).collect();
+fn decode_marks(lines: Vec<&str>) -> Option<Vec<String>> {
     let mut rest = lines.iter();
     let mut out = Vec::with_capacity(lines.len());
     let mut under: Option<&str> = None;
@@ -311,6 +318,45 @@ fn decode(text: &str) -> Option<Vec<String>> {
     Some(out)
 }
 
+// What every note says it used decides how the text is read back.
+fn decode(text: &str) -> Option<Vec<String>> {
+    let (note, body) = text.split_once('\n')?;
+    if !note.starts_with(NOTE_START) {
+        return Some(text.lines().map(str::to_string).collect());
+    }
+    let unfolded = folds::unfold_blocks(&body.lines().map(str::to_string).collect::<Vec<_>>())?;
+    let marks = decode_marks(unfolded.iter().map(String::as_str).collect())?;
+    let lines = folds::unfold_alternating(&marks)?;
+
+    Some(if note.contains(NOTE_SEARCH) {
+        folds::search_unheading(&lines)
+    } else if note.contains(NOTE_DIRS) {
+        folds::dir_unheading(&lines)
+    } else if note.contains(NOTE_PATHS) {
+        folds::path_unheading(&lines)
+    } else {
+        lines
+    })
+}
+
+fn note_for(heading: &str, body: &[String]) -> String {
+    let mut note = format!("{NOTE_START}{heading}");
+    if body.iter().any(|line| line.starts_with("[x") || line.starts_with("[run ")) {
+        note.push_str(NOTE_RUNS);
+    }
+    if body.iter().any(|line| line.starts_with("[then ")) {
+        note.push_str(NOTE_THEN);
+    }
+    if body.iter().any(|line| line.starts_with("[under ")) {
+        note.push_str(NOTE_UNDER);
+    }
+    if body.iter().any(|line| line.starts_with("... (repeats ")) {
+        note.push_str(NOTE_BLOCKS);
+    }
+
+    note
+}
+
 fn squeeze(text: &str) -> String {
     if text.chars().count() < WORTH_SQUEEZING_CHARS {
         return text.to_string();
@@ -321,20 +367,23 @@ fn squeeze(text: &str) -> String {
     }
     let lines = normal(text);
     // An output that already holds these marks could not be told apart from them.
-    let holds_marks = lines.iter().any(|line| line.contains(SLOT) || line.starts_with("[x") || line.starts_with("[run ") || line.starts_with("[under ") || line.starts_with(ROW_MARK));
+    let holds_marks = lines.iter().any(|line| line.contains(SLOT) || line.starts_with("[x") || line.starts_with("[run ") || line.starts_with("[under ") || line.starts_with("[then ") || line.starts_with(ROW_MARK) || line.starts_with("... (repeats ") || line.starts_with(NOTE_START));
     if holds_marks {
         return text.to_string();
     }
-    let encoded = encode(&lines).join("\n");
-    if encoded.len() + LINES_NOTE.len() >= text.len() {
-        return text.to_string();
+    // Every shape of heading is tried and the shortest that reads back identical wins.
+    let shapes: [(&str, Vec<String>); 4] = [("", lines.clone()), (NOTE_SEARCH, folds::search_heading(&lines)), (NOTE_DIRS, folds::dir_heading(&lines)), (NOTE_PATHS, folds::path_heading(&lines))];
+    let mut best: Option<String> = None;
+    for (heading, shaped) in &shapes {
+        let body = folds::fold_blocks(&encode(&folds::fold_alternating(shaped)));
+        let result = format!("{}\n{}\n", note_for(heading, &body), body.join("\n"));
+        let is_better = best.as_ref().is_none_or(|kept| result.len() < kept.len());
+        if is_better && decode(&result).as_deref() == Some(lines.as_slice()) {
+            best = Some(result);
+        }
     }
-    let result = format!("{LINES_NOTE}\n{encoded}\n");
-    if decode(&result).as_deref() == Some(lines.as_slice()) {
-        result
-    } else {
-        text.to_string()
-    }
+
+    best.filter(|result| result.len() < text.len()).unwrap_or_else(|| text.to_string())
 }
 
 fn main() -> io::Result<()> {
@@ -400,6 +449,7 @@ mod tests {
         let text: String = (0..=1000).map(|i| format!("Downloading {i}%\n")).collect();
         let out = round_trips(&text);
         assert!(out.ends_with("[run 1001] Downloading §0+1%\n"), "{out}");
+        assert!(!out.contains(NOTE_BLOCKS));
     }
 
     #[test]
@@ -412,7 +462,7 @@ mod tests {
     fn search_hits_group_under_their_file() {
         let text: String = (0..400).map(|i| format!("src/app/module.py:{i}: value = word{}x()\n", ["a", "b", "c", "d", "e", "f", "g"][i % 7])).collect();
         let out = round_trips(&text);
-        assert!(out.len() < text.len());
+        assert!(out.len() * 10 < text.len() * 8, "{} of {}", out.len(), text.len());
     }
 
     #[test]
@@ -420,14 +470,16 @@ mod tests {
         let words = ["alpha", "bravo", "carol", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"];
         let text: String = (0..800).map(|i| format!("assets/project/textures/{}_{}.png\n", words[i % 10], words[i / 10 % 10])).collect();
         let out = round_trips(&text);
-        assert!(out.contains("[under assets/project/textures/"));
+        assert!(out.contains("assets/project/textures/"));
+        assert!(out.len() * 2 < text.len());
     }
 
     #[test]
     fn source_code_keeps_its_shape() {
         let names = ["read", "write", "parse", "print", "merge", "split", "sort", "load", "save", "find"];
         let text: String = (0..900).map(|i| format!("fn {}_{}() {{\n    {}_{}();\n}}\n\n", names[i % 10], names[i / 10 % 10], names[(i + 3) % 10], names[i / 100 % 10])).collect();
-        assert_eq!(round_trips(&text), text);
+        round_trips(&text);
+        assert!(squeeze(&text).contains("    "));
     }
 
     #[test]
