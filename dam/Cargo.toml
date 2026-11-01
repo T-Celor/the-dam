@@ -1,6 +1,6 @@
 [package]
 name = "dam"
-version = "0.13.0"
+version = "0.14.0"
 edition = "2021"
 description = "Lossless output compression, a local code graph and agent hooks for Claude Code."
 license = "Apache-2.0"
@@ -15,4 +15,5 @@ panic = "abort"
 [dependencies]
 fancy-regex = "0.13"
 md5 = "0.7"
+sha1_smol = "1"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }

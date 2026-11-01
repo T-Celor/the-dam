@@ -23,3 +23,9 @@ jobs:
       - name: Lint
         working-directory: dam
         run: cargo clippy --locked --all-targets
+      - name: Build
+        working-directory: dam
+        run: cargo build --release --locked
+      - name: Run the programs end to end
+        shell: bash
+        run: sh scripts/smoke.sh

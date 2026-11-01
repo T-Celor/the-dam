@@ -6,6 +6,8 @@ TE = os.path.expanduser('~') + '/TokenEconomizer'
 sys.path.insert(0, TE)
 from tokeneconomizer.plugin import hook as pyhook, judge as pyjudge, paths, repos
 from tokeneconomizer.plugin.hosts import ClaudeCode
+from tokeneconomizer.plugin import fold as pyfold
+pyfold.spawn_fold = lambda *a, **k: None
 
 pyjudge.spawn_job = lambda *a, **k: None   # no model call, on either side
 TEMP = os.environ.get('TEMP', '/tmp')
@@ -28,7 +30,7 @@ def run_rust(home, payload):
     return json.loads(r.stdout or b'{}')
 
 
-VOLATILE = {'started', 'updated', 'at', 'since'}
+VOLATILE = {'started', 'updated', 'at', 'since', 'ended'}
 
 
 def norm(v, key=''):
@@ -151,6 +153,7 @@ r = random.Random(5)
 streams = transcript_payloads('s')
 real = len(streams)
 streams += [loop_payloads(r) for _ in range(120)]
+streams = [s + [{'hook_event_name': 'SessionEnd', 'reason': r.choice(['exit', 'clear', None])}] for s in streams] + [[{'hook_event_name': 'SessionEnd', 'reason': 'exit'}]]
 bad, events, outs, kinds = 0, 0, 0, {}
 py_times, rust_times = [], []
 for n, stream in enumerate(streams):

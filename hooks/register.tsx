@@ -76,6 +76,7 @@ async function locate($: Dollar): Promise<Located> {
     squeezer: await firstExisting($, candidates('dam-squeeze', $.plugin.root, home)),
     graph: await firstExisting($, candidates('dam-graph', $.plugin.root, home)),
     ponytail: await firstExisting($, candidates('dam-ponytail', $.plugin.root, home)),
+    economizer: await firstExisting($, candidates('dam-economizer', $.plugin.root, home)),
     python: await firstPython($, [envPython, uvPython, 'python3', 'py'].filter(name => !!name) as string[]),
     teBoot: `${$.plugin.root}/scripts/te_bootstrap.py`,
   }
@@ -239,7 +240,7 @@ async function refreshContext($: Dollar) {
 async function readSources($: Dollar, tools: Located, saved: number) {
   const [economizer, graph] = await Promise.all([
     attempt(async () =>
-      tools.python && tools.teBoot ? parseEconomizer((await $.process.run([tools.python, tools.teBoot, 'cli', 'status', '--json'])).stdout) : null,
+      tools.economizer ? parseEconomizer((await $.process.run([tools.economizer, 'status', '--json'])).stdout) : null,
     ),
     attempt(async () => graphNodes(await $.fs.read(GRAPH))),
   ])
@@ -255,7 +256,7 @@ async function refresh($: Dollar) {
     ...current,
     ...gains,
     context: context ?? current.context,
-    tools: { squeezer: !!tools.squeezer, graphify: !!tools.graph, ponytail: !!tools.ponytail, economizer: !!tools.python },
+    tools: { squeezer: !!tools.squeezer, graphify: !!tools.graph, ponytail: !!tools.ponytail, economizer: !!tools.economizer },
     isCompressing: !isOff,
     hasGraph: graph !== null,
   }))

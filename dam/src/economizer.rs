@@ -2,6 +2,7 @@
 // controller.py, store.py, config.py, hosts.py and judge.py. The prompt-turn hooks run here on the
 // same state files. Whatever is not ported yet goes to the Python: session start and end, other
 // agents, a session not yet pinned to a repository, the repository map, the judge's own job.
+use crate::config::{plain_text, Config};
 use crate::loopguard::{BackgroundJudge, EnvelopeTracker, Judge, Thresholds, TurnGuard};
 use fancy_regex::Regex;
 use serde_json::{json, Map, Value};
@@ -32,7 +33,7 @@ fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64())
 }
 
-fn state_root() -> PathBuf {
+pub(crate) fn state_root() -> PathBuf {
     if let Some(home) = env("TOKENECONOMIZER_HOME") {
         return PathBuf::from(home);
     }
@@ -117,12 +118,12 @@ fn dumps(value: &Value, indent: Option<usize>) -> String {
     out
 }
 
-struct Store {
-    base: PathBuf,
+pub(crate) struct Store {
+    pub(crate) base: PathBuf,
 }
 
 impl Store {
-    fn read(&self, name: &str) -> Option<Value> {
+    pub(crate) fn read(&self, name: &str) -> Option<Value> {
         serde_json::from_slice(&fs::read(self.base.join(name)).ok()?).ok()
     }
 
@@ -165,147 +166,6 @@ impl Store {
         }
 
         Some(file)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Config {
-    enabled: bool,
-    mode: String,
-    loopguard: String,
-    aggr: String,
-    nudges: i64,
-    thresholds: Thresholds,
-    repomap: String,
-    shadow: bool,
-}
-
-fn canonical(key: &str) -> &str {
-    match key {
-        "spiral" => "loopguard",
-        "spiral_aggr" => "loopguard_aggr",
-        "spiral_nudges" => "loopguard_nudges",
-        "spiral_thresholds" => "loopguard_thresholds",
-        other => other,
-    }
-}
-
-fn plain_text(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        Value::Bool(true) => "True".to_string(),
-        Value::Bool(false) => "False".to_string(),
-        other => other.to_string(),
-    }
-}
-
-fn threshold_range(name: &str) -> Option<(bool, f64, Option<f64>)> {
-    Some(match name {
-        "min_turns" | "edit_churn" | "distinct_edit_files" | "error_outputs" | "envelope_min_samples" | "gate_min_turns" | "gate_error_outputs" => (true, 1.0, None),
-        "stagnation" | "judge_confidence" => (false, 0.0, Some(1.0)),
-        "envelope_pct" => (false, 1.0, Some(100.0)),
-        "envelope_margin" | "backstop_mult" => (false, 0.1, None),
-        _ => return None,
-    })
-}
-
-impl Config {
-    fn new() -> Self {
-        Config { enabled: true, mode: "auto".to_string(), loopguard: "nudge".to_string(), aggr: "default".to_string(), nudges: 1, thresholds: Map::new(), repomap: "off".to_string(), shadow: false }
-    }
-
-    fn set_threshold(&mut self, name: &str, value: &Value) {
-        let Some((is_int, low, high)) = threshold_range(name) else { return };
-        if value.is_boolean() {
-            return;
-        }
-        let number = value.as_f64().or_else(|| value.as_str().and_then(|text| text.trim().parse().ok()));
-        let Some(number) = number.filter(|n: &f64| n.is_finite()) else { return };
-        if is_int && value.is_string() && number.fract() != 0.0 {
-            return;
-        }
-        let number = if is_int { number.trunc() } else { number };
-        if number < low || high.is_some_and(|top| number > top) {
-            return;
-        }
-        let stored = if is_int { json!(number as i64) } else { json!(number) };
-        self.thresholds.insert(name.to_string(), stored);
-    }
-
-    // Invalid values are ignored, as a typo in a config file must not break the agent's hooks.
-    pub fn set(&mut self, key: &str, value: &Value) {
-        if let Some(name) = key.strip_prefix("loopguard.").or(key.strip_prefix("spiral.")) {
-            self.set_threshold(name, value);
-            return;
-        }
-        let word = plain_text(value).trim().to_lowercase();
-        let switch = |on_value: &str, aliases: bool, choices: &[&str]| -> Option<String> {
-            let chosen = match word.as_str() {
-                "on" | "true" | "yes" | "1" | "enable" | "enabled" => on_value.to_string(),
-                "off" | "false" | "no" | "0" | "disable" | "disabled" => "off".to_string(),
-                "guard" if aliases => "stop".to_string(),
-                _ => plain_text(value).trim().to_string(),
-            };
-            choices.contains(&chosen.as_str()).then_some(chosen)
-        };
-        match canonical(key) {
-            "loopguard_thresholds" => {
-                for (name, item) in value.as_object().into_iter().flatten() {
-                    self.set_threshold(name, item);
-                }
-            }
-            "enabled" => self.enabled = value.as_bool().unwrap_or(matches!(word.as_str(), "1" | "true" | "yes" | "on")),
-            "shadow" => self.shadow = value.as_bool().unwrap_or(matches!(word.as_str(), "1" | "true" | "yes" | "on")),
-            "mode" if matches!(word.as_str(), "auto" | "interactive" | "headless") => self.mode = plain_text(value).trim().to_string(),
-            "loopguard_aggr" if matches!(word.as_str(), "conservative" | "default" | "aggressive") => self.aggr = plain_text(value).trim().to_string(),
-            "loopguard" => {
-                if let Some(chosen) = switch("nudge", true, &["off", "nudge", "stop"]) {
-                    self.loopguard = chosen;
-                }
-            }
-            "repomap" => {
-                if let Some(chosen) = switch("on", false, &["off", "on", "start"]) {
-                    self.repomap = chosen;
-                }
-            }
-            "loopguard_nudges" => {
-                let number = value.as_i64().or_else(|| value.as_f64().map(|n| n as i64)).or_else(|| value.as_bool().map(i64::from)).or_else(|| value.as_str().and_then(|text| text.trim().parse().ok()));
-                if let Some(number) = number.filter(|n| *n >= 1) {
-                    self.nudges = number;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn apply_file(&mut self, path: &Path) {
-        let Some(Value::Object(map)) = fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()) else { return };
-        // Within a file a new name wins over its old one.
-        for (key, value) in map.iter().filter(|(key, _)| canonical(key) != key.as_str()) {
-            self.set(key, value);
-        }
-        for (key, value) in map.iter().filter(|(key, _)| canonical(key) == key.as_str()) {
-            self.set(key, value);
-        }
-    }
-
-    fn load(root: &Path, repo_dir: &Path) -> Self {
-        let mut config = Config::new();
-        config.apply_file(&root.join("config.json"));
-        config.apply_file(&repo_dir.join("config.json"));
-        for (variable, key) in [("TE_MODE", "mode"), ("TE_SHADOW", "shadow"), ("TE_SPIRAL", "loopguard"), ("TE_SPIRAL_AGGR", "loopguard_aggr"), ("TE_SPIRAL_NUDGES", "loopguard_nudges"), ("TE_LOOPGUARD", "loopguard"), ("TE_LOOPGUARD_AGGR", "loopguard_aggr"), ("TE_LOOPGUARD_NUDGES", "loopguard_nudges"), ("TE_REPOMAP", "repomap")] {
-            if let Some(value) = env(variable) {
-                config.set(key, &json!(value));
-            }
-        }
-        for variable in ["TE_SPIRAL_THRESHOLDS", "TE_LOOPGUARD_THRESHOLDS"] {
-            if let Some(value) = env(variable).and_then(|text| serde_json::from_str::<Value>(&text).ok()) {
-                config.set("loopguard_thresholds", &value);
-            }
-        }
-        config.enabled &= !truthy(env("TE_DISABLE"));
-
-        config
     }
 }
 
@@ -409,7 +269,7 @@ fn is_claude(payload: &Value) -> bool {
     !(transcript.is_empty() && env("COPILOT_PLUGIN_ROOT").is_some())
 }
 
-fn pin_name(session: &str) -> String {
+pub(crate) fn pin_name(session: &str) -> String {
     let clean: String = session.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '_' }).take(200).collect();
 
     format!("{clean}.json")
@@ -472,6 +332,15 @@ fn run_python(raw: &[u8]) -> Option<Vec<u8>> {
     output.status.success().then_some(output.stdout)
 }
 
+pub fn run_python_cli(args: &[String]) -> i32 {
+    let (Some((program, prefix)), Some(script)) = (find_python(), bootstrap()) else {
+        eprintln!("te: this command still needs Python 3.10 or later, and none was found");
+        return 1;
+    };
+
+    Command::new(program).args(prefix).arg(script).arg("cli").args(args).env("PYTHONUTF8", "1").status().ok().and_then(|status| status.code()).unwrap_or(1)
+}
+
 #[cfg(windows)]
 fn detach(command: &mut Command, breakaway: bool) {
     use std::os::windows::process::CommandExt;
@@ -485,9 +354,9 @@ fn detach(command: &mut Command, _breakaway: bool) {
     command.process_group(0);
 }
 
-// The judge's own job stays in Python for now, in the background as before.
-// shortcut: without the Python's WMI fallback, a job the agent's Windows job object kills simply never answers, and the guard's stale limit covers that.
-fn spawn_judge(hook: &Hook, job: &str) -> Option<()> {
+// The judge's job and the fold of a finished session stay in Python for now, in the background as before.
+// shortcut: without the Python's WMI fallback, a job the agent's Windows job object kills simply never answers; the guard's stale limit covers the judge, and the next session start folds what was left.
+fn spawn_te(hook: &Hook, words: &[&str], log_name: &str) -> Option<()> {
     if env("TE_JUDGE_NO_SPAWN").is_some() {
         return Some(());
     }
@@ -495,9 +364,9 @@ fn spawn_judge(hook: &Hook, job: &str) -> Option<()> {
     let script = bootstrap()?;
     fs::create_dir_all(&hook.store.base).ok()?;
     for breakaway in [true, false] {
-        let log = OpenOptions::new().create(true).append(true).open(hook.store.base.join("judge.log")).ok()?;
+        let log = OpenOptions::new().create(true).append(true).open(hook.store.base.join(log_name)).ok()?;
         let mut command = Command::new(&program);
-        command.args(&args).arg(&script).args(["cli", "judge", "--session", &hook.session, "--job", job, "--host", "claude", "--cwd", &hook.repo.root]);
+        command.args(&args).arg(&script).arg("cli").args(words).args(["--host", "claude", "--cwd", &hook.repo.root]);
         command.current_dir(&hook.repo.root).env("PYTHONUTF8", "1").stdin(Stdio::null()).stdout(log.try_clone().ok()?).stderr(log);
         detach(&mut command, breakaway);
         if command.spawn().is_ok() {
@@ -529,7 +398,7 @@ impl BackgroundJudge for AsyncJudge<'_> {
         let job = format!("{}:{}:{}:{at:.3}", guard.turn_key, guard.segment, guard.judge_calls);
         let request = json!({"id": job, "session_id": self.hook.session, "turn_key": guard.turn_key, "segment": guard.segment, "digest": digest, "threshold": self.threshold, "at": at});
         self.hook.store.write(&format!("judge/{}.request.json", self.hook.session), &request).ok()?;
-        spawn_judge(self.hook, &job);
+        spawn_te(self.hook, &["judge", "--session", &self.hook.session, "--job", &job], "judge.log");
 
         Some(job)
     }
@@ -663,6 +532,22 @@ impl Hook {
         Ok(json!({}))
     }
 
+    fn session_end(&self) -> std::io::Result<Value> {
+        // An end with no start and no session log is no session to learn from.
+        let transcript = self.text("transcript_path");
+        if !self.store.base.join("sessions").join(format!("{}.json", self.session)).exists() && (transcript.is_empty() || !Path::new(&transcript).exists()) {
+            return Ok(json!({}));
+        }
+        let mut doc = self.session_doc();
+        self.close_turn(&mut doc, false)?;
+        doc["ended"] = json!(now());
+        doc["end_reason"] = self.field("reason").clone();
+        self.save(&mut doc)?;
+        spawn_te(self, &["fold", "--session", &self.session], "fold.log");
+
+        Ok(json!({}))
+    }
+
     fn is_headless(&self) -> bool {
         match self.config.mode.as_str() {
             "headless" => true,
@@ -743,6 +628,7 @@ impl Hook {
             "UserPromptSubmit" => self.user_prompt(),
             "PostToolUse" | "PostToolUseFailure" => self.post_tool(),
             "Stop" => self.stop(),
+            "SessionEnd" => self.session_end(),
             _ => Ok(json!({})),
         }
     }
@@ -751,7 +637,7 @@ impl Hook {
 // The hook this program answers itself, or None for one that goes to the Python.
 fn native_hook(payload: &Value) -> Option<Hook> {
     let event = payload.get("hook_event_name")?.as_str()?;
-    if !matches!(event, "UserPromptSubmit" | "PostToolUse" | "PostToolUseFailure" | "Stop") || !is_claude(payload) {
+    if !matches!(event, "UserPromptSubmit" | "PostToolUse" | "PostToolUseFailure" | "Stop" | "SessionEnd") || !is_claude(payload) || truthy(env("TE_FOLD_SYNC")) {
         return None;
     }
     let session = plain_text(payload.get("session_id").filter(|id| python_truthy(id))?);

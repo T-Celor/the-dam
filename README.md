@@ -72,13 +72,13 @@ claude plugin disable ponytail@ponytail
 
 Errors, warnings and values that stand out (a 503 among 200s) stay plain lines, and code keeps its shape. Every result is decoded and compared with the source before it is used; only trailing spaces and terminal colours may differ. If anything fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged. The original also stays in `~/.claude/the-dam-outputs/` (the last 20), and the model is told where.
 
-Compared with [Headroom](https://github.com/headroomlabs-ai/headroom) 0.42 in its default mode, on 43 real outputs of the size this plugin compresses:
+Compared with [Headroom](https://github.com/headroomlabs-ai/headroom) 0.42 in its token mode, on 43 real outputs of the size this plugin compresses:
 
 | | Headroom | `dam-squeeze` |
 |---|---|---|
-| Tokens saved (estimated, 4 characters per token) | **27.5%** | 24.1% |
-| Lines recoverable from the result | 69.7% | **100%** |
-| Median time per output | 45 ms warm, over 9 s cold | **15 ms** |
+| Tokens saved (estimated, 4 characters per token) | **27.3%** | 24.1% |
+| Lines recoverable from the result | 69.9% | **100%** |
+| Median time per output | about 8 s on a freshly started proxy, 45 ms warm in an earlier run | **15 ms** |
 | Memory | about 1 GB, always on | **11 MB peak on a 1.9 MB log** |
 
 Headroom saves more because it drops content past its caps, and it offers a retrieval tool to get that content back. The dam keeps every line. On code and listings with little repetition it saves little or nothing.
@@ -110,7 +110,7 @@ It also reports links graphify does not, and not all of them are verified. It is
 
 [TokenEconomizer](https://github.com/microsoft/TokenEconomizer) by Microsoft notices a turn repeating the same failure and redirects it, leaves out tools a repository never uses, and can learn repository facts. Its commands are here as `/the-dam:status`, `/the-dam:toolprune`, `/the-dam:config` and so on.
 
-The hooks that run on every prompt and tool call are ported to Rust (`dam-economizer`) and read the same state files. Replaying 7,519 hook events from real and made-up sessions through both gave identical answers and state. Session start and end, its commands and other agents still run on the bundled Python, unchanged.
+The hooks that run on every prompt and tool call, the end of a session and the `status` command are ported to Rust (`dam-economizer`) and read the same state files. Replaying 7,668 hook events from real and made-up sessions through both gave identical answers and state, and `status` matched on 89 repositories, settings and states, apart from how very small decimals are written in its JSON (the same value, `0.00007` rather than `7e-05`). The start of a session, learning from a finished session, the judge, the other commands and other agents still run on the bundled Python, unchanged.
 
 Its loop guard can call a model through your own Claude Code to judge a stuck turn, and its fact learning is off by default. Those calls are the only network use the plugin causes itself, and they appear in the `tokens spent` figure. `/the-dam:config` turns them off.
 
@@ -145,9 +145,10 @@ Peak memory on Windows: `dam-ponytail` 3.5 to 5.9 MB, `dam-graph` 10 MB on 145 f
 ## Limits
 
 - Token savings are estimates, not measured by a tokenizer. The counter covers compression only.
-- Prebuilt programs come from CI for Windows x64, Linux x64 and macOS. Only Windows has been tested by hand so far.
+- Prebuilt programs come from CI for Windows x64, Linux x64 and macOS. CI runs every program end to end on each (`scripts/smoke.sh`), with no model. Real Claude Code sessions have only been run on Windows.
 - The Windows programs are not signed, so Windows may warn about them.
 - The model has to read the condensed format, which may cost it some effort on heavily folded outputs.
+- TokenEconomizer is not all in Rust yet, so its remaining parts need Python 3.10 or later.
 - The bundled copies of TokenEconomizer and Ponytail do not follow their own releases.
 
 ## Development

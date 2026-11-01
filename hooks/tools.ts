@@ -4,6 +4,7 @@ export type Located = {
   python: string | null
   teBoot: string | null
   ponytail: string | null
+  economizer: string | null
 }
 
 export type Step = { label: string; argv: readonly string[] }
@@ -19,7 +20,7 @@ export function candidates(name: string, root: string, home: string | undefined)
 
 export function missingNames(found: Located): string[] {
   return [
-    found.squeezer && found.graph && found.ponytail ? null : 'dam',
+    found.squeezer && found.graph && found.ponytail && found.economizer ? null : 'dam',
     found.python ? null : 'Python',
   ].filter(name => name !== null)
 }
@@ -28,7 +29,7 @@ export function missingNames(found: Located): string[] {
 export function setupSteps(found: Located, root: string): Step[] {
   const steps: Step[] = []
   // The plugin ships a Windows build; elsewhere it builds from its own source.
-  if (!found.squeezer || !found.graph || !found.ponytail) steps.push({ label: 'dam', argv: ['cargo', 'install', '--path', `${root}/dam`] })
+  if (!found.squeezer || !found.graph || !found.ponytail || !found.economizer) steps.push({ label: 'dam', argv: ['cargo', 'install', '--path', `${root}/dam`] })
   if (!found.python) steps.push({ label: 'Python', argv: ['uv', 'python', 'install', '3.12'] })
 
   return steps

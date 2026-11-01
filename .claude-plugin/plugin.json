@@ -1,6 +1,6 @@
 {
   "name": "the-dam",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Spend fewer tokens without losing a line: lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.",
   "author": {
     "name": "Tristan Celor",

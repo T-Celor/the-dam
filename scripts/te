@@ -6,6 +6,14 @@ if [ "${OS:-}" = Windows_NT ]; then
   case $self in *\\*) self=$(printf '%s' "$self" | tr '\\' '/') ;; esac
 fi
 dir=$(CDPATH= cd -- "${self%/*}" && pwd)
+# What is ported runs without Python; the program hands back to it what it cannot answer.
+case " $* " in
+  *" status "*)
+    DAM_RUN_OR_FAIL=1 "$dir/dam-run" dam-economizer "$@"
+    code=$?
+    [ "$code" -ne 127 ] && exit "$code"
+    ;;
+esac
 # Session logs are UTF-8; without this, Python on Windows reads them in the ANSI code page.
 export PYTHONUTF8=1
 for py in "${TE_PYTHON:-}" python3 python py; do

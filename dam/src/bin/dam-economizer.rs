@@ -11,8 +11,12 @@ fn main() -> std::io::Result<()> {
             }
         }
         _ => {
-            eprintln!("usage: dam-economizer hook | replay");
-            std::process::exit(2);
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            match dam::status::run(&args) {
+                Some(text) => println!("{text}"),
+                // Not ported yet: the same command, handed over whole.
+                None => std::process::exit(dam::economizer::run_python_cli(&args)),
+            }
         }
     }
 

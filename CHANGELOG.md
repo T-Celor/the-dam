@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0
+
+- `dam-economizer status` and the end-of-session hook run in Rust; the status line no longer needs Python.
+- Closing a headless session no longer reports `Hook cancelled` (two runs of `claude -p` checked).
+- CI runs every program end to end on each system (`scripts/smoke.sh`).
+- Compression comparison with Headroom measured again.
+
 ## 0.13.0
 
 - Hooks run on Windows, Linux and macOS through `scripts/dam-run`, with builds from CI.

@@ -16,5 +16,6 @@ for program in "$root/bin/$folder/$name$ext" "$HOME/.cargo/bin/$name$ext"; do
   [ -x "$program" ] && exec "$program" "$@"
 done
 command -v "$name" >/dev/null 2>&1 && exec "$name" "$@"
+[ -n "${DAM_RUN_OR_FAIL:-}" ] && exit 127
 while IFS= read -r _line; do :; done
 echo '{}'

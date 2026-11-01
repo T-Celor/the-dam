@@ -6,6 +6,6 @@ The scripts behind the README's numbers. They run on this machine and send nothi
 |---|---|
 | `midcmp.py`, `rules.py` | `dam-squeeze` and Headroom |
 | `gaps.py`, `questions.py` | `dam-graph` and graphify |
-| `lgdiff.py`, `hookdiff.py` | The Rust and Python TokenEconomizer, on the same inputs |
+| `lgdiff.py`, `hookdiff.py`, `statdiff.py` | The Rust and Python TokenEconomizer, on the same inputs |
 
 They were written to answer one question each, and are kept for that rather than polished.
