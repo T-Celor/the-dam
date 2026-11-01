@@ -1,5 +1,6 @@
 // The dam: one application with one small program per job, so that each process holds only
 // the code of its own job. No network and no model anywhere.
+pub mod economizer;
 pub mod folds;
 pub mod graph;
 pub mod json;

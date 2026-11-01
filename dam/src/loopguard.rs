@@ -952,6 +952,47 @@ pub fn pinned_thresholds(tracker: &EnvelopeTracker, overrides: &Thresholds) -> T
     thr
 }
 
+// The judge as the guard sees it: a job started for a digest, and polled for its verdict later.
+pub trait BackgroundJudge {
+    fn poll(&mut self, guard: &TurnGuard) -> (bool, Option<Value>);
+    fn start(&mut self, guard: &TurnGuard, digest: &str) -> Option<String>;
+}
+
+pub enum Judge<'a> {
+    None,
+    Sampled(&'a mut dyn FnMut(&str) -> Option<Verdict>),
+    Background(&'a mut dyn BackgroundJudge),
+}
+
+fn verdict_from(value: &Value) -> Verdict {
+    let truth = |v: &Value| match v {
+        Value::Null => false,
+        Value::Bool(flag) => *flag,
+        Value::Number(number) => number.as_f64() != Some(0.0),
+        Value::String(text) => !text.is_empty(),
+        Value::Array(items) => !items.is_empty(),
+        Value::Object(map) => !map.is_empty(),
+    };
+    let stuck = match value.get("stuck") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(flag)) => Some(*flag),
+        Some(other) => truth(other).then_some(true),
+    };
+    let reason = match value.get("reason") {
+        Some(Value::String(text)) => text.clone(),
+        Some(other) => other.to_string(),
+        None => String::new(),
+    };
+
+    Verdict { stuck, confidence: value.get("confidence").and_then(Value::as_f64).unwrap_or(0.0), reason, tokens: 0.0 }
+}
+
+fn clock() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64())
+}
+
+const JUDGE_STALE_S: f64 = 300.0;
+
 #[derive(Clone, Debug, Default)]
 pub struct TurnGuard {
     pub turn_key: String,
@@ -1062,7 +1103,7 @@ impl TurnGuard {
 
     // One completed tool call: None, or ("nudge" | "abort", reason). `judge` is a judge called
     // on the spot under the rate limit; the background one comes with the plugin's port.
-    pub fn fold(&mut self, name: &str, args: &Value, result: &str, exit_code: Option<i64>, envelope: Option<f64>, thr: &Thresholds, judge: Option<&mut dyn FnMut(&str) -> Option<Verdict>>, nudge_budget: i64) -> Option<(String, String)> {
+    pub fn fold(&mut self, name: &str, args: &Value, result: &str, exit_code: Option<i64>, envelope: Option<f64>, thr: &Thresholds, judge: Judge<'_>, nudge_budget: i64) -> Option<(String, String)> {
         let canon = canon_tool(name);
         let command = if canon == "bash" { args.get("command").and_then(Value::as_str) } else { None };
         let shell_edits = command.map_or_else(Vec::new, shell_edit_targets);
@@ -1097,7 +1138,39 @@ impl TurnGuard {
 
         let state = self.st.clone();
         let (abort, reason) = match judge {
-            Some(judge) => {
+            Judge::Background(judge) => {
+                let mut background = |digest: &str| -> Option<Verdict> {
+                    let (found, value) = judge.poll(self);
+                    if found {
+                        self.judge_pending = Value::Null;
+                        let verdict = value.as_ref().map(verdict_from);
+                        if let Some(value) = &value {
+                            let written = value.get("_nudge").and_then(Value::as_str).unwrap_or("").trim_matches(is_python_space);
+                            self.nudge_ready = if written.is_empty() { Value::Null } else { json!(written) };
+                        }
+                        self.backoff(verdict.as_ref());
+                        return verdict;
+                    }
+                    if !self.judge_pending.is_null() {
+                        if clock() - self.judge_pending.get("since").and_then(Value::as_f64).unwrap_or(0.0) < JUDGE_STALE_S {
+                            return None;
+                        }
+                        self.judge_pending = Value::Null;
+                    }
+                    if self.st.turns - self.judge_last < self.judge_gap {
+                        return None;
+                    }
+                    self.judge_last = self.st.turns;
+                    self.judge_calls += 1;
+                    let live = self.live_digest(digest);
+                    if let Some(job) = judge.start(self, &live) {
+                        self.judge_pending = json!({"id": job, "since": clock(), "segment": self.segment});
+                    }
+                    None
+                };
+                assess_abort(&state, envelope, Some(&mut background), thr)
+            }
+            Judge::Sampled(judge) => {
                 let mut sampled = |digest: &str| -> Option<Verdict> {
                     if self.st.turns - self.judge_last < self.judge_gap {
                         return None;
@@ -1113,7 +1186,7 @@ impl TurnGuard {
                 };
                 assess_abort(&state, envelope, Some(&mut sampled), thr)
             }
-            None => assess_abort(&state, envelope, None, thr),
+            Judge::None => assess_abort(&state, envelope, None, thr),
         };
         if !abort {
             if thr.get("nudge_on_ambiguous").and_then(Value::as_bool).unwrap_or(false) && reason == "judge-ambiguous-spared" && self.nudges_done < nudge_budget {
@@ -1205,7 +1278,7 @@ pub fn replay(line: &str) -> Value {
             digests.push(digest.to_string());
             scripted_verdict(turns_next)
         };
-        let wired: Option<&mut dyn FnMut(&str) -> Option<Verdict>> = if use_judge { Some(&mut judge) } else { None };
+        let wired = if use_judge { Judge::Sampled(&mut judge) } else { Judge::None };
         let decision = guard.fold(name, &args, result, code, envelope, &thr, wired, budget);
         let mut body = Value::Null;
         if let Some((action, _)) = &decision {
@@ -1272,7 +1345,7 @@ mod tests {
         let mut seen = Vec::new();
         for n in 0..60 {
             let (name, args, result) = if n % 2 == 0 { ("Edit", json!({"file_path": "a.py"}), "") } else { ("Bash", json!({"command": "pytest"}), "E ValueError: same\n") };
-            if let Some((action, _)) = guard.fold(name, &args, result, None, Some(10.0), &thr, None, 1) {
+            if let Some((action, _)) = guard.fold(name, &args, result, None, Some(10.0), &thr, Judge::None, 1) {
                 if action == "nudge" {
                     assert!(guard.nudge_body().contains("MATERIALLY DIFFERENT"));
                     guard.after_nudge();
@@ -1286,7 +1359,7 @@ mod tests {
     #[test]
     fn the_state_survives_a_round_trip_through_json() {
         let mut guard = TurnGuard::new("k");
-        guard.fold("Bash", &json!({"command": "pytest"}), "E ValueError\n", Some(1), None, &scaled_thresholds("default"), None, 1);
+        guard.fold("Bash", &json!({"command": "pytest"}), "E ValueError\n", Some(1), None, &scaled_thresholds("default"), Judge::None, 1);
         assert_eq!(TurnGuard::from_value(&guard.to_value()).to_value(), guard.to_value());
     }
 

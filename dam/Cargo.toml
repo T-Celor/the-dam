@@ -13,4 +13,4 @@ panic = "abort"
 [dependencies]
 fancy-regex = "0.13"
 md5 = "0.7"
-serde_json = { version = "1", features = ["preserve_order"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
