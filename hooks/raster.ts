@@ -6,7 +6,7 @@ import { blend, clamp, noise } from './engine'
 import type { Face, World } from './iso'
 import { buildWorld, poseOf, strengthFor } from './iso'
 import { pressureOf, stockOf } from './model'
-import { formatCount, starsOf } from './scene'
+import { formatCount, nextStarAt, starsOf } from './scene'
 
 const WHITE = 0xffffff
 const CLEAR = 0xffffffff
@@ -103,7 +103,7 @@ function stillFor(s: Stats, levels: Heat, width: number, height: number): Still 
   const key = JSON.stringify([s, levels, width, height])
   if (still?.key === key) return still
   // A small panel looks closer in, so a tree is still a tree at 60 pixels across.
-  const tiles = 14 + 8 * clamp((width - 60) / 140, 0, 1)
+  const tiles = 16 + 6 * clamp((width - 60) / 100, 0, 1)
   const world = buildWorld(s, levels, { width: 640, top: 0, height: (640 * height) / width, tiles })
   const scale = width / 640
   const layer = (faces: readonly Face[], base: number) => {
@@ -142,6 +142,15 @@ const INK = 0xffffff
 const LOST = 0xffb27a
 const PANEL = 0x10100e
 
+// A star is earned at each tenfold saving, so the row says how many there are and what the next one takes.
+function starWords(saved: number, columns: number): Array<[string, number]> {
+  if (columns < 54) return []
+  const next = nextStarAt(saved)
+  const goal = columns >= 80 && next !== null ? ` (next at ${formatCount(next)} saved)` : ''
+
+  return [[` stars ${starsOf(saved)}/5${goal}`, 0xf2bf2e]]
+}
+
 // The bottom row is text, so the counters stay sharp whatever the panel's size.
 export function counterLine(s: Stats, columns: number): Array<[string, number]> {
   const stock = stockOf(s.earned, s.wear)
@@ -157,6 +166,7 @@ export function counterLine(s: Stats, columns: number): Array<[string, number]> 
     ...piece(words[1] ?? '', stock.twigs, s.earned.twigs),
     ...piece(words[2] ?? '', stock.logs, s.earned.logs),
     ...piece(words[3] ?? '', stock.trunks, s.earned.trunks),
+    ...starWords(s.saved, columns),
   ]
 }
 

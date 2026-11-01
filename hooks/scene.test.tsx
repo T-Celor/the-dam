@@ -96,6 +96,8 @@ test('1M saved at full context then cleaned: bounded loss, full repair, no wipeo
   expect(stock.twigs).toBeGreaterThan(7_000)
   for (let i = 0; i < 400; i++) wear = nextWear(wear, 0, strength, 15)
   expect(wear.twigs).toBeLessThan(0.001)
+  expect(damScene(at(20, 50_000), COLD)).toContain('next star: 100k tokens saved')
+  expect(counterLine(at(20, 50_000), 90).map(([text]) => text).join('')).toContain('stars 2/5 (next at 100k saved)')
   expect(starsOf(RICH.saved)).toBe(4)
 })
 
@@ -143,7 +145,7 @@ test('the terminal frame fills its box, moves with time, and shows the data', ()
     for (const [width, height] of [[24, 6], [60, 48], [200, 100]] as const) expect(renderPixels(state, COLD, 3.3, width, height).length).toBe(width * height)
   }
   const line = counterLine({ ...RICH, wear: { twigs: 0.1, logs: 0, trunks: 0 } }, 60).map(([text]) => text).join('')
-  expect(line).toBe('river 1M/1M twigs 9k -1k logs 30 trunks 8')
+  expect(line).toBe('river 1M/1M twigs 9k -1k logs 30 trunks 8 stars 4/5')
   expect(frameCells(at(50), COLD, 1, 30, 10).length).toBe(4800)
 })
 

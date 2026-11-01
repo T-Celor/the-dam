@@ -65,6 +65,8 @@ const AVERT_FROM = 70
 const AVERT_DROP = 20
 const CALM_BELOW = 30
 
+export const nextStarAt = (saved: number): number | null => STAR_AT.find(at => saved < at) ?? null
+
 export function starsOf(saved: number): number {
   return STAR_AT.filter(at => saved >= at).length
 }
@@ -134,7 +136,10 @@ function drawWorld(world: World): string {
 
 const STAR = 'M0-9L2.600-3 9-2.600 4.200 1.600 5.600 8 0 4.700-5.600 8-4.200 1.600-9-2.600-2.600-3Z'
 
-function drawStars(stars: number): string {
+function drawStars(saved: number): string {
+  const stars = starsOf(saved)
+  const next = nextStarAt(saved)
+  const goal = next === null ? 'all stars earned' : `next star: ${formatCount(next)} tokens saved`
   const row = STAR_AT.map((_, i) => {
     const place = `translate(${28 + i * 23} 26)`
 
@@ -143,7 +148,7 @@ function drawStars(stars: number): string {
       : `<path class="star" transform="${place}" d="${STAR}" fill="#2b1a0e" fill-opacity=".55" stroke="#c9a06a" stroke-width=".8"/>`
   }).join('')
 
-  return `<g transform="scale(1.3)"><rect x="12" y="11" width="124" height="30" rx="7" fill="#1c1009" opacity=".35" transform="translate(0 2)"/><rect x="12" y="11" width="124" height="30" rx="7" fill="url(#bark)"/>${row}</g>`
+  return `<g transform="scale(1.3)"><rect x="12" y="11" width="124" height="30" rx="7" fill="#1c1009" opacity=".35" transform="translate(0 2)"/><rect x="12" y="11" width="124" height="30" rx="7" fill="url(#bark)"/>${row}<text x="141" y="30" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#fff" stroke="#10100e" stroke-width="2.500" paint-order="stroke">${goal}</text></g>`
 }
 
 // Flags on a rope slung across the top corner.
@@ -247,7 +252,7 @@ export function damScene(s: Stats, levels: Heat, aspect = HEIGHT / WIDTH): strin
   const world = buildWorld(s, levels, { width: WIDTH, top: -extra, height: tall, tiles: TILES })
   const flash = pressure > 0.6 ? `<rect class="flash" y="${-extra}" width="${WIDTH}" height="${tall}" fill="#fff"/>` : ''
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-extra} ${WIDTH} ${tall}" role="img"><title>${sceneAlt(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</title>${styleFor(world.path)}${drawDefs(extra)}<g clip-path="url(#frame)"><rect y="${-extra}" width="${WIDTH}" height="${tall}" fill="#7cb661"/><g class="${pressure > 0.4 ? 'shake' : 'world'}">${drawWorld(world)}</g>${flash}<rect y="${-extra}" width="${WIDTH}" height="${tall}" fill="url(#edge)"/><g transform="translate(0 ${-extra})">${drawStars(starsOf(s.saved))}${drawPennants(s.pennants)}</g>${drawCounters(s)}${s.isParty ? drawParty() : ''}</g></svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 ${-extra} ${WIDTH} ${tall}" shape-rendering="crispEdges" role="img"><title>${sceneAlt(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</title>${styleFor(world.path)}${drawDefs(extra)}<g clip-path="url(#frame)"><rect y="${-extra}" width="${WIDTH}" height="${tall}" fill="#7cb661"/><g class="${pressure > 0.4 ? 'shake' : 'world'}">${drawWorld(world)}</g>${flash}<rect y="${-extra}" width="${WIDTH}" height="${tall}" fill="url(#edge)"/><g transform="translate(0 ${-extra})">${drawStars(s.saved)}${drawPennants(s.pennants)}</g>${drawCounters(s)}${s.isParty ? drawParty() : ''}</g></svg>`
 }
 
 export function sceneAlt(s: Stats): string {

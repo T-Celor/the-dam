@@ -30,7 +30,7 @@ graphify only counts where a project already has a graph: the plugin never creat
 
 ## The game
 
-Stars mark each tenfold saving: 1k, 10k, 100k, 1M and 10M tokens. Earning one sets off confetti.
+Stars are your savings level: you earn one at 1k, 10k, 100k, 1M and 10M tokens saved in this project, and you never lose them. The picture says what the next one takes. Earning one sets off confetti.
 
 Bring the water down by at least 20 points from 70% or more, usually by compacting, and you win a pennant for this project. Reaching 100% loses half of them. Below 30% the water is calm and fish jump.
 
@@ -78,4 +78,4 @@ The desktop picture has a text alternative with every figure. The reduced-motion
 
 The panel draws SVG in a frame with no script or canvas, so the browser plays the movement back with CSS, the water following the river's course with a motion path. The source stays under the panel's 131072-character limit.
 
-The terminal has no SVG, so `hooks/raster.ts` fills the same polygons pixel by pixel, two pixels per cell, ten frames a second, and repaints in place. It keeps the still layers until the figures change.
+The terminal has no SVG, so it is pixel art: `hooks/raster.ts` fills the same polygons pixel by pixel, two pixels per cell, ten frames a second, and repaints in place. It keeps the still layers until the figures change.
