@@ -1,18 +1,16 @@
 import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
-import type { Gains, ProxyState, Stats } from '../types'
+import type { Gains, Stats } from '../types'
 import { EMPTY, gainNote, reportOf, signed, statusOf } from './model'
 import type { Located } from './tools'
 import {
   candidates,
-  compressRequest,
   GRAPH_NUDGE,
   graphNodes,
   missingNames,
   parseEconomizer,
   parseInstalled,
-  PROXY,
   setupSteps,
   squeezableField,
   squeezed,
@@ -23,7 +21,7 @@ import {
 
 const GRAPH = 'graphify-out/graph.json'
 // Change the tag when Stats changes: it declines what an earlier version stored.
-const stats = atom({ plugin: 'the-dam', key: 'stats' } as const, EMPTY, { shape: 'stats-14' })
+const stats = atom({ plugin: 'the-dam', key: 'stats' } as const, EMPTY, { shape: 'stats-15' })
 const CONTEXT_EVERY_MS = 15_000
 
 async function change($: Parameters<Hook<'session.start'>>[0], edit: (current: Stats) => Stats) {
@@ -45,7 +43,7 @@ async function homeOf($: Dollar) {
   return ((await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')))?.replace(/\\/g, '/')
 }
 
-// A file on disk answers at once; starting Headroom takes over ten seconds and can time out under load.
+// A file on disk answers at once; starting a tool to ask its version can take seconds under load.
 async function firstExisting($: Dollar, names: readonly string[]) {
   for (const name of names) {
     if (name.includes('/') && (await attempt(() => $.fs.stat(name)))) return name
@@ -81,7 +79,7 @@ async function locate($: Dollar): Promise<Located> {
   })
   const envPython = await $.env.get('TE_PYTHON')
   located = {
-    headroom: await firstExisting($, candidates('headroom', home)),
+    squeezer: await firstExisting($, [`${$.plugin.root}/bin/dam-squeeze.exe`, ...candidates('dam-squeeze', home && `${home}/.cargo`)]),
     graphify: await firstExisting($, candidates('graphify', home)),
     python: await firstPython($, [envPython, uvPython, 'python3', 'py'].filter(name => !!name) as string[]),
     teBoot: await attempt(async () => teBootFrom(await $.fs.read(`${home}/.claude/plugins/known_marketplaces.json`))),
@@ -102,7 +100,7 @@ async function runSetup($: Dollar): Promise<string> {
   if (!home) return 'Could not find your home folder, so nothing was installed.'
   const isWindows = (await $.env.get('USERPROFILE')) !== undefined
   const hasClone = (await attempt(() => $.fs.stat(`${home}/TokenEconomizer`))) !== null
-  const steps = setupSteps(found, home, isWindows, hasClone)
+  const steps = setupSteps(found, home, isWindows, hasClone, $.plugin.root)
   const report: string[] = []
   for (const step of steps) {
     $.ui.toast(`Installing ${step.label}...`)
@@ -122,7 +120,7 @@ async function runSetup($: Dollar): Promise<string> {
     const run = await attempt(() => $.process.run(['setx', 'TE_PYTHON', after.python as string]))
     report.push(`${run?.exitCode === 0 ? 'Done' : 'Failed'}: TE_PYTHON`)
   }
-  void refresh($)
+  void attempt(() => refresh($))
   if (report.length === 0) return 'All four tools are already installed.'
 
   return `${report.join('\n')}\nRestart Claude Code to load any new plugins.`
@@ -153,7 +151,7 @@ function checkSoon($: Dollar) {
   isCheckPending = true
   $.clock.after(CHECK_AFTER_MS, () => {
     isCheckPending = false
-    void checkGains($)
+    void attempt(() => checkGains($))
   })
 }
 
@@ -161,78 +159,29 @@ const COMPRESS_OFF = 'compress-off'
 const SQUEEZE_TIMEOUT_MS = 3_000
 const KEPT_OUTPUTS = 20
 
-async function isProxyUp($: Dollar) {
-  return (await attempt(() => $.http.fetch(`${PROXY}/readyz`)))?.ok === true
-}
-
-let isProxyStarting = false
-
-// Several sessions share one proxy; it lives as long as the session that started it.
-async function ensureProxy($: Dollar) {
-  if (isProxyStarting || (await $.store.get(COMPRESS_OFF)) || (await isProxyUp($))) return
-  const { headroom } = await locate($)
-  if (!headroom) return
-  isProxyStarting = true
-  const poll = $.clock.every(5_000, () => {
-    void (async () => {
-      if (!(await isProxyUp($))) return
-      isProxyStarting = false
-      poll.cancel()
-      void refresh($)
-    })()
-  })
-  void (async () => {
-    try {
-      for await (const _ of $.process.spawn({ argv: [headroom, 'proxy', '--port', '8787'] })) {
-        // The output only needs draining.
-      }
-    } catch {
-      // A proxy that cannot start leaves every tool output as it was.
-    } finally {
-      isProxyStarting = false
-      poll.cancel()
-    }
-  })()
-}
-
-async function proxyState($: Dollar): Promise<ProxyState> {
-  if (await $.store.get(COMPRESS_OFF)) return 'off'
-  if (await isProxyUp($)) return 'up'
-
-  return isProxyStarting ? 'starting' : 'down'
-}
-
 async function toggleCompression($: Dollar): Promise<string> {
   const wasOff = Boolean(await $.store.get(COMPRESS_OFF))
   await $.store.set(COMPRESS_OFF, !wasOff)
-  if (wasOff) await ensureProxy($)
-  void refresh($)
+  void attempt(() => refresh($))
 
   return wasOff
     ? 'Compression is on. Large tool outputs will be condensed.'
-    : 'Compression is off. A running proxy stays up until its session ends.'
+    : 'Compression is off.'
 }
 
 let keptOutputs = 0
-let sessionModel: string | undefined
 
 // All projects together: a folder of its own for each session must not start the pile again from nothing.
 const SAVED = 'saved'
 
 async function squeeze($: Dollar, tool: string, record: Record<string, unknown>) {
   const field = squeezableField(tool, record)
-  if (!field || (await read($, stats)).proxy !== 'up') return null
+  const { squeezer } = await locate($)
+  if (!field || !squeezer || (await $.store.get(COMPRESS_OFF))) return null
   const original = record[field] as string
-  const response = await Promise.race([
-    $.http.fetch(`${PROXY}/v1/compress`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: compressRequest(original, sessionModel),
-    }),
-    $.clock.sleep(SQUEEZE_TIMEOUT_MS).then(() => null),
-  ])
-  if (!response?.ok) return null
-  const result = squeezed(response.text)
+  const run = await attempt(() => $.process.run([squeezer], { stdin: original, timeoutMs: SQUEEZE_TIMEOUT_MS }))
+  if (run?.exitCode !== 0) return null
+  const result = squeezed(original, run.stdout)
   if (!result) return null
   // A ring of files: the full outputs stay readable without piling up on disk.
   keptOutputs = (keptOutputs + 1) % KEPT_OUTPUTS
@@ -305,14 +254,14 @@ async function readSources($: Dollar, tools: Located, saved: number) {
 
 async function refresh($: Dollar) {
   const tools = await locate($)
-  const [context, proxy, graph, storedSaved] = await Promise.all([readContext($), proxyState($), attempt(() => $.fs.stat(GRAPH)), $.store.get(SAVED)])
+  const [context, isOff, graph, storedSaved] = await Promise.all([readContext($), $.store.get(COMPRESS_OFF), attempt(() => $.fs.stat(GRAPH)), $.store.get(SAVED)])
   const gains = await readSources($, tools, Number(storedSaved ?? 0))
   await change($, current => ({
     ...current,
     ...gains,
     context: context ?? current.context,
-    tools: { headroom: !!tools.headroom, graphify: !!tools.graphify, ponytail: tools.hasPonytail, economizer: tools.hasEconomizer },
-    proxy,
+    tools: { squeezer: !!tools.squeezer, graphify: !!tools.graphify, ponytail: tools.hasPonytail, economizer: tools.hasEconomizer },
+    isCompressing: !isOff,
     hasGraph: graph !== null,
   }))
 }
@@ -321,10 +270,12 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'the-dam', description: 'Show what each tool saved' })
     await $.command.register({ name: 'the-dam-compress', description: 'Turn compression of large tool outputs on or off' })
-    void installMissing($)
-      .then(() => ensureProxy($))
-      .then(() => checkGains($))
-      .then(() => buildGraph($))
+    // In the background, and a step that throws must not take the session with it.
+    void attempt(async () => {
+      await installMissing($)
+      await checkGains($)
+      await buildGraph($)
+    })
     $.clock.every(CONTEXT_EVERY_MS, () => void refreshContext($))
 
     return next(e)
@@ -340,7 +291,6 @@ export const register: Register = on => {
 
   // Tells the model about the graph only where one exists, so other projects pay nothing.
   on('prompt.compose', async ($, e, next) => {
-    sessionModel = e.model
     const composed = await next(e)
     if (!(await read($, stats)).hasGraph) return composed
 
@@ -354,7 +304,7 @@ export const register: Register = on => {
 
     const ran = await next(e)
     if (ran.deny !== undefined || ran.isError) return ran
-    // Runs where ANTHROPIC_BASE_URL cannot: a big output is condensed before the model reads it.
+    // A big output is condensed before the model reads it.
     const record = await attempt(() => squeeze($, e.tool, ran.result as Record<string, unknown>))
     checkSoon($)
 
@@ -362,9 +312,7 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e)) // None of this may ever block a tool.
 
   on('turn.complete', async ($, e, next) => {
-    void reweave($)
-      .then(() => ensureProxy($))
-      .then(() => checkGains($))
+    void attempt(() => reweave($).then(() => checkGains($)))
 
     return next(e)
   })

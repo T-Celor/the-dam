@@ -1,6 +1,6 @@
 {
   "name": "the-dam",
-  "version": "0.5.0",
-  "description": "Runs Headroom, graphify, TokenEconomizer and Ponytail together, with a status line of what they really save.",
+  "version": "0.6.0",
+  "description": "Runs a small Rust compressor, graphify, TokenEconomizer and Ponytail together, with a status line of what they really save.",
   "types": "./types/index.d.ts"
 }

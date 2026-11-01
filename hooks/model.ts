@@ -10,8 +10,8 @@ export const EMPTY: Stats = {
   pending: 0,
   overhead: 0,
   nodes: 0,
-  tools: { headroom: false, graphify: false, economizer: false, ponytail: false },
-  proxy: 'down',
+  tools: { squeezer: false, graphify: false, economizer: false, ponytail: false },
+  isCompressing: true,
   hasGraph: false,
 }
 
@@ -43,13 +43,11 @@ const WAIT = '…'
 const OFF = '✗'
 const MISSING = 'not installed'
 
-function headroomRow(s: Stats): [string, string] {
+function compressionRow(s: Stats): [string, string] {
   const saved = `${formatCount(s.saved)} tokens saved`
-  if (!s.tools.headroom) return [OFF, MISSING]
-  if (s.proxy === 'off') return [OFF, `${saved}, compression off (/the-dam-compress)`]
-  if (s.proxy === 'starting') return [WAIT, `${saved}, proxy starting`]
+  if (!s.tools.squeezer) return [OFF, MISSING]
 
-  return s.proxy === 'up' ? [OK, saved] : [OFF, `${saved}, proxy stopped`]
+  return s.isCompressing ? [OK, saved] : [OFF, `${saved}, turned off (/the-dam-compress)`]
 }
 
 // Counts, as TokenEconomizer measures no token saving; its own cost it does measure.
@@ -73,7 +71,7 @@ export function statusOf(s: Stats): string {
 export function reportOf(s: Stats): string {
   const context = s.context ? `${Math.round(s.context.percent)}% (${formatCount(s.context.total)} of ${formatCount(s.context.max)} tokens)` : 'not measured yet'
   const rows: Array<[string, [string, string]]> = [
-    ['Headroom', headroomRow(s)],
+    ['Compression', compressionRow(s)],
     ['TokenEconomizer', s.tools.economizer ? [OK, economizerLine(s)] : [OFF, MISSING]],
     ['graphify', !s.tools.graphify ? [OFF, MISSING] : s.hasGraph ? [OK, `${formatCount(s.nodes)} graph nodes`] : [WAIT, 'no graph in this folder, run /graphify']],
     ['Ponytail', s.tools.ponytail ? [OK, 'active'] : [OFF, MISSING]],

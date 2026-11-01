@@ -1,5 +1,4 @@
-export type ProxyState = 'off' | 'starting' | 'up' | 'down'
-export type ToolsPresent = { headroom: boolean; graphify: boolean; economizer: boolean; ponytail: boolean }
+export type ToolsPresent = { squeezer: boolean; graphify: boolean; economizer: boolean; ponytail: boolean }
 export type ContextStats = { percent: number; total: number; max: number }
 export type Gains = { saved: number; pruned: number; facts: number; loops: number; nodes: number }
 
@@ -9,7 +8,7 @@ export type Stats = Gains & {
   overhead: number
   context: ContextStats | null
   tools: ToolsPresent
-  proxy: ProxyState
+  isCompressing: boolean
   hasGraph: boolean
 }
 

@@ -1,0 +1,11 @@
+[package]
+name = "dam-squeeze"
+version = "0.1.0"
+edition = "2021"
+description = "Condenses long command output for a coding agent, keeping errors and dropping repetition."
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"

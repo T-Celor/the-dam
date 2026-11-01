@@ -1,6 +1,6 @@
 # The dam
 
-Runs Headroom, graphify, TokenEconomizer and Ponytail together in Claude Code. Nothing graphical: one status line, and `/the-dam` for the detail.
+Runs a small Rust compressor, graphify, TokenEconomizer and Ponytail together in Claude Code. Nothing graphical: one status line, and `/the-dam` for the detail.
 
 ```
 🦫 12.3k saved · context 31%
@@ -9,7 +9,7 @@ Runs Headroom, graphify, TokenEconomizer and Ponytail together in Claude Code. N
 ```
 🦫 The dam
   Context 31% (310k of 1M tokens)
-  ✓ Headroom: 12.3k tokens saved
+  ✓ Compression: 12.3k tokens saved
   ✓ TokenEconomizer: 2 tools pruned (4 pending), 5 facts learned, 1 loops stopped, 10.5k tokens spent
   … graphify: no graph in this folder, run /graphify
   ✓ Ponytail: active
@@ -17,7 +17,7 @@ Runs Headroom, graphify, TokenEconomizer and Ponytail together in Claude Code. N
 
 ✓ works, … is waiting for something, ✗ is off or missing.
 
-Tokens saved are counted across all projects. Pruned tools, facts and graph nodes belong to the current folder. TokenEconomizer measures no token saving as it goes, so the plugin shows what it did: tools pruned (and those it will prune once the project has been idle for an hour), facts learned, loops stopped, and the tokens its own work cost. graphify reports nodes, and Ponytail no figure at all.
+Tokens saved are an estimate (four characters per token), counted across all projects. Pruned tools, facts and graph nodes belong to the current folder. TokenEconomizer measures no token saving as it goes, so the plugin shows what it did: tools pruned (and those it will prune once the project has been idle for an hour), facts learned, loops stopped, and the tokens its own work cost. graphify reports nodes, and Ponytail no figure at all.
 
 ## Getting started
 
@@ -26,7 +26,7 @@ Tokens saved are counted across all projects. Pruned tools, facts and graph node
 /plugin install the-dam@the-dam
 ```
 
-Restart Claude Code. The rest starts by itself at each session: whatever is missing among the four tools is installed (this needs `uv` and `git`), and the Headroom proxy starts.
+Restart Claude Code. The rest starts by itself at each session: whatever is missing among the four tools is installed (this needs `uv` and `git`, and `cargo` outside Windows).
 
 ## Commands
 
@@ -35,9 +35,7 @@ Restart Claude Code. The rest starts by itself at each session: whatever is miss
 
 ## Compression
 
-At session start the plugin checks the Headroom proxy on port 8787 and starts it if needed. Starting takes about a minute, and the proxy uses about 1 GB of memory until the session that started it ends.
-
-`Bash` and `Grep` outputs over 6000 characters then go through `/v1/compress` before the model reads them. This drops lines, so the full output is saved in `~/.claude/the-dam-outputs/` (the last 20) and the model gets the path. `Read` and `Edit` are never compressed. If the proxy fails or takes over 3 seconds, the output passes through unchanged.
+`Bash` and `Grep` outputs over 6000 characters go through `dam-squeeze` (source in `squeeze/`, Windows build in `bin/`) before the model reads them. In a repetitive log it keeps one line of each kind; in distinct content such as code or a listing it keeps an unbroken start and end, about 6000 tokens in all. Errors and warnings, the first and the last lines stay either way. This drops lines, so the full output is saved in `~/.claude/the-dam-outputs/` (the last 20) and the model gets the path. `Read` and `Edit` are never compressed. If the compressor fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged.
 
 ## Graph
 
@@ -45,7 +43,7 @@ At session start, in a git repository with at least 20 tracked code files and no
 
 ## Hooks
 
-- Session start: scans for the four tools and installs what is missing, starts the proxy if it is down, and builds a first graph if the project deserves one. Whatever is already in place is skipped.
+- Session start: scans for the four tools and installs what is missing, and builds a first graph if the project deserves one. Whatever is already in place is skipped.
 - Tool call: condenses large outputs, then schedules a gain check within 15 seconds. An error here never blocks the tool.
 - Turn end: updates the graph if code changed and a graph exists (no LLM), then runs a gain check.
 - Gain check: reads every tool's figures again, updates the status line and shows a toast with what is new, such as `+1.5k tokens saved`.

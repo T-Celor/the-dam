@@ -1,5 +1,5 @@
 export type Located = {
-  headroom: string | null
+  squeezer: string | null
   graphify: string | null
   python: string | null
   teBoot: string | null
@@ -33,7 +33,7 @@ export function teBootFrom(marketplaces: string): string | null {
 
 export function missingNames(found: Located): string[] {
   return [
-    found.headroom ? null : 'Headroom',
+    found.squeezer ? null : 'compressor',
     found.graphify ? null : 'graphify',
     found.hasEconomizer ? null : 'TokenEconomizer',
     found.hasPonytail ? null : 'Ponytail',
@@ -41,11 +41,11 @@ export function missingNames(found: Located): string[] {
 }
 
 // Only what is missing, so a second run does nothing.
-export function setupSteps(found: Located, home: string, isWindows: boolean, hasClone: boolean): Step[] {
+export function setupSteps(found: Located, home: string, isWindows: boolean, hasClone: boolean, root: string): Step[] {
   const claude = (...args: string[]) => (isWindows ? ['cmd', '/c', 'claude', ...args] : ['claude', ...args])
   const steps: Step[] = []
-  if (!found.headroom)
-    steps.push({ label: 'Headroom', argv: ['uv', 'tool', 'install', '--python', '3.13', 'headroom-ai[all]'] })
+  // The plugin ships a Windows build; elsewhere it builds from its own source.
+  if (!found.squeezer) steps.push({ label: 'compressor', argv: ['cargo', 'install', '--path', `${root}/squeeze`] })
   if (!found.graphify) {
     steps.push({ label: 'graphify', argv: ['uv', 'tool', 'install', 'graphifyy'] })
     steps.push({
@@ -73,12 +73,8 @@ export const GRAPH_NUDGE =
   'For questions about architecture or how code connects, run `graphify query "<question>"` ' +
   'before broad Grep or Read sweeps; it costs far fewer tokens.'
 
-export const PROXY = 'http://127.0.0.1:8787'
 const WORTH_SQUEEZING_CHARS = 6000
 const WORTH_KEEPING_TOKENS = 200
-// Headroom prices the saving with this until the session has named its own model.
-const FALLBACK_MODEL = 'claude-sonnet-4-5'
-
 type ToolRecord = { stdout?: unknown; content?: unknown; mode?: unknown; isImage?: unknown; backgroundTaskId?: unknown }
 
 // Bash output and Grep lines only: Read and Edit need the file's exact bytes.
@@ -91,28 +87,18 @@ export function squeezableField(tool: string, record: ToolRecord): 'stdout' | 'c
   return typeof text === 'string' && text.length >= WORTH_SQUEEZING_CHARS ? field : null
 }
 
-export function compressRequest(text: string, model = FALLBACK_MODEL): string {
-  return JSON.stringify({
-    model,
-    messages: [
-      { role: 'user', content: 'run' },
-      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] },
-      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: text }] },
-    ],
-  })
-}
+// Rough, as no tokenizer is at hand: about four characters per token.
+const tokensIn = (text: string) => Math.ceil(text.length / 4)
 
-export function squeezed(responseText: string): { text: string; before: number; after: number } | null {
-  const body = JSON.parse(responseText)
-  const text = body.messages?.[2]?.content?.[0]?.content
-  if (typeof text !== 'string' || !(body.tokens_saved >= WORTH_KEEPING_TOKENS)) return null
+export function squeezed(original: string, text: string): { text: string; before: number; after: number } | null {
+  const [before, after] = [tokensIn(original), tokensIn(text)]
 
-  return { text, before: body.tokens_before, after: body.tokens_after }
+  return before - after >= WORTH_KEEPING_TOKENS ? { text, before, after } : null
 }
 
 // The squeeze is lossy, so the model is always told where the whole output is.
 export function squeezeNote(before: number, after: number, path: string): string {
-  return `\n\n[Headroom condensed this output from ${before} to ${after} tokens, and lines may be missing. Full output: ${path}. Read that file before concluding that something is absent.]`
+  return `\n\n[The dam condensed this output from about ${before} to ${after} tokens, and lines may be missing. Full output: ${path}. Read that file before concluding that something is absent.]`
 }
 
 export function parseEconomizer(stdout: string) {
