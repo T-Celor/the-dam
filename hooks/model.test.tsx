@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { EMPTY, formatCount, gainNote, reportOf, statusOf } from './model'
-import { candidates, compressRequest, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, teBootFrom } from './tools'
+import { candidates, compressRequest, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, teBootFrom, worthGraphing } from './tools'
 
 const ALL = { headroom: true, graphify: true, economizer: true, ponytail: true }
 
@@ -11,7 +11,7 @@ test('counts read short', () => {
 })
 
 test('a check announces only what is new', () => {
-  const was = { saved: 1_000, pruned: 2, facts: 1, nodes: 50 }
+  const was = { saved: 1_000, pruned: 2, facts: 1, loops: 0, nodes: 50 }
   expect(gainNote(was, was)).toBe(null)
   expect(gainNote(was, { ...was, saved: 900 })).toBe(null)
   expect(gainNote(was, { ...was, saved: 2_500, pruned: 3 })).toBe('+1.5k tokens saved, +1 tools pruned')
@@ -19,17 +19,26 @@ test('a check announces only what is new', () => {
 
 test('the status line and the report state the real figures', () => {
   const context = { percent: 31, total: 310_000, max: 1_000_000 }
-  const s = { ...EMPTY, tools: ALL, proxy: 'up' as const, context, saved: 5_000, pruned: 2, facts: 3, nodes: 400, hasGraph: true }
+  const s = { ...EMPTY, tools: ALL, proxy: 'up' as const, context, saved: 5_000, pruned: 2, pending: 4, facts: 3, loops: 1, overhead: 10_500, nodes: 400, hasGraph: true }
   expect(statusOf(s)).toBe('🦫 5k saved · context 31%')
   expect(statusOf(EMPTY)).toBe('🦫 0 saved')
-  expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Headroom: 5k tokens saved\n  ✓ TokenEconomizer: 2 tools pruned, 3 facts learned\n  ✓ graphify: 400 graph nodes\n  ✓ Ponytail: active')
+  expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Headroom: 5k tokens saved\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ graphify: 400 graph nodes\n  ✓ Ponytail: active')
   expect(reportOf({ ...s, hasGraph: false })).toContain('… graphify: no graph in this folder')
   expect(reportOf({ ...s, proxy: 'off' })).toContain('✗ Headroom: 5k tokens saved, compression off')
   expect(reportOf(EMPTY).split('not installed').length - 1).toBe(4)
 })
 
+test('only a real project is worth a graph', () => {
+  const files = (n: number, name: string) => Array.from({ length: n }, (_, i) => `src/${i}${name}`).join('\n')
+  expect(worthGraphing(files(20, '.ts'))).toBe(true)
+  expect(worthGraphing(files(19, '.py'))).toBe(false)
+  expect(worthGraphing(files(100, '.md'))).toBe(false)
+  expect(worthGraphing('')).toBe(false)
+})
+
 test('tool figures are read from their own output', () => {
-  expect(parseEconomizer('{"toolprune":{"applied":[1,2]},"microskills":{"injected_lines":5}}')).toEqual({ pruned: 2, facts: 5 })
+  expect(parseEconomizer('{"toolprune":{"applied":[1,2],"proposal":[3]},"microskills":{"injected_lines":5},"ledger":{"nudges":2,"aborts":1,"overhead_tokens":10548.15}}')).toEqual({ pruned: 2, pending: 1, facts: 5, loops: 3, overhead: 10548 })
+  expect(parseEconomizer('{}')).toEqual({ pruned: 0, pending: 0, facts: 0, loops: 0, overhead: 0 })
   expect(graphNodes('{"nodes":[{},{}]}')).toBe(2)
 })
 
@@ -69,7 +78,7 @@ test('a squeeze keeps its answer only when it saves enough, and names the full o
   expect(JSON.parse(compressRequest('hi', 'claude-x')).model).toBe('claude-x')
 })
 
-const UP = { value: { value: { shape: 'stats-13', value: { ...EMPTY, proxy: 'up' } }, version: 1 } } as never
+const UP = { value: { value: { shape: 'stats-14', value: { ...EMPTY, proxy: 'up' } }, version: 1 } } as never
 const BIG = 'noisy line\n'.repeat(800)
 
 test('a big output reaches the model condensed, with the path of the whole', async ($, on) => {

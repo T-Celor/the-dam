@@ -18,11 +18,12 @@ import {
   squeezed,
   squeezeNote,
   teBootFrom,
+  worthGraphing,
 } from './tools'
 
 const GRAPH = 'graphify-out/graph.json'
 // Change the tag when Stats changes: it declines what an earlier version stored.
-const stats = atom({ plugin: 'the-dam', key: 'stats' } as const, EMPTY, { shape: 'stats-13' })
+const stats = atom({ plugin: 'the-dam', key: 'stats' } as const, EMPTY, { shape: 'stats-14' })
 const CONTEXT_EVERY_MS = 15_000
 
 async function change($: Parameters<Hook<'session.start'>>[0], edit: (current: Stats) => Stats) {
@@ -94,14 +95,6 @@ async function locate($: Dollar): Promise<Located> {
   return answer
 }
 
-async function doctor($: Dollar): Promise<string> {
-  located = null
-  const tools = await locate($)
-  await refresh($)
-
-  return JSON.stringify({ home: await homeOf($), cwd: projectCwd, tools, missing: missingNames(tools), proxy: await proxyState($), stats: await read($, stats) }, null, 1)
-}
-
 async function runSetup($: Dollar): Promise<string> {
   located = null
   const found = await locate($)
@@ -135,24 +128,11 @@ async function runSetup($: Dollar): Promise<string> {
   return `${report.join('\n')}\nRestart Claude Code to load any new plugins.`
 }
 
-async function runRoute($: Dollar): Promise<string> {
-  // Headroom's own doctor: Desktop overwrites ANTHROPIC_BASE_URL, so routing cannot reach it.
-  const surfaces = await $.session.surfaces()
-  if (!surfaces.includes('terminal'))
-    return 'Routing does not work in Claude Desktop, which overwrites ANTHROPIC_BASE_URL. Run /the-dam-route from `claude` in a terminal.'
-  const { headroom } = await locate($)
-  if (!headroom) return 'Headroom is not installed. Run /the-dam-setup first.'
-  const run = await attempt(() => $.process.run([headroom, 'init', '-g', 'claude'], { timeoutMs: 120_000 }))
-  if (run?.exitCode !== 0) return `Routing failed.\n${(run?.stderr ?? '').slice(-400)}`
-  void refresh($)
-
-  return `Headroom routing starts with your next session.\n${run.stdout.slice(-400)}`
-}
-
-// Nothing to run by hand: whatever is missing gets installed, once per session, in the background.
+// Nothing to run by hand: the session's first step installs what is missing, and passes when nothing is.
 async function installMissing($: Dollar) {
   if (missingNames(await locate($)).length === 0) return
-  $.ui.toast((await runSetup($)).split('\n').slice(-1)[0] ?? 'Setup finished.')
+  const failed = (await runSetup($)).split('\n').find(line => line.startsWith('Failed'))
+  $.ui.toast(signed(failed ?? 'Tools installed. Restart Claude Code to load new plugins.'))
 }
 
 const CHECK_AFTER_MS = 15_000
@@ -235,7 +215,6 @@ async function toggleCompression($: Dollar): Promise<string> {
 
 let keptOutputs = 0
 let sessionModel: string | undefined
-let projectCwd: string | undefined
 
 // All projects together: a folder of its own for each session must not start the pile again from nothing.
 const SAVED = 'saved'
@@ -271,6 +250,7 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>)
 }
 
 let hasEditedCode = false
+const GRAPH_TIMEOUT_MS = 600_000
 
 // Keeps the graph on the code: AST only, no LLM, and only where someone already built one.
 async function reweave($: Dollar) {
@@ -279,6 +259,22 @@ async function reweave($: Dollar) {
   if (!graphify || !(await attempt(() => $.fs.stat(GRAPH)))) return
   hasEditedCode = false
   await attempt(() => $.process.run([graphify, 'update', '.'], { timeoutMs: 120_000 }))
+}
+
+// A first graph for a real project, from the code's structure alone: no LLM, so no tokens.
+async function buildGraph($: Dollar) {
+  const { graphify } = await locate($)
+  if (!graphify || (await attempt(() => $.fs.stat(GRAPH)))) return
+  const listing = await attempt(() => $.process.run(['git', 'ls-files']))
+  if (listing?.exitCode !== 0 || !worthGraphing(listing.stdout)) return
+  const excludePath = await attempt(() => $.process.run(['git', 'rev-parse', '--git-path', 'info/exclude']))
+  if (excludePath?.exitCode !== 0) return
+  // Out of git's sight without touching the project's own .gitignore.
+  const path = excludePath.stdout.trim()
+  const excluded = (await attempt(() => $.fs.read(path))) ?? ''
+  if (!excluded.includes('graphify-out')) await $.fs.write(path, `${excluded.trimEnd()}\ngraphify-out/\n`.trimStart())
+  await attempt(() => $.process.run([graphify, 'update', '.'], { timeoutMs: GRAPH_TIMEOUT_MS }))
+  await checkGains($)
 }
 
 async function readContext($: Dollar): Promise<Stats['context']> {
@@ -304,7 +300,7 @@ async function readSources($: Dollar, tools: Located, saved: number) {
     attempt(async () => graphNodes(await $.fs.read(GRAPH))),
   ])
 
-  return { saved, pruned: economizer?.pruned ?? 0, facts: economizer?.facts ?? 0, nodes: graph ?? 0 }
+  return { saved, pruned: 0, pending: 0, facts: 0, loops: 0, overhead: 0, ...economizer, nodes: graph ?? 0 }
 }
 
 async function refresh($: Dollar) {
@@ -323,18 +319,12 @@ async function refresh($: Dollar) {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    projectCwd = e.cwd
     await $.command.register({ name: 'the-dam', description: 'Show what each tool saved' })
-    await $.command.register({
-      name: 'the-dam-setup',
-      description: 'Install whichever of Headroom, graphify, TokenEconomizer and Ponytail is missing',
-    })
-    await $.command.register({ name: 'the-dam-route', description: 'Route Claude Code through Headroom (terminal only)' })
-    await $.command.register({ name: 'the-dam-doctor', description: 'Check that the plugin can find each tool' })
     await $.command.register({ name: 'the-dam-compress', description: 'Turn compression of large tool outputs on or off' })
     void installMissing($)
       .then(() => ensureProxy($))
       .then(() => checkGains($))
+      .then(() => buildGraph($))
     $.clock.every(CONTEXT_EVERY_MS, () => void refreshContext($))
 
     return next(e)
@@ -346,13 +336,7 @@ export const register: Register = on => {
     return { text: reportOf(await read($, stats)) }
   })
 
-  on('command.run', { command: 'the-dam-doctor' }, async $ => ({ text: await doctor($) }))
-
-  on('command.run', { command: 'the-dam-setup' }, async $ => ({ text: await runSetup($) }))
-
   on('command.run', { command: 'the-dam-compress' }, async $ => ({ text: await toggleCompression($) }))
-
-  on('command.run', { command: 'the-dam-route' }, async $ => ({ text: await runRoute($) }))
 
   // Tells the model about the graph only where one exists, so other projects pay nothing.
   on('prompt.compose', async ($, e, next) => {

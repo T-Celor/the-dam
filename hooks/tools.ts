@@ -115,10 +115,24 @@ export function squeezeNote(before: number, after: number, path: string): string
   return `\n\n[Headroom condensed this output from ${before} to ${after} tokens, and lines may be missing. Full output: ${path}. Read that file before concluding that something is absent.]`
 }
 
-export function parseEconomizer(stdout: string): { pruned: number; facts: number } {
-  const { toolprune, microskills } = JSON.parse(stdout)
+export function parseEconomizer(stdout: string) {
+  const { toolprune, microskills, ledger } = JSON.parse(stdout)
 
-  return { pruned: toolprune?.applied?.length ?? 0, facts: microskills?.injected_lines ?? 0 }
+  return {
+    pruned: toolprune?.applied?.length ?? 0,
+    pending: toolprune?.proposal?.length ?? 0,
+    facts: microskills?.injected_lines ?? 0,
+    loops: (ledger?.nudges ?? 0) + (ledger?.aborts ?? 0),
+    overhead: Math.round(ledger?.overhead_tokens ?? 0),
+  }
+}
+
+const CODE_FILE = /\.(py|js|jsx|ts|tsx|java|kt|go|rs|c|h|cc|cpp|hpp|cs|rb|php|swift|scala|lua|sh)$/i
+const WORTH_GRAPHING_FILES = 20
+
+// A graph only pays for itself in a real project: `listing` is the output of `git ls-files`.
+export function worthGraphing(listing: string): boolean {
+  return listing.split('\n').filter(path => CODE_FILE.test(path.trim())).length >= WORTH_GRAPHING_FILES
 }
 
 export function graphNodes(text: string): number {
