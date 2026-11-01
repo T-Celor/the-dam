@@ -61,11 +61,11 @@ test('tools are found from the files Claude keeps', () => {
   expect(candidates('x', undefined)).toEqual(['x'])
 })
 
-test('only big Bash and Grep text gets squeezed, never exact file bytes', () => {
+test('only big Bash text gets squeezed, never file bytes or search hits', () => {
   const big = 'x'.repeat(7000)
   expect(squeezableField('Bash', { stdout: big })).toBe('stdout')
   expect(squeezableField('Bash', { stdout: 'short' })).toBe(null)
-  expect(squeezableField('Grep', { content: big, mode: 'content' })).toBe('content')
+  expect(squeezableField('Grep', { content: big, mode: 'content' })).toBe(null)
   expect(squeezableField('Read', { content: big })).toBe(null)
 })
 

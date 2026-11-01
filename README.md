@@ -35,7 +35,7 @@ Restart Claude Code. The rest starts by itself at each session: whatever is miss
 
 ## Compression
 
-`Bash` and `Grep` outputs over 6000 characters go through `dam-squeeze` (source in `squeeze/`, Windows build in `bin/`) before the model reads them. In a repetitive log it keeps one line of each kind; in distinct content such as code or a listing it keeps an unbroken start and end, about 6000 tokens in all. Errors and warnings, the first and the last lines stay either way. This drops lines, so the full output is saved in `~/.claude/the-dam-outputs/` (the last 20) and the model gets the path. `Read` and `Edit` are never compressed. If the compressor fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged.
+`Bash` outputs over 6000 characters go through `dam-squeeze` (source in `squeeze/`, Windows build in `bin/`) before the model reads them. It only removes repetition: when 20 lines or more differ by nothing but numbers, it keeps the first two, the last, and any whose number stands out (a 503 among 200s, 48211ms among 15ms). Code, listings, JSON, search hits and every line of a distinct shape stay whole, and so do errors and warnings (up to 20 of a shape) and the first and last 15 lines. Ordinary numbers on the removed lines are lost, so so the full output is saved in `~/.claude/the-dam-outputs/` (the last 20) and the model gets the path. `Read` and `Edit` are never compressed. If the compressor fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged.
 
 ## Graph
 

@@ -77,11 +77,10 @@ const WORTH_SQUEEZING_CHARS = 6000
 const WORTH_KEEPING_TOKENS = 200
 type ToolRecord = { stdout?: unknown; content?: unknown; mode?: unknown; isImage?: unknown; backgroundTaskId?: unknown }
 
-// Bash output and Grep lines only: Read and Edit need the file's exact bytes.
-export function squeezableField(tool: string, record: ToolRecord): 'stdout' | 'content' | null {
-  const field = tool === 'Bash' ? 'stdout' : tool === 'Grep' ? 'content' : null
+// Bash output only: Read and Edit need the file's exact bytes, and each Grep hit is an answer.
+export function squeezableField(tool: string, record: ToolRecord): 'stdout' | null {
+  const field = tool === 'Bash' ? 'stdout' : null
   if (!field || record.isImage || record.backgroundTaskId) return null
-  if (tool === 'Grep' && record.mode !== 'content') return null
   const text = record[field]
 
   return typeof text === 'string' && text.length >= WORTH_SQUEEZING_CHARS ? field : null
