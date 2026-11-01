@@ -321,7 +321,7 @@ fn question_words(question: &str) -> Vec<String> {
     let joined: Vec<String> = words.windows(2).map(|pair| pair.concat()).collect();
 
     // A name asked for as written (`compute_total_7`) must find exactly it.
-    let whole = question.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|word| word.len() >= 3).map(str::to_lowercase).filter(|word| !words.contains(word));
+    let whole = question.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|word| word.contains('_') || word.chars().any(|c| c.is_ascii_digit() || c.is_uppercase())).map(str::to_lowercase).filter(|word| word.len() >= 3 && !words.contains(word));
 
     words.iter().cloned().chain(joined).chain(whole).collect()
 }
