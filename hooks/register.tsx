@@ -15,7 +15,6 @@ import {
   squeezableField,
   squeezed,
   squeezeNote,
-  teBootFrom,
   worthGraphing,
 } from './tools'
 
@@ -82,9 +81,8 @@ async function locate($: Dollar): Promise<Located> {
     squeezer: await firstExisting($, [`${$.plugin.root}/bin/dam-squeeze.exe`, ...candidates('dam-squeeze', home && `${home}/.cargo`)]),
     graphify: await firstExisting($, candidates('graphify', home)),
     python: await firstPython($, [envPython, uvPython, 'python3', 'py'].filter(name => !!name) as string[]),
-    teBoot: await attempt(async () => teBootFrom(await $.fs.read(`${home}/.claude/plugins/known_marketplaces.json`))),
-    hasEconomizer: installed?.[0] ?? false,
-    hasPonytail: installed?.[1] ?? false,
+    teBoot: `${$.plugin.root}/scripts/te_bootstrap.py`,
+    hasPonytail: installed ?? false,
   }
   const answer = located
   // Only a complete answer is kept, so one slow start never reads as "not installed" all session.
@@ -99,8 +97,7 @@ async function runSetup($: Dollar): Promise<string> {
   const home = await homeOf($)
   if (!home) return 'Could not find your home folder, so nothing was installed.'
   const isWindows = (await $.env.get('USERPROFILE')) !== undefined
-  const hasClone = (await attempt(() => $.fs.stat(`${home}/TokenEconomizer`))) !== null
-  const steps = setupSteps(found, home, isWindows, hasClone, $.plugin.root)
+  const steps = setupSteps(found, home, isWindows, $.plugin.root)
   const report: string[] = []
   for (const step of steps) {
     $.ui.toast(`Installing ${step.label}...`)
@@ -260,7 +257,7 @@ async function refresh($: Dollar) {
     ...current,
     ...gains,
     context: context ?? current.context,
-    tools: { squeezer: !!tools.squeezer, graphify: !!tools.graphify, ponytail: tools.hasPonytail, economizer: tools.hasEconomizer },
+    tools: { squeezer: !!tools.squeezer, graphify: !!tools.graphify, ponytail: tools.hasPonytail, economizer: !!tools.python },
     isCompressing: !isOff,
     hasGraph: graph !== null,
   }))

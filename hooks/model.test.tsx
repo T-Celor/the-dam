@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { EMPTY, formatCount, gainNote, reportOf, statusOf } from './model'
-import { candidates, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, teBootFrom, worthGraphing } from './tools'
+import { candidates, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, worthGraphing } from './tools'
 
 const ALL = { squeezer: true, graphify: true, economizer: true, ponytail: true }
 
@@ -42,22 +42,20 @@ test('tool figures are read from their own output', () => {
   expect(graphNodes('{"nodes":[{},{}]}')).toBe(2)
 })
 
-const NOTHING = { squeezer: null, graphify: null, python: null, teBoot: null, hasEconomizer: false, hasPonytail: false }
-const EVERYTHING = { squeezer: 'h', graphify: 'g', python: 'p', teBoot: 't', hasEconomizer: true, hasPonytail: true }
+const NOTHING = { squeezer: null, graphify: null, python: null, teBoot: null, hasPonytail: false }
+const EVERYTHING = { squeezer: 'h', graphify: 'g', python: 'p', teBoot: 't', hasPonytail: true }
 
 test('setup installs only what is missing, and nothing twice', () => {
-  expect(setupSteps(EVERYTHING, '/home', false, false, '/plugin')).toEqual([])
+  expect(setupSteps(EVERYTHING, '/home', false, '/plugin')).toEqual([])
   expect(missingNames(EVERYTHING)).toEqual([])
-  expect(missingNames(NOTHING)).toEqual(['compressor', 'graphify', 'TokenEconomizer', 'Ponytail'])
-  const labels = setupSteps(NOTHING, '/home', false, true, '/plugin').map(step => step.label)
-  expect(labels.includes('clone TokenEconomizer')).toBe(false)
+  expect(missingNames(NOTHING)).toEqual(['compressor', 'graphify', 'Python', 'Ponytail'])
+  const labels = setupSteps(NOTHING, '/home', false, '/plugin').map(step => step.label)
+  expect(labels.some(label => label.includes('TokenEconomizer'))).toBe(false)
   expect(labels.includes('plugin Ponytail')).toBe(true)
 })
 
 test('tools are found from the files Claude keeps', () => {
-  expect(parseInstalled('{"plugins":{"ponytail@ponytail":[]}}')).toEqual([false, true])
-  expect(teBootFrom('{"tokeneconomizer":{"installLocation":"C:\\\\u\\\\TE"}}')).toBe('C:/u/TE/plugin/scripts/te_bootstrap.py')
-  expect(teBootFrom('{}')).toBe(null)
+  expect(parseInstalled('{"plugins":{"ponytail@ponytail":[]}}')).toBe(true)
   expect(candidates('x', undefined)).toEqual(['x'])
 })
 

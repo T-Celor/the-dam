@@ -3,13 +3,11 @@ export type Located = {
   graphify: string | null
   python: string | null
   teBoot: string | null
-  hasEconomizer: boolean
   hasPonytail: boolean
 }
 
 export type Step = { label: string; argv: readonly string[] }
 
-const TE_REPO = 'https://github.com/microsoft/TokenEconomizer.git'
 const PONYTAIL_REPO = 'DietrichGebert/ponytail'
 
 // uv tool's bin folder is often missing from the PATH of an app-launched session.
@@ -18,30 +16,24 @@ export function candidates(name: string, home: string | undefined): string[] {
 }
 
 // Read from Claude's own plugin files: `claude` is a .cmd shim on Windows, slow and awkward to spawn.
-export function parseInstalled(text: string): boolean[] {
+export function parseInstalled(text: string): boolean {
   const { plugins } = JSON.parse(text)
   const ids = Object.keys(plugins ?? {})
 
-  return ['tokeneconomizer@', 'ponytail@'].map(prefix => ids.some(id => id.startsWith(prefix)))
-}
-
-export function teBootFrom(marketplaces: string): string | null {
-  const location = JSON.parse(marketplaces).tokeneconomizer?.installLocation
-
-  return location ? `${String(location).replace(/\\/g, '/')}/plugin/scripts/te_bootstrap.py` : null
+  return ids.some(id => id.startsWith('ponytail@'))
 }
 
 export function missingNames(found: Located): string[] {
   return [
     found.squeezer ? null : 'compressor',
     found.graphify ? null : 'graphify',
-    found.hasEconomizer ? null : 'TokenEconomizer',
+    found.python ? null : 'Python',
     found.hasPonytail ? null : 'Ponytail',
   ].filter(name => name !== null)
 }
 
 // Only what is missing, so a second run does nothing.
-export function setupSteps(found: Located, home: string, isWindows: boolean, hasClone: boolean, root: string): Step[] {
+export function setupSteps(found: Located, home: string, isWindows: boolean, root: string): Step[] {
   const claude = (...args: string[]) => (isWindows ? ['cmd', '/c', 'claude', ...args] : ['claude', ...args])
   const steps: Step[] = []
   // The plugin ships a Windows build; elsewhere it builds from its own source.
@@ -54,12 +46,6 @@ export function setupSteps(found: Located, home: string, isWindows: boolean, has
     })
   }
   if (!found.python) steps.push({ label: 'Python', argv: ['uv', 'python', 'install', '3.12'] })
-  if (!found.hasEconomizer) {
-    if (!hasClone)
-      steps.push({ label: 'clone TokenEconomizer', argv: ['git', 'clone', '--depth', '1', TE_REPO, `${home}/TokenEconomizer`] })
-    steps.push({ label: 'marketplace TokenEconomizer', argv: claude('plugin', 'marketplace', 'add', `${home}/TokenEconomizer`) })
-    steps.push({ label: 'plugin TokenEconomizer', argv: claude('plugin', 'install', 'tokeneconomizer@tokeneconomizer') })
-  }
   if (!found.hasPonytail) {
     steps.push({ label: 'marketplace Ponytail', argv: claude('plugin', 'marketplace', 'add', PONYTAIL_REPO) })
     steps.push({ label: 'plugin Ponytail', argv: claude('plugin', 'install', 'ponytail@ponytail') })
@@ -97,9 +83,9 @@ export function squeezed(original: string, text: string): { text: string; before
   return before - after >= WORTH_KEEPING_TOKENS ? { text, before, after } : null
 }
 
-// The squeeze is lossy, so the model is always told where the whole output is.
+// The model is told how to read the result, and where the original is if it prefers that.
 export function squeezeNote(before: number, after: number, path: string): string {
-  return `\n\n[The dam condensed this output from about ${before} to ${after} tokens, and lines may be missing. Full output: ${path}. Read that file before concluding that something is absent.]`
+  return `\n\n[The dam condensed this output from about ${before} to ${after} tokens without dropping any line. Original: ${path}.]`
 }
 
 export function parseEconomizer(stdout: string) {

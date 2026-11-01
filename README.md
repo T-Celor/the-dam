@@ -26,7 +26,7 @@ Tokens saved are an estimate (four characters per token), counted across all pro
 /plugin install the-dam@the-dam
 ```
 
-Restart Claude Code. The rest starts by itself at each session: whatever is missing among the four tools is installed (this needs `uv` and `git`, and `cargo` outside Windows).
+Restart Claude Code. The rest starts by itself at each session: whatever is missing among the tools is installed (this needs `uv`, and `cargo` outside Windows).
 
 ## Commands
 
@@ -35,7 +35,7 @@ Restart Claude Code. The rest starts by itself at each session: whatever is miss
 
 ## Compression
 
-`Bash` outputs between 6000 and 29000 characters go through `dam-squeeze` (source in `squeeze/`, Windows build in `bin/`) before the model reads them. It only removes repetition: when 20 lines or more in a row differ by nothing but numbers, it keeps the first two, the last, and any whose number stands out (a 503 among 200s, 48211ms among 15ms). A JSON array of records becomes a table, used only if it reads back identical to the source. Other JSON, JSON Lines, search hits and lines that are not in such a run stay whole, and so do errors and warnings (up to 20 in a run) and the first and last 15 lines. Ordinary numbers on the removed lines are lost, so so the full output is saved in `~/.claude/the-dam-outputs/` (the last 20) and the model gets the path. `Read` and `Edit` are never compressed. Longer outputs stay as they are, since Claude Code already saves those and shows a preview. If the compressor fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged.
+`Bash` outputs between 6000 and 29000 characters go through `dam-squeeze` (source in `squeeze/`, Windows build in `bin/`) before the model reads them. It drops no line: runs of lines that differ only by numbers become a template and a table of what varies, identical lines a count, shared prefixes are written once, and a JSON array of records becomes a table. Errors, warnings and values that stand out stay plain lines, and code keeps its shape. Every result is decoded and compared with the source before it is used, trailing spaces aside; `dam-squeeze --decode` gives the original back. Even so, so the full output is saved in `~/.claude/the-dam-outputs/` (the last 20) and the model gets the path. `Read` and `Edit` are never compressed. Longer outputs stay as they are, since Claude Code already saves those and shows a preview. If the compressor fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged.
 
 ## Graph
 
@@ -50,4 +50,8 @@ At session start, in a git repository with at least 20 tracked code files and no
 - Every 15 seconds: reads the context again, so the status line follows a `/compact`.
 - Prompt: tells the model about the graph, only where one exists.
 
-TokenEconomizer and Ponytail run their own hooks.
+Ponytail runs its own hooks.
+
+## TokenEconomizer
+
+[TokenEconomizer](https://github.com/microsoft/TokenEconomizer) by Microsoft ships inside this plugin (`lib/`, `scripts/`, `commands/`), unchanged, under the Apache 2.0 licence in `lib/LICENSE`, and needs Python 3.10 or later. Its commands read `/the-dam:status`, `/the-dam:toolprune` and so on. If you also have the separate plugin, disable it so that it does not run twice: `claude plugin disable tokeneconomizer@tokeneconomizer`.

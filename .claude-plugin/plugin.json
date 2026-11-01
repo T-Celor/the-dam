@@ -1,6 +1,7 @@
 {
   "name": "the-dam",
-  "version": "0.8.1",
+  "version": "0.9.0",
+  "commands": "./commands/",
   "description": "Runs a small Rust compressor, graphify, TokenEconomizer and Ponytail together, with a status line of what they really save.",
   "types": "./types/index.d.ts"
 }
