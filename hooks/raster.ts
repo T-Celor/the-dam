@@ -1,5 +1,5 @@
-// The terminal's dam: a software renderer for the same world the panel draws. Each cell is one quadrant glyph,
-// so it holds four pixels in two colours. The still layers are kept until the stats change; only the movers cost anything per frame.
+// The terminal's dam: a software renderer for the same world the panel draws. Each cell is one sextant glyph,
+// so it holds six smoothed pixels in two colours. The still layers are kept until the stats change; only the movers cost anything per frame.
 
 import type { Heat, Stats } from '../types'
 import { blend, clamp, noise } from './engine'
@@ -11,7 +11,8 @@ import { counterEntries, formatCount } from './scene'
 const WHITE = 0xffffff
 const CLEAR = 0xffffffff
 
-type Canvas = { width: number; height: number; pixels: Uint32Array }
+// `ratio` is a pixel's height over its width: a terminal's pixels are not square.
+type Canvas = { width: number; height: number; pixels: Uint32Array; ratio?: number }
 
 function put(c: Canvas, x: number, y: number, color: number) {
   const px = Math.round(x)
@@ -34,7 +35,7 @@ function fillFace(c: Canvas, face: Face, scale: number, dx = 0, dy = 0, angle = 
   for (let i = 0; i < count; i++) {
     const [px, py] = [face.pts[i * 2] ?? 0, face.pts[i * 2 + 1] ?? 0]
     xs[i] = (px * cos - py * sin + dx) * scale
-    ys[i] = (px * sin + py * cos + dy) * scale
+    ys[i] = ((px * sin + py * cos + dy) * scale) / (c.ratio ?? 1)
   }
   const paint = (at: number) => {
     const under = c.pixels[at] ?? 0
@@ -89,15 +90,15 @@ function drawGame(c: Canvas, s: Stats, t: number) {
 type Still = { key: string; world: World; ground: Uint32Array; solids: Uint32Array; scale: number }
 let still: Still | null = null
 
-function stillFor(s: Stats, levels: Heat, width: number, height: number): Still {
-  const key = JSON.stringify([s, levels, width, height])
+function stillFor(s: Stats, levels: Heat, width: number, height: number, ratio: number): Still {
+  const key = JSON.stringify([s, levels, width, height, ratio])
   if (still?.key === key) return still
   // A small panel looks closer in, so a tree is still a tree at 60 pixels across.
   const tiles = 12 + 3 * clamp((width - 120) / 100, 0, 1)
-  const world = buildWorld(s, levels, { width: 640, top: 0, height: (640 * height) / width, tiles })
+  const world = buildWorld(s, levels, { width: 640, top: 0, height: (640 * height * ratio) / width, tiles })
   const scale = width / 640
   const layer = (faces: readonly Face[], base: number) => {
-    const c: Canvas = { width, height, pixels: new Uint32Array(width * height).fill(base) }
+    const c: Canvas = { width, height, ratio, pixels: new Uint32Array(width * height).fill(base) }
     for (const face of faces) fillFace(c, face, scale)
 
     return c.pixels
@@ -107,9 +108,9 @@ function stillFor(s: Stats, levels: Heat, width: number, height: number): Still 
   return still
 }
 
-export function renderPixels(s: Stats, levels: Heat, t: number, width: number, height: number): Uint32Array {
-  const { world, ground, solids, scale } = stillFor(s, levels, width, height)
-  const c: Canvas = { width, height, pixels: ground.slice() }
+export function renderPixels(s: Stats, levels: Heat, t: number, width: number, height: number, ratio = 1): Uint32Array {
+  const { world, ground, solids, scale } = stillFor(s, levels, width, height, ratio)
+  const c: Canvas = { width, height, ratio, pixels: ground.slice() }
   const percent = clamp(s.river ?? s.context?.percent ?? 0, 0, 100)
   const pressure = pressureOf(percent, strengthFor(s))
   const drawMovers = (movers: World['flow']) => {
@@ -168,6 +169,52 @@ export function counterLine(s: Stats, columns: number): Array<[string, number]> 
   ]
 }
 
+// Sextant glyphs skip the two half blocks that already exist, so the code points close up around them.
+export function sextantGlyph(mask: number): number {
+  if (mask === 0) return 0x20
+  if (mask === 63) return 0x2588
+  if (mask === 21) return 0x258c
+  if (mask === 42) return 0x2590
+
+  return 0x1fb00 + mask - 1 - (mask > 21 ? 1 : 0) - (mask > 42 ? 1 : 0)
+}
+
+const mean = (colors: readonly number[]) => {
+  const total = [0, 0, 0]
+  for (const color of colors) {
+    total[0] = (total[0] ?? 0) + (color >> 16)
+    total[1] = (total[1] ?? 0) + ((color >> 8) & 255)
+    total[2] = (total[2] ?? 0) + (color & 255)
+  }
+  const channel = (i: number) => Math.round((total[i] ?? 0) / colors.length)
+
+  return (channel(0) << 16) | (channel(1) << 8) | channel(2)
+}
+
+// As quadrantOf, for six pixels, and each of the two colours is the mean of the pixels it stands for.
+export function sextantOf(pixels: readonly number[]): [number, number, number] {
+  let [fg, bg, widest] = [pixels[0] ?? 0, pixels[0] ?? 0, -1]
+  for (let a = 0; a < 6; a++) {
+    for (let b = a + 1; b < 6; b++) {
+      const distance = gap(pixels[a] ?? 0, pixels[b] ?? 0)
+      if (distance > widest) [fg, bg, widest] = [pixels[a] ?? 0, pixels[b] ?? 0, distance]
+    }
+  }
+  if (widest === 0) return [0x20, fg, fg]
+  let mask = 0
+  const [near, far]: [number[], number[]] = [[], []]
+  pixels.forEach((color, i) => {
+    if (gap(color, fg) <= gap(color, bg)) {
+      mask |= 1 << i
+      near.push(color)
+    } else far.push(color)
+  })
+
+  return [sextantGlyph(mask), mean(near), mean(far)]
+}
+
+// Four rendered pixels across and six down per cell of about 8 by 18: each is 2 wide and 3 tall.
+const SUB_RATIO = 1.5
 const BLOCK_ROWS = 4
 const ICON_COLUMNS = 6
 const DIM = 0xb9c4bb
@@ -210,14 +257,21 @@ function paintBlock(words: Uint32Array, s: Stats, columns: number, firstRow: num
 export function frameCells(s: Stats, levels: Heat, t: number, columns: number, rows: number): string {
   const hasBlock = columns >= 56 && rows >= 12
   const pictureRows = Math.max(1, rows - (hasBlock ? BLOCK_ROWS : 1))
-  const across = columns * 2
-  const pixels = renderPixels(s, levels, t, across, pictureRows * 2)
+  const across = columns * 4
+  const pixels = renderPixels(s, levels, t, across, pictureRows * 6, SUB_RATIO)
   const words = new Uint32Array(columns * rows * 3)
   for (let row = 0; row < pictureRows; row++) {
     for (let x = 0; x < columns; x++) {
       const at = (row * columns + x) * 3
-      const [high, low] = [row * 2 * across + x * 2, (row * 2 + 1) * across + x * 2]
-      const [glyph, fg, bg] = quadrantOf([pixels[high] ?? 0, pixels[high + 1] ?? 0, pixels[low] ?? 0, pixels[low + 1] ?? 0])
+      const subs: number[] = []
+      for (let down = 0; down < 3; down++) {
+        for (let side = 0; side < 2; side++) {
+          const from = (row * 6 + down * 2) * across + x * 4 + side * 2
+          // Each glyph pixel averages four rendered ones, which is what softens the edges.
+          subs.push(mean([pixels[from] ?? 0, pixels[from + 1] ?? 0, pixels[from + across] ?? 0, pixels[from + across + 1] ?? 0]))
+        }
+      }
+      const [glyph, fg, bg] = sextantOf(subs)
       words[at] = glyph
       words[at + 1] = fg
       words[at + 2] = bg

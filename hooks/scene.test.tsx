@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { earnedFrom, gainNote, isOverwhelmed, NO_MATERIALS, nextRiver, nextWear, pressureOf, stockOf, strengthOf, visibleCount } from './model'
 import type { Stats } from '../types'
-import { counterLine, frameCells, quadrantOf, renderPixels } from './raster'
+import { counterLine, frameCells, quadrantOf, renderPixels, sextantGlyph, sextantOf } from './raster'
 import { COLD, cool, damScene, EMPTY, fallWidth, formatCount, isFlooded, levelOf, nextPennants, sceneAlt, twigCount, usedBy, warm } from './scene'
 import { iconFaces } from './iso'
 import { candidates, compressRequest, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, teBootFrom } from './tools'
@@ -146,6 +146,8 @@ test('the terminal frame fills its box, moves with time, and shows the data', ()
   expect(line).toBe('river 1M/1M twigs 9k -1k logs 30 trunks 8')
   expect(frameCells(at(50), COLD, 1, 30, 10).length).toBe(4800)
   expect(quadrantOf([5, 5, 5, 5])).toEqual([0x20, 5, 5])
+  expect([0, 1, 20, 21, 22, 41, 42, 43, 62, 63].map(sextantGlyph)).toEqual([0x20, 0x1fb00, 0x1fb13, 0x258c, 0x1fb14, 0x1fb27, 0x2590, 0x1fb28, 0x1fb3b, 0x2588])
+  expect(sextantOf([0xffffff, 0xffffff, 0, 0, 0, 0])).toEqual([sextantGlyph(3), 0xffffff, 0])
   expect(quadrantOf([0xffffff, 0xffffff, 0, 0])).toEqual([0x2580, 0xffffff, 0])
   expect(quadrantOf([0xffffff, 0, 0, 0xfefefe])[0]).toBe(0x259a)
 })
