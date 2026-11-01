@@ -1,0 +1,12 @@
+{
+  "name": "the-dam",
+  "owner": {
+    "name": "tcelor"
+  },
+  "plugins": [
+    {
+      "name": "the-dam",
+      "source": "./"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "the-dam",
+  "version": "0.1.0",
+  "description": "A low-poly isometric river and beaver dam: the water is your context, the dam is what your tools saved.",
+  "types": "./types/index.d.ts"
+}
