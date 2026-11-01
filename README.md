@@ -1,24 +1,20 @@
 # The dam
 
-A small Claude Code panel that runs Headroom, graphify, TokenEconomizer and Ponytail together and shows what they really do: how full your context is, and each tool's own figure. Plain text, no animation.
+Runs Headroom, graphify, TokenEconomizer and Ponytail together in Claude Code. Nothing graphical: one status line, and `/the-dam` for the detail.
 
 ```
-██████░░░░░░░░░░░░░░ 31%
-310k of 1M tokens in context
-
-● Headroom
-  12.3k tokens saved
-● TokenEconomizer
-  2 tools pruned, 5 facts learned
-● graphify
-  no graph here: /graphify
-● Ponytail
-  active
+the dam: 12.3k saved, context 31%
 ```
 
-The dot is green when the tool works, yellow when it is starting or has nothing to work on, red when it is off or missing.
+```
+Context: 310k of 1M tokens (31%)
+Headroom: 12.3k tokens saved
+TokenEconomizer: 2 tools pruned, 5 facts learned
+graphify: no graph in this folder, run /graphify
+Ponytail: active
+```
 
-Tokens saved are counted across all projects. Pruned tools, facts and graph nodes belong to the current folder. TokenEconomizer and graphify report counts, not tokens, and Ponytail reports no figure at all, so the panel does not turn them into a token saving.
+Tokens saved are counted across all projects. Pruned tools, facts and graph nodes belong to the current folder. TokenEconomizer and graphify report counts, not tokens, and Ponytail reports no figure at all, so none of them is turned into a token saving.
 
 ## Getting started
 
@@ -27,11 +23,11 @@ Tokens saved are counted across all projects. Pruned tools, facts and graph node
 /plugin install the-dam@the-dam
 ```
 
-Restart Claude Code. The rest starts by itself at each session: the panel opens, whatever is missing among the four tools is installed (this needs `uv` and `git`), and the Headroom proxy starts.
+Restart Claude Code. The rest starts by itself at each session: whatever is missing among the four tools is installed (this needs `uv` and `git`), and the Headroom proxy starts.
 
 ## Commands
 
-- `/the-dam` opens the panel again if you closed it.
+- `/the-dam` shows what each tool saved.
 - `/the-dam-setup` installs missing tools now.
 - `/the-dam-compress` turns compression on or off.
 - `/the-dam-doctor` checks that the plugin can find each tool.
@@ -47,11 +43,11 @@ graphify only counts where a project already has a graph: the plugin never creat
 
 ## Hooks
 
-- Session start: opens the panel, installs missing tools and starts the proxy.
+- Session start: installs missing tools and starts the proxy.
 - Tool call: condenses large outputs, then schedules a gain check within 15 seconds. An error here never blocks the tool.
 - Turn end: updates the graph if code changed and a graph exists (no LLM), then runs a gain check.
-- Gain check: reads every tool's figures again, updates the panel and shows a toast with what is new, such as `+1.5k tokens saved`.
-- Every 15 seconds: reads the context again, so the bar follows a `/compact`.
+- Gain check: reads every tool's figures again, updates the status line and shows a toast with what is new, such as `+1.5k tokens saved`.
+- Every 15 seconds: reads the context again, so the status line follows a `/compact`.
 - Prompt: tells the model about the graph, only where one exists.
 
 TokenEconomizer and Ponytail run their own hooks.

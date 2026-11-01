@@ -1,4 +1,4 @@
-// What the panel says, separate from how it is drawn.
+// What the plugin says, in words.
 import type { Gains, Stats } from '../types'
 
 export const EMPTY: Stats = {
@@ -33,35 +33,30 @@ export function gainNote(before: Gains, after: Gains): string | null {
   return parts.length > 0 ? parts.join(', ') : null
 }
 
-export function contextBar(percent: number, width = 20): string {
-  const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * width)
+const MISSING = 'not installed, run /the-dam-setup'
 
-  return '█'.repeat(filled) + '░'.repeat(width - filled)
+function headroomLine(s: Stats): string {
+  const saved = `${formatCount(s.saved)} tokens saved`
+  if (!s.tools.headroom) return MISSING
+  if (s.proxy === 'off') return `${saved}, compression off (/the-dam-compress)`
+
+  return s.proxy === 'up' ? saved : `${saved}, proxy ${s.proxy === 'starting' ? 'starting' : 'stopped'}`
 }
 
-export type Health = 'ok' | 'wait' | 'off'
-export type Row = { name: string; health: Health; detail: string }
+// The one line that stays on screen.
+export function statusOf(s: Stats): string {
+  const context = s.context ? `, context ${Math.round(s.context.percent)}%` : ''
 
-const MISSING = 'not installed: /the-dam-setup'
+  return `the dam: ${formatCount(s.saved)} saved${context}`
+}
 
-export function rowsOf(s: Stats): Row[] {
-  const proxy: Record<Stats['proxy'], Row> = {
-    up: { name: 'Headroom', health: 'ok', detail: `${formatCount(s.saved)} tokens saved` },
-    starting: { name: 'Headroom', health: 'wait', detail: `starting, ${formatCount(s.saved)} tokens saved` },
-    down: { name: 'Headroom', health: 'off', detail: `proxy stopped, ${formatCount(s.saved)} tokens saved` },
-    off: { name: 'Headroom', health: 'off', detail: 'turned off: /the-dam-compress' },
-  }
-
+// What /the-dam answers.
+export function reportOf(s: Stats): string {
   return [
-    s.tools.headroom ? proxy[s.proxy] : { name: 'Headroom', health: 'off', detail: MISSING },
-    s.tools.economizer
-      ? { name: 'TokenEconomizer', health: 'ok', detail: `${s.pruned} tools pruned, ${s.facts} facts learned` }
-      : { name: 'TokenEconomizer', health: 'off', detail: MISSING },
-    !s.tools.graphify
-      ? { name: 'graphify', health: 'off', detail: MISSING }
-      : s.hasGraph
-        ? { name: 'graphify', health: 'ok', detail: `${formatCount(s.nodes)} graph nodes` }
-        : { name: 'graphify', health: 'wait', detail: 'no graph here: /graphify' },
-    s.tools.ponytail ? { name: 'Ponytail', health: 'ok', detail: 'active' } : { name: 'Ponytail', health: 'off', detail: MISSING },
-  ]
+    s.context ? `Context: ${formatCount(s.context.total)} of ${formatCount(s.context.max)} tokens (${Math.round(s.context.percent)}%)` : 'Context: not measured yet',
+    `Headroom: ${headroomLine(s)}`,
+    `TokenEconomizer: ${s.tools.economizer ? `${s.pruned} tools pruned, ${s.facts} facts learned` : MISSING}`,
+    `graphify: ${!s.tools.graphify ? MISSING : s.hasGraph ? `${formatCount(s.nodes)} graph nodes` : 'no graph in this folder, run /graphify'}`,
+    `Ponytail: ${s.tools.ponytail ? 'active' : MISSING}`,
+  ].join('\n')
 }

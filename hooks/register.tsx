@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
 import type { Gains, ProxyState, Stats } from '../types'
-import { contextBar, EMPTY, formatCount, gainNote, rowsOf } from './model'
+import { EMPTY, gainNote, reportOf, statusOf } from './model'
 import type { Located } from './tools'
 import {
   candidates,
@@ -20,15 +20,15 @@ import {
   teBootFrom,
 } from './tools'
 
-const PANE = 'the-dam'
-const TITLE = 'The dam'
 const GRAPH = 'graphify-out/graph.json'
-const DOCK_COLUMNS = 48
-const PANE_ROWS = 13
-
 // Change the tag when Stats changes: it declines what an earlier version stored.
 const stats = atom({ plugin: 'the-dam', key: 'stats' } as const, EMPTY, { shape: 'stats-13' })
 const CONTEXT_EVERY_MS = 15_000
+
+async function change($: Parameters<Hook<'session.start'>>[0], edit: (current: Stats) => Stats) {
+  await update($, stats, edit)
+  $.ui.status(statusOf(await read($, stats)))
+}
 
 async function attempt<T>(reading: () => Promise<T>): Promise<T | null> {
   try {
@@ -155,14 +155,6 @@ async function installMissing($: Dollar) {
   $.ui.toast((await runSetup($)).split('\n').slice(-1)[0] ?? 'Setup finished.')
 }
 
-const OPEN_TRIES = 20
-
-// At session start the terminal may not be drawing yet, so keep asking until a surface seats the panel.
-async function openWhenPlaced($: Dollar, tries = OPEN_TRIES) {
-  const opened = await attempt(() => $.ui.open({ id: PANE, title: TITLE, columns: DOCK_COLUMNS, rows: PANE_ROWS }))
-  if (!opened?.isPlaced && tries > 1) $.clock.after(1_000, () => void openWhenPlaced($, tries - 1))
-}
-
 const CHECK_AFTER_MS = 15_000
 let isCheckPending = false
 let lastGains: Gains | null = null
@@ -272,7 +264,7 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>)
   await attempt(async () => {
     const saved = Number((await $.store.get(SAVED)) ?? 0) + gain
     await $.store.set(SAVED, saved)
-    await update($, stats, current => ({ ...current, saved }))
+    await change($, current => ({ ...current, saved }))
   })
 
   return { ...record, [field]: result.text + squeezeNote(result.before, result.after, path) }
@@ -300,7 +292,7 @@ async function readContext($: Dollar): Promise<Stats['context']> {
 
 async function refreshContext($: Dollar) {
   const context = await readContext($)
-  if (context) await update($, stats, now => ({ ...now, context }))
+  if (context) await change($, now => ({ ...now, context }))
 }
 
 // Each tool's own figures. A tool that cannot answer simply adds nothing.
@@ -319,7 +311,7 @@ async function refresh($: Dollar) {
   const tools = await locate($)
   const [context, proxy, graph, storedSaved] = await Promise.all([readContext($), proxyState($), attempt(() => $.fs.stat(GRAPH)), $.store.get(SAVED)])
   const gains = await readSources($, tools, Number(storedSaved ?? 0))
-  await update($, stats, current => ({
+  await change($, current => ({
     ...current,
     ...gains,
     context: context ?? current.context,
@@ -332,7 +324,7 @@ async function refresh($: Dollar) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     projectCwd = e.cwd
-    await $.command.register({ name: 'the-dam', description: 'Open the dam' })
+    await $.command.register({ name: 'the-dam', description: 'Show what each tool saved' })
     await $.command.register({
       name: 'the-dam-setup',
       description: 'Install whichever of Headroom, graphify, TokenEconomizer and Ponytail is missing',
@@ -340,7 +332,6 @@ export const register: Register = on => {
     await $.command.register({ name: 'the-dam-route', description: 'Route Claude Code through Headroom (terminal only)' })
     await $.command.register({ name: 'the-dam-doctor', description: 'Check that the plugin can find each tool' })
     await $.command.register({ name: 'the-dam-compress', description: 'Turn compression of large tool outputs on or off' })
-    void openWhenPlaced($)
     void installMissing($)
       .then(() => ensureProxy($))
       .then(() => checkGains($))
@@ -350,10 +341,9 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'the-dam' }, async $ => {
-    void refresh($)
-    await $.ui.open({ id: PANE, title: TITLE, columns: DOCK_COLUMNS, rows: PANE_ROWS })
+    await refresh($)
 
-    return { text: 'The dam is open.' }
+    return { text: reportOf(await read($, stats)) }
   })
 
   on('command.run', { command: 'the-dam-doctor' }, async $ => ({ text: await doctor($) }))
@@ -393,40 +383,5 @@ export const register: Register = on => {
       .then(() => checkGains($))
 
     return next(e)
-  })
-
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
-    const s = await read($, stats)
-    const percent = s.context?.percent ?? 0
-    const level = percent >= 90 ? 'error' : percent >= 70 ? 'warning' : 'success'
-    const color = { ok: 'success', wait: 'warning', off: 'error' } as const
-
-    return (
-      <Box flexDirection="column">
-        {s.context ? (
-          <Box flexDirection="column" marginBottom={1}>
-            <Text>
-              <Text color={level}>{contextBar(percent)}</Text> <Text bold>{Math.round(percent)}%</Text>
-            </Text>
-            <Text dimColor>
-              {formatCount(s.context.total)} of {formatCount(s.context.max)} tokens in context
-            </Text>
-          </Box>
-        ) : (
-          <Box marginBottom={1}>
-            <Text dimColor>Context not measured yet</Text>
-          </Box>
-        )}
-        {rowsOf(s).map(row => (
-          <Box key={row.name} flexDirection="column">
-            <Text>
-              <Text color={color[row.health]}>●</Text> <Text bold>{row.name}</Text>
-            </Text>
-            <Text dimColor>  {row.detail}</Text>
-          </Box>
-        ))}
-      </Box>
-    )
   })
 }

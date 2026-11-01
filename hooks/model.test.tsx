@@ -1,31 +1,13 @@
 import { expect, test } from 'claude-code/testing'
 
-import { contextBar, EMPTY, formatCount, gainNote, rowsOf } from './model'
+import { EMPTY, formatCount, gainNote, reportOf, statusOf } from './model'
 import { candidates, compressRequest, graphNodes, missingNames, parseEconomizer, parseInstalled, setupSteps, squeezableField, squeezed, squeezeNote, teBootFrom } from './tools'
 
-const PANE = {
-  plugin: 'the-dam',
-  component: 'Pane',
-  requestId: 'the-dam',
-  props: {
-    title: 'The dam',
-    isFocused: false,
-    bodyColumns: 48,
-    placement: 'dock',
-    scroll: { offset: 0, bodyRows: 13 },
-    view: {},
-  },
-} as const
-
 const ALL = { headroom: true, graphify: true, economizer: true, ponytail: true }
-const detail = (s: typeof EMPTY, name: string) => rowsOf(s).find(row => row.name === name)
 
-test('counts read short, and the bar stays in its width', () => {
+test('counts read short', () => {
   expect(formatCount(1_234_000)).toBe('1.2M')
   expect(formatCount(5_000)).toBe('5k')
-  expect(contextBar(50, 10)).toBe('█████░░░░░')
-  expect(contextBar(140, 10)).toBe('██████████')
-  expect(contextBar(-5, 10)).toBe('░░░░░░░░░░')
 })
 
 test('a check announces only what is new', () => {
@@ -35,14 +17,15 @@ test('a check announces only what is new', () => {
   expect(gainNote(was, { ...was, saved: 2_500, pruned: 3 })).toBe('+1.5k tokens saved, +1 tools pruned')
 })
 
-test('every row states its real figure and what to do when it is off', () => {
-  expect(rowsOf(EMPTY).every(row => row.health === 'off' && row.detail.includes('/the-dam-setup'))).toBe(true)
-  const s = { ...EMPTY, tools: ALL, proxy: 'up' as const, saved: 5_000, pruned: 2, facts: 3, nodes: 400, hasGraph: true }
-  expect(detail(s, 'Headroom')).toEqual({ name: 'Headroom', health: 'ok', detail: '5k tokens saved' })
-  expect(detail(s, 'TokenEconomizer')?.detail).toBe('2 tools pruned, 3 facts learned')
-  expect(detail(s, 'graphify')?.detail).toBe('400 graph nodes')
-  expect(detail({ ...s, hasGraph: false }, 'graphify')?.detail).toBe('no graph here: /graphify')
-  expect(detail({ ...s, proxy: 'off' }, 'Headroom')?.detail).toBe('turned off: /the-dam-compress')
+test('the status line and the report state the real figures', () => {
+  const context = { percent: 31, total: 310_000, max: 1_000_000 }
+  const s = { ...EMPTY, tools: ALL, proxy: 'up' as const, context, saved: 5_000, pruned: 2, facts: 3, nodes: 400, hasGraph: true }
+  expect(statusOf(s)).toBe('the dam: 5k saved, context 31%')
+  expect(statusOf(EMPTY)).toBe('the dam: 0 saved')
+  expect(reportOf(s)).toBe('Context: 310k of 1M tokens (31%)\nHeadroom: 5k tokens saved\nTokenEconomizer: 2 tools pruned, 3 facts learned\ngraphify: 400 graph nodes\nPonytail: active')
+  expect(reportOf({ ...s, hasGraph: false })).toContain('no graph in this folder')
+  expect(reportOf({ ...s, proxy: 'off' })).toContain('compression off')
+  expect(reportOf(EMPTY).split('not installed').length - 1).toBe(4)
 })
 
 test('tool figures are read from their own output', () => {
@@ -125,12 +108,4 @@ test('a proxy that fails leaves the output untouched', async ($, on) => {
 
   const ran = await $.tool.call({ tool: 'Bash', command: 'ls' })
   expect((ran.result as { stdout: string }).stdout).toBe(BIG)
-})
-
-test('the pane draws plain text on every surface', async $ => {
-  for (const surface of ['desktop', 'terminal'] as const) {
-    const pane = await $.ui.mount({ ...PANE, surface })
-    expect(await pane.drawn()).toMatchObject({ type: 'Box' })
-    await pane.unmount()
-  }
 })
