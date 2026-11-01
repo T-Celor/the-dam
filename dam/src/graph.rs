@@ -320,7 +320,10 @@ fn question_words(question: &str) -> Vec<String> {
     // "deny list" also finds `denylist`.
     let joined: Vec<String> = words.windows(2).map(|pair| pair.concat()).collect();
 
-    words.into_iter().chain(joined).collect()
+    // A name asked for as written (`compute_total_7`) must find exactly it.
+    let whole = question.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|word| word.len() >= 3).map(str::to_lowercase).filter(|word| !words.contains(word));
+
+    words.iter().cloned().chain(joined).chain(whole).collect()
 }
 
 fn score(node: &Node, file: &str, words: &[String]) -> usize {
@@ -460,6 +463,15 @@ mod tests {
         let out = answer(&sample(), "how does the deny list get applied, apply deny");
         assert!(out.contains("apply_deny() src/deny_list.py:7"));
         assert!(out.contains("called by: run()"));
+    }
+
+    #[test]
+    fn a_name_as_written_comes_first() {
+        let mut graph = sample();
+        graph.nodes.push(Node { name: "compute_total_1".into(), kind: Kind::Function, file: 0, line: 1 });
+        graph.nodes.push(Node { name: "compute_total_7".into(), kind: Kind::Function, file: 1, line: 9 });
+        let out = answer(&graph, "who defines compute_total_7");
+        assert!(out.find("compute_total_7()").unwrap() < out.find("compute_total_1()").unwrap_or(usize::MAX));
     }
 
     #[test]
