@@ -16,13 +16,15 @@ const PALETTE = [
   0x0087d7, 0x00afd7, 0x005f87, 0xffffff, 0xd7ffff,
   0xaf875f, 0x875f00, 0xd7af5f, 0xffd787,
   0x008700, 0x005f00, 0x00875f, 0x005f5f,
-  0xffd700, 0x875fd7, 0x0087af, 0xd75f00, 0x121212,
+  0xffd700, 0x875fd7, 0x0087af, 0xd75f00,
 ]
 const snapped = new Map<number, number>()
 
 export function snap(color: number): number {
   const known = snapped.get(color)
   if (known !== undefined) return known
+  // Black is for eyes and holes only: a shaded face stays in its own hue instead of becoming a stain.
+  if (gap(color, 0) < 90) return 0x121212
   let [best, nearest] = [PALETTE[0] ?? 0, Infinity]
   for (const entry of PALETTE) {
     const distance = gap(color, entry)
