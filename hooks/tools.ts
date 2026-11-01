@@ -74,16 +74,18 @@ export const GRAPH_NUDGE =
   'before broad Grep or Read sweeps; it costs far fewer tokens.'
 
 const WORTH_SQUEEZING_CHARS = 6000
+// Claude Code hands over at most this much of a longer output, which it saves itself and shows as a preview.
+const MOST_INLINE_CHARS = 29_000
 const WORTH_KEEPING_TOKENS = 200
-type ToolRecord = { stdout?: unknown; content?: unknown; mode?: unknown; isImage?: unknown; backgroundTaskId?: unknown }
+type ToolRecord = { stdout?: unknown; content?: unknown; mode?: unknown; isImage?: unknown; backgroundTaskId?: unknown; persistedOutputPath?: unknown }
 
 // Bash output only: Read and Edit need the file's exact bytes, and each Grep hit is an answer.
 export function squeezableField(tool: string, record: ToolRecord): 'stdout' | null {
   const field = tool === 'Bash' ? 'stdout' : null
-  if (!field || record.isImage || record.backgroundTaskId) return null
+  if (!field || record.isImage || record.backgroundTaskId || record.persistedOutputPath) return null
   const text = record[field]
 
-  return typeof text === 'string' && text.length >= WORTH_SQUEEZING_CHARS ? field : null
+  return typeof text === 'string' && text.length >= WORTH_SQUEEZING_CHARS && text.length < MOST_INLINE_CHARS ? field : null
 }
 
 // Rough, as no tokenizer is at hand: about four characters per token.

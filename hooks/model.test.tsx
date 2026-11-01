@@ -67,6 +67,8 @@ test('only big Bash text gets squeezed, never file bytes or search hits', () => 
   expect(squeezableField('Bash', { stdout: 'short' })).toBe(null)
   expect(squeezableField('Grep', { content: big, mode: 'content' })).toBe(null)
   expect(squeezableField('Read', { content: big })).toBe(null)
+  expect(squeezableField('Bash', { stdout: big, persistedOutputPath: '/p' })).toBe(null)
+  expect(squeezableField('Bash', { stdout: 'x'.repeat(30_000) })).toBe(null)
 })
 
 test('a squeeze keeps its answer only when it saves enough, and names the full output', () => {
