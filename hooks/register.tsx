@@ -1,11 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
-import type { ProxyState, Stats } from '../types'
-import type { Materials } from './model'
-import { earnedFrom, gainNote, nextRiver, nextWear, NO_MATERIALS, pressureOf } from './model'
-import { frameCells } from './raster'
-import { COLD, cool, damScene, EMPTY, MOST_ASPECT, nextPennants, sceneAlt, strengthFor, usedBy, warm } from './scene'
+import type { Gains, ProxyState, Stats } from '../types'
+import { contextBar, EMPTY, formatCount, gainNote, rowsOf } from './model'
 import type { Located } from './tools'
 import {
   candidates,
@@ -26,20 +23,12 @@ import {
 const PANE = 'the-dam'
 const TITLE = 'The dam'
 const GRAPH = 'graphify-out/graph.json'
-const DOCK_COLUMNS = 90
-const PANE_ROWS = 24
-// shortcut: a code-font cell is about 8 by 18 pixels, read the font's real metric if the fit is off.
-const CELL_WIDTH = 8
-const CELL_HEIGHT = 18
+const DOCK_COLUMNS = 48
+const PANE_ROWS = 13
 
 // Change the tag when Stats changes: it declines what an earlier version stored.
-const stats = atom({ plugin: 'the-dam', key: 'stats' } as const, EMPTY, { shape: 'stats-12' })
-const heat = atom({ plugin: 'the-dam', key: 'heat' } as const, COLD, { shape: 'heat-2' })
-const COOL_EVERY_MS = 45_000
-const WATER_EVERY_MS = 15_000
-const FRAME_MS = 100
-const PAUSED = 'paused'
-const RASTER = 'dam'
+const stats = atom({ plugin: 'the-dam', key: 'stats' } as const, EMPTY, { shape: 'stats-13' })
+const CONTEXT_EVERY_MS = 15_000
 
 async function attempt<T>(reading: () => Promise<T>): Promise<T | null> {
   try {
@@ -176,15 +165,15 @@ async function openWhenPlaced($: Dollar, tries = OPEN_TRIES) {
 
 const CHECK_AFTER_MS = 15_000
 let isCheckPending = false
-let lastEarned: Materials | null = null
+let lastGains: Gains | null = null
 
 // Reads every tool's figures again and announces what is new, at most once per CHECK_AFTER_MS while tools run.
 async function checkGains($: Dollar) {
   await refresh($)
-  const { earned } = await read($, stats)
-  const note = lastEarned ? gainNote(lastEarned, earned) : null
-  lastEarned = earned
-  if (note) $.ui.toast(`The dam grew: ${note}`)
+  const now = await read($, stats)
+  const note = lastGains ? gainNote(lastGains, now) : null
+  lastGains = now
+  if (note) $.ui.toast(`The dam: ${note}`)
 }
 
 function checkSoon($: Dollar) {
@@ -252,53 +241,12 @@ async function toggleCompression($: Dollar): Promise<string> {
     : 'Compression is off. A running proxy stays up until its session ends.'
 }
 
-// The terminal has no SVG: the same dam is computed pixel by pixel and repainted in place.
-let mounted: { columns: number; rows: number } | null = null
-let sceneTime = 0
-let isPaused = false
-
-async function paintFrame($: Dollar) {
-  if (!mounted || isPaused) return
-  sceneTime += FRAME_MS / 1000
-  const { columns, rows } = mounted
-  const cells = frameCells(await read($, stats), await read($, heat), sceneTime, columns, rows)
-  const painted = await $.ui.blit({ requestId: PANE, key: RASTER, columns, rows, cells })
-  // Closed or resized: the next draw says where it is now.
-  if (painted.deny) mounted = null
-}
-
-async function togglePause($: Dollar): Promise<string> {
-  isPaused = !isPaused
-  await $.store.set(PAUSED, isPaused)
-
-  return isPaused ? 'The dam is paused.' : 'The dam is moving again.'
-}
-
 let keptOutputs = 0
 let sessionModel: string | undefined
 let projectCwd: string | undefined
 
 // All projects together: a folder of its own for each session must not start the pile again from nothing.
 const SAVED = 'saved'
-const pennantsKey = (cwd: string) => `pennants:${cwd}`
-const wearKey = (cwd: string) => `wear:${cwd}`
-const PARTY_MS = 5_000
-
-async function celebrate($: Dollar) {
-  await update($, stats, current => ({ ...current, isParty: true }))
-  $.clock.after(PARTY_MS, () => void update($, stats, current => ({ ...current, isParty: false })))
-}
-
-// Scores the water's move, and throws a party when a pennant is won.
-async function scoreWater($: Dollar, before: number | null, after: number): Promise<number> {
-  if (!projectCwd) return 0
-  const had = Number((await $.store.get(pennantsKey(projectCwd))) ?? 0)
-  const now = nextPennants(had, before, after)
-  if (now !== had) await $.store.set(pennantsKey(projectCwd), now)
-  if (now > had) void celebrate($)
-
-  return now
-}
 
 async function squeeze($: Dollar, tool: string, record: Record<string, unknown>) {
   const field = squeezableField(tool, record)
@@ -319,13 +267,12 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>)
   keptOutputs = (keptOutputs + 1) % KEPT_OUTPUTS
   const path = `${await homeOf($)}/.claude/the-dam-outputs/${keptOutputs}.txt`
   await $.fs.write(path, original)
-  await update($, heat, h => warm(h, ['hazel']))
   const gain = Math.max(0, result.before - result.after)
   // A count that fails must not throw away the compression itself.
   await attempt(async () => {
     const saved = Number((await $.store.get(SAVED)) ?? 0) + gain
     await $.store.set(SAVED, saved)
-    await update($, stats, current => ({ ...current, saved, earned: { ...current.earned, twigs: Math.floor(saved / 100) } }))
+    await update($, stats, current => ({ ...current, saved }))
   })
 
   return { ...record, [field]: result.text + squeezeNote(result.before, result.after, path) }
@@ -339,7 +286,6 @@ async function reweave($: Dollar) {
   const { graphify } = await locate($)
   if (!graphify || !(await attempt(() => $.fs.stat(GRAPH)))) return
   hasEditedCode = false
-  await update($, heat, h => warm(h, ['mimi'], 3))
   await attempt(() => $.process.run([graphify, 'update', '.'], { timeoutMs: 120_000 }))
 }
 
@@ -349,29 +295,12 @@ async function readContext($: Dollar): Promise<Stats['context']> {
   const percent = usage?.context.percent ?? breakdown?.percentage
   if (!usage || percent === undefined) return null
 
-  return {
-    percent,
-    total: breakdown?.totalTokens ?? usage.context.tokens ?? 0,
-    max: usage.context.window,
-    layers: (breakdown?.categories ?? [])
-      .filter(row => row.kind === 'used' && row.tokens > 0)
-      .sort((a, b) => b.tokens - a.tokens)
-      .map(row => ({ name: row.name, tokens: row.tokens })),
-  }
+  return { percent, total: breakdown?.totalTokens ?? usage.context.tokens ?? 0, max: usage.context.window }
 }
 
-const WATER_EVERY_S = WATER_EVERY_MS / 1000
-
-// shortcut: wear only moves while a session runs, so nothing is repaired between sessions; store a timestamp if that matters.
-async function refreshWater($: Dollar) {
+async function refreshContext($: Dollar) {
   const context = await readContext($)
-  if (!context) return
-  const current = await read($, stats)
-  const pennants = await scoreWater($, current.context?.percent ?? null, context.percent)
-  const strength = strengthFor(current)
-  const wear = nextWear(current.wear, pressureOf(context.percent, strength), strength, WATER_EVERY_S)
-  if (projectCwd) await $.store.set(wearKey(projectCwd), wear)
-  await update($, stats, now => ({ ...now, context, pennants, wear, river: nextRiver(now.river, context.percent) }))
+  if (context) await update($, stats, now => ({ ...now, context }))
 }
 
 // Each tool's own figures. A tool that cannot answer simply adds nothing.
@@ -383,31 +312,18 @@ async function readSources($: Dollar, tools: Located, saved: number) {
     attempt(async () => graphNodes(await $.fs.read(GRAPH))),
   ])
 
-  return earnedFrom({ saved, pruned: economizer?.pruned ?? 0, facts: economizer?.facts ?? 0, nodes: graph ?? 0 })
+  return { saved, pruned: economizer?.pruned ?? 0, facts: economizer?.facts ?? 0, nodes: graph ?? 0 }
 }
 
 async function refresh($: Dollar) {
   const tools = await locate($)
-  const [context, proxy, graph, storedSaved, storedWear] = await Promise.all([
-    readContext($),
-    proxyState($),
-    attempt(() => $.fs.stat(GRAPH)),
-    $.store.get(SAVED),
-    projectCwd ? $.store.get(wearKey(projectCwd)) : null,
-  ])
-  const saved = Number(storedSaved ?? 0)
-  const earned = await readSources($, tools, saved)
-  const before = (await read($, stats)).context?.percent ?? null
-  const pennants = context ? await scoreWater($, before, context.percent) : (await read($, stats)).pennants
+  const [context, proxy, graph, storedSaved] = await Promise.all([readContext($), proxyState($), attempt(() => $.fs.stat(GRAPH)), $.store.get(SAVED)])
+  const gains = await readSources($, tools, Number(storedSaved ?? 0))
   await update($, stats, current => ({
     ...current,
-    pennants,
-    context,
-    saved,
-    earned,
-    wear: (storedWear as typeof NO_MATERIALS | undefined) ?? current.wear,
-    river: context ? nextRiver(current.river, context.percent) : current.river,
-    tools: { hazel: !!tools.headroom, mimi: !!tools.graphify, pompom: tools.hasPonytail, truffle: tools.hasEconomizer },
+    ...gains,
+    context: context ?? current.context,
+    tools: { headroom: !!tools.headroom, graphify: !!tools.graphify, ponytail: tools.hasPonytail, economizer: tools.hasEconomizer },
     proxy,
     hasGraph: graph !== null,
   }))
@@ -423,16 +339,12 @@ export const register: Register = on => {
     })
     await $.command.register({ name: 'the-dam-route', description: 'Route Claude Code through Headroom (terminal only)' })
     await $.command.register({ name: 'the-dam-doctor', description: 'Check that the plugin can find each tool' })
-    await $.command.register({ name: 'the-dam-pause', description: 'Pause or resume the animation in the terminal' })
     await $.command.register({ name: 'the-dam-compress', description: 'Turn compression of large tool outputs on or off' })
     void openWhenPlaced($)
     void installMissing($)
       .then(() => ensureProxy($))
       .then(() => checkGains($))
-    $.clock.every(COOL_EVERY_MS, () => void update($, heat, cool))
-    $.clock.every(WATER_EVERY_MS, () => void refreshWater($))
-    isPaused = Boolean(await $.store.get(PAUSED))
-    $.clock.every(FRAME_MS, () => void paintFrame($))
+    $.clock.every(CONTEXT_EVERY_MS, () => void refreshContext($))
 
     return next(e)
   })
@@ -443,8 +355,6 @@ export const register: Register = on => {
 
     return { text: 'The dam is open.' }
   })
-
-  on('command.run', { command: 'the-dam-pause' }, async $ => ({ text: await togglePause($) }))
 
   on('command.run', { command: 'the-dam-doctor' }, async $ => ({ text: await doctor($) }))
 
@@ -466,18 +376,6 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
-    const subject =
-      e.tool === 'Bash'
-        ? e.command
-        : e.tool === 'Skill'
-          ? e.skill
-          : e.tool === 'Read'
-            ? e.file_path
-            : e.tool === 'Grep'
-              ? (e.path ?? '')
-              : ''
-    const used = usedBy(e.tool, subject)
-    if (used.length > 0) await update($, heat, h => warm(h, used))
     if (e.tool === 'Edit' || e.tool === 'Write') hasEditedCode = true
 
     const ran = await next(e)
@@ -497,26 +395,38 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The scene alone. Its alternative carries every figure, for screen readers and the terminal.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
     const s = await read($, stats)
-    const levels = await read($, heat)
-    if (e.surface === 'terminal') {
-      const { Raster } = $.ui.resolve(e)
-      const columns = Math.min(512, e.props.bodyColumns)
-      const rows = Math.min(256, Math.max(2, e.props.scroll.bodyRows))
-      mounted = { columns, rows }
+    const percent = s.context?.percent ?? 0
+    const level = percent >= 90 ? 'error' : percent >= 70 ? 'warning' : 'success'
+    const color = { ok: 'success', wait: 'warning', off: 'error' } as const
 
-      return <Raster key={RASTER} columns={columns} rows={rows} cells={frameCells(s, levels, sceneTime, columns, rows)} />
-    }
-    const { Svg } = $.ui.resolve(e)
-
-    // An explicit size: without one the frame keeps its default 150 pixels of height.
-    const width = Math.max(320, e.props.bodyColumns * CELL_WIDTH)
-    // Slightly under the room, so the panel never grows a scrollbar.
-    const height = Math.max(240, Math.round((e.props.scroll.bodyRows - 1) * CELL_HEIGHT * 0.96))
-    const source = damScene(s, levels, height / width)
-
-    return <Svg source={source} alt={sceneAlt(s)} width={width} height={Math.min(height, Math.round(width * MOST_ASPECT))} isInteractive />
+    return (
+      <Box flexDirection="column">
+        {s.context ? (
+          <Box flexDirection="column" marginBottom={1}>
+            <Text>
+              <Text color={level}>{contextBar(percent)}</Text> <Text bold>{Math.round(percent)}%</Text>
+            </Text>
+            <Text dimColor>
+              {formatCount(s.context.total)} of {formatCount(s.context.max)} tokens in context
+            </Text>
+          </Box>
+        ) : (
+          <Box marginBottom={1}>
+            <Text dimColor>Context not measured yet</Text>
+          </Box>
+        )}
+        {rowsOf(s).map(row => (
+          <Box key={row.name} flexDirection="column">
+            <Text>
+              <Text color={color[row.health]}>●</Text> <Text bold>{row.name}</Text>
+            </Text>
+            <Text dimColor>  {row.detail}</Text>
+          </Box>
+        ))}
+      </Box>
+    )
   })
 }

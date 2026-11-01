@@ -1,6 +1,6 @@
 {
   "name": "the-dam",
   "version": "0.1.0",
-  "description": "A low-poly isometric river and beaver dam: the water is your context, the dam is what your tools saved.",
+  "description": "Runs Headroom, graphify, TokenEconomizer and Ponytail together, with a plain panel of what they really save.",
   "types": "./types/index.d.ts"
 }
