@@ -78,7 +78,7 @@ fn repr(value: &Value) -> String {
     }
 }
 
-fn repr_text(text: &str) -> String {
+pub fn repr_text(text: &str) -> String {
     let quote = if text.contains('\'') && !text.contains('"') { '"' } else { '\'' };
     let body = text.replace('\\', "\\\\").replace('\n', "\\n").replace('\r', "\\r").replace('\t', "\\t");
     let body = if quote == '\'' { body.replace('\'', "\\'") } else { body };
@@ -105,20 +105,21 @@ fn type_name(value: &Value) -> &'static str {
     }
 }
 
+const ALIASES: [(&str, &str); 10] = [
+    ("inject", "microskills"),
+    ("inject_max_facts", "microskills_max_facts"),
+    ("inject_max_tokens", "microskills_max_tokens"),
+    ("propose_every", "microskills_propose_every"),
+    ("untool", "toolprune"),
+    ("untool_evidence", "toolprune_evidence"),
+    ("spiral", "loopguard"),
+    ("spiral_aggr", "loopguard_aggr"),
+    ("spiral_nudges", "loopguard_nudges"),
+    ("spiral_thresholds", "loopguard_thresholds"),
+];
+
 pub fn canonical(key: &str) -> &str {
-    match key {
-        "inject" => "microskills",
-        "inject_max_facts" => "microskills_max_facts",
-        "inject_max_tokens" => "microskills_max_tokens",
-        "propose_every" => "microskills_propose_every",
-        "untool" => "toolprune",
-        "untool_evidence" => "toolprune_evidence",
-        "spiral" => "loopguard",
-        "spiral_aggr" => "loopguard_aggr",
-        "spiral_nudges" => "loopguard_nudges",
-        "spiral_thresholds" => "loopguard_thresholds",
-        other => other,
-    }
+    ALIASES.iter().find(|(old, _)| *old == key).map_or(key, |(_, new)| *new)
 }
 
 fn is_old_name(key: &str) -> bool {
@@ -179,6 +180,14 @@ impl Config {
         self.rest.get(key).and_then(Value::as_str).unwrap_or("")
     }
 
+    pub fn number(&self, key: &str) -> i64 {
+        self.rest.get(key).and_then(Value::as_i64).unwrap_or(0)
+    }
+
+    pub fn list(&self, key: &str) -> Vec<String> {
+        self.rest.get(key).and_then(Value::as_array).map_or_else(Vec::new, |items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+    }
+
     fn set_threshold(&mut self, name: &str, value: &Value, source: &str) {
         let Some((is_int, low, high)) = threshold_range(name) else {
             self.warnings.push(format!("{source}: unknown loopguard threshold {} (one of {})", repr_text(name), THRESHOLDS.join(", ")));
@@ -216,7 +225,7 @@ impl Config {
         self.set_from(key, value, "?");
     }
 
-    fn set_from(&mut self, key: &str, value: &Value, source: &str) {
+    pub(crate) fn set_from(&mut self, key: &str, value: &Value, source: &str) {
         if let Some(name) = key.strip_prefix("loopguard.").or(key.strip_prefix("spiral.")) {
             self.set_threshold(name, value, source);
             return;
@@ -352,4 +361,119 @@ impl Config {
 
         Value::Object(out)
     }
+}
+
+const PAID_GONE: &str = "the loop guard always asks its judge (`loopguard=off` turns it off), and micro-skills' proposer runs whenever micro-skills is on (`microskills=envfacts` keeps only the facts that need no model call)";
+
+fn threshold_name(key: &str) -> Option<&str> {
+    key.strip_prefix("loopguard.").or(key.strip_prefix("spiral."))
+}
+
+fn read_object(path: &Path) -> Map<String, Value> {
+    match fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()) {
+        Some(Value::Object(map)) => map,
+        _ => Map::new(),
+    }
+}
+
+fn write_object(path: &Path, doc: Map<String, Value>) -> Result<Map<String, Value>, String> {
+    let write = || -> std::io::Result<()> {
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        let temp = format!("{}.tmp", path.display());
+        fs::write(&temp, crate::economizer::dumps(&Value::Object(doc.clone()), Some(2)))?;
+        fs::rename(&temp, path)
+    };
+    write().map_err(|error| error.to_string())?;
+
+    Ok(doc)
+}
+
+fn drop_old_names(doc: &mut Map<String, Value>, key: &str) {
+    for (old, new) in ALIASES {
+        if new == key {
+            doc.remove(old);
+        }
+    }
+}
+
+// Merge `updates` into the config file at `path`, each checked first, under the settings' current names.
+pub fn write_config(path: &Path, updates: &[(String, String)]) -> Result<Map<String, Value>, String> {
+    let gone: Vec<String> = updates.iter().filter(|(key, _)| canonical(key) == "paid").map(|(key, _)| format!("`{key}` no longer exists: {PAID_GONE}")).collect();
+    if !gone.is_empty() {
+        return Err(gone.join("; "));
+    }
+    let mut probe = Config::new();
+    let mut bad = false;
+    for (key, value) in updates {
+        let before = probe.warnings.len();
+        probe.set_from(key, &json!(value), "te config");
+        bad |= probe.warnings.len() > before;
+    }
+    if bad {
+        return Err(probe.warnings.join("; "));
+    }
+    let mut current = read_object(path);
+    // An old file's thresholds move to the new name, so nothing pinned is lost.
+    if let Some(old) = current.remove("spiral_thresholds") {
+        if let Value::Object(mut old) = old {
+            if let Some(Value::Object(newer)) = current.get("loopguard_thresholds") {
+                old.extend(newer.clone());
+            }
+            current.insert("loopguard_thresholds".to_string(), Value::Object(old));
+        }
+    }
+    let view = probe.as_dict();
+    for (key, _) in updates {
+        let table = |current: &mut Map<String, Value>| -> Map<String, Value> {
+            match current.remove("loopguard_thresholds") {
+                Some(Value::Object(table)) => table,
+                _ => Map::new(),
+            }
+        };
+        if let Some(name) = threshold_name(key) {
+            let mut pinned = table(&mut current);
+            pinned.insert(name.to_string(), probe.thresholds[name].clone());
+            current.insert("loopguard_thresholds".to_string(), Value::Object(pinned));
+        } else if canonical(key) == "loopguard_thresholds" {
+            let mut pinned = table(&mut current);
+            pinned.extend(probe.thresholds.clone());
+            current.insert("loopguard_thresholds".to_string(), Value::Object(pinned));
+        } else {
+            let key = canonical(key);
+            drop_old_names(&mut current, key);
+            current.insert(key.to_string(), view[key].clone());
+        }
+    }
+
+    write_object(path, current)
+}
+
+// Remove keys, by either name, so that the next source down applies again.
+pub fn unset_config(path: &Path, keys: &[String]) -> Result<Map<String, Value>, String> {
+    let known = Config::new().as_dict();
+    let bad: Vec<&str> = keys.iter().map(String::as_str).filter(|key| known.get(canonical(key)).is_none() && !threshold_name(key).is_some_and(|name| THRESHOLDS.contains(&name))).collect();
+    if !bad.is_empty() {
+        return Err(format!("unknown key(s): {}", bad.join(", ")));
+    }
+    let mut current = read_object(path);
+    for key in keys {
+        if let Some(name) = threshold_name(key) {
+            for table in ["loopguard_thresholds", "spiral_thresholds"] {
+                if let Some(Value::Object(pinned)) = current.get_mut(table) {
+                    pinned.remove(name);
+                }
+                if current.get(table).is_some_and(|pinned| !crate::economizer::python_truthy(pinned)) {
+                    current.remove(table);
+                }
+            }
+        } else {
+            let key = canonical(key);
+            current.remove(key);
+            drop_old_names(&mut current, key);
+        }
+    }
+
+    write_object(path, current)
 }

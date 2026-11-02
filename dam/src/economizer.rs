@@ -1,15 +1,16 @@
 // TokenEconomizer's hooks for Claude Code (Apache-2.0, Microsoft), rewritten from plugin/hook.py,
-// controller.py, store.py, config.py, hosts.py and judge.py. The prompt-turn hooks run here on the
-// same state files. Whatever is not ported yet goes to the Python: session start and end, other
-// agents, a session not yet pinned to a repository, the repository map, the judge's own job.
-use crate::config::{plain_text, Config};
+// controller.py, store.py, config.py, hosts.py and judge.py. Every Claude Code event is answered here, on
+// the same state files; another agent's payload is answered `{}`.
+use crate::config::plain_text;
+use crate::context::Ctx;
+use std::process::Command;
 use crate::loopguard::{BackgroundJudge, EnvelopeTracker, Judge, Thresholds, TurnGuard};
 use fancy_regex::Regex;
 use serde_json::{json, Map, Value};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+
 use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -21,7 +22,7 @@ const RESPONSE_KEYS: [&str; 10] = ["stdout", "stderr", "output", "aggregated_out
 static EXIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?im)^\s*(?:exit code|process exited with code)[:\s]+(-?\d+)").expect("fixed"));
 static COPILOT_EXIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<shellId: [^>]*?completed with exit code (-?\d+)>").expect("fixed"));
 
-fn env(name: &str) -> Option<String> {
+pub(crate) fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
@@ -29,7 +30,7 @@ fn truthy(value: Option<String>) -> bool {
     matches!(value.unwrap_or_default().trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on")
 }
 
-fn now() -> f64 {
+pub(crate) fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64())
 }
 
@@ -65,7 +66,7 @@ fn python_string(text: &str, out: &mut String) {
     out.push('"');
 }
 
-fn python_json(value: &Value, indent: Option<usize>, depth: usize, out: &mut String) {
+fn python_json(value: &Value, indent: Option<usize>, depth: usize, out: &mut String, sort: bool) {
     let breakline = |out: &mut String, depth: usize| {
         if let Some(size) = indent {
             out.push('\n');
@@ -86,7 +87,7 @@ fn python_json(value: &Value, indent: Option<usize>, depth: usize, out: &mut Str
                     out.push_str(comma);
                 }
                 breakline(out, depth + 1);
-                python_json(item, indent, depth + 1, out);
+                python_json(item, indent, depth + 1, out, sort);
             }
             breakline(out, depth);
             out.push(']');
@@ -94,7 +95,9 @@ fn python_json(value: &Value, indent: Option<usize>, depth: usize, out: &mut Str
         Value::Object(map) if map.is_empty() => out.push_str("{}"),
         Value::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort_by(|a, b| a.chars().cmp(b.chars()));
+            if sort {
+                keys.sort_by(|a, b| a.chars().cmp(b.chars()));
+            }
             out.push('{');
             for (n, key) in keys.iter().enumerate() {
                 if n > 0 {
@@ -103,7 +106,7 @@ fn python_json(value: &Value, indent: Option<usize>, depth: usize, out: &mut Str
                 breakline(out, depth + 1);
                 python_string(key, out);
                 out.push_str(": ");
-                python_json(&map[key.as_str()], indent, depth + 1, out);
+                python_json(&map[key.as_str()], indent, depth + 1, out, sort);
             }
             breakline(out, depth);
             out.push('}');
@@ -111,15 +114,23 @@ fn python_json(value: &Value, indent: Option<usize>, depth: usize, out: &mut Str
     }
 }
 
-fn dumps(value: &Value, indent: Option<usize>) -> String {
+pub(crate) fn dumps(value: &Value, indent: Option<usize>) -> String {
     let mut out = String::new();
-    python_json(value, indent, 0, &mut out);
+    python_json(value, indent, 0, &mut out, true);
 
     out
 }
 
-pub(crate) struct Store {
-    pub(crate) base: PathBuf,
+// json.dumps without sort_keys: the order the keys were inserted in.
+pub(crate) fn dumps_ordered(value: &Value, indent: Option<usize>) -> String {
+    let mut out = String::new();
+    python_json(value, indent, 0, &mut out, false);
+
+    out
+}
+
+pub struct Store {
+    pub base: PathBuf,
 }
 
 impl Store {
@@ -127,8 +138,12 @@ impl Store {
         serde_json::from_slice(&fs::read(self.base.join(name)).ok()?).ok()
     }
 
+    pub(crate) fn read_lines(&self, name: &str) -> Vec<Value> {
+        crate::trace::lines(&self.base.join(name)).iter().filter_map(|line| serde_json::from_str(line).ok()).collect()
+    }
+
     // Through a temporary file, so that a reader never sees half a document.
-    fn write(&self, name: &str, value: &Value) -> std::io::Result<()> {
+    pub(crate) fn write(&self, name: &str, value: &Value) -> std::io::Result<()> {
         let target = self.base.join(name);
         if let Some(dir) = target.parent() {
             fs::create_dir_all(dir)?;
@@ -143,7 +158,7 @@ impl Store {
         moved
     }
 
-    fn append(&self, name: &str, record: &Value) -> std::io::Result<()> {
+    pub(crate) fn append(&self, name: &str, record: &Value) -> std::io::Result<()> {
         let target = self.base.join(name);
         if let Some(dir) = target.parent() {
             fs::create_dir_all(dir)?;
@@ -154,10 +169,14 @@ impl Store {
     }
 
     // The same lock file as the Python's: a stuck holder costs at most the wait, then the work goes on.
-    fn locked(&self, name: &str) -> Option<File> {
+    pub(crate) fn locked(&self, name: &str) -> Option<File> {
+        self.locked_within(name, LOCK_WAIT)
+    }
+
+    pub(crate) fn locked_within(&self, name: &str, wait: Duration) -> Option<File> {
         fs::create_dir_all(&self.base).ok()?;
         let file = OpenOptions::new().create(true).read(true).append(true).open(self.base.join(format!(".{name}.lock"))).ok()?;
-        let deadline = Instant::now() + LOCK_WAIT;
+        let deadline = Instant::now() + wait;
         while file.try_lock().is_err() {
             if Instant::now() >= deadline {
                 return None;
@@ -173,7 +192,7 @@ fn take_chars(text: &str, count: usize) -> String {
     text.chars().take(count).collect()
 }
 
-fn python_truthy(value: &Value) -> bool {
+pub(crate) fn python_truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
         Value::Bool(flag) => *flag,
@@ -275,106 +294,31 @@ pub(crate) fn pin_name(session: &str) -> String {
     format!("{clean}.json")
 }
 
-struct Repo {
-    key: String,
-    root: String,
-}
-
-// Only a pin whose repository directory exists: following a merge is the Python's.
-fn pinned(root: &Path, session: &str) -> Option<Repo> {
-    let path = root.join("sessions").join("claude").join(pin_name(session));
-    let doc: Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
-    let key = doc.get("key")?.as_str().filter(|key| !key.is_empty())?.to_string();
-    let repo_root = doc.get("root")?.as_str().filter(|text| !text.is_empty())?.to_string();
-
-    root.join("repos").join(&key).is_dir().then_some(Repo { key, root: repo_root })
-}
-
-struct Hook {
+pub struct Hook {
     payload: Value,
     session: String,
-    store: Store,
-    config: Config,
-    root: PathBuf,
-    repo: Repo,
+    ctx: Ctx,
 }
 
-fn python_candidates() -> Vec<(String, Vec<&'static str>)> {
-    let mut out = Vec::new();
-    if let Some(chosen) = env("TE_PYTHON") {
-        out.push((chosen, Vec::new()));
+impl std::ops::Deref for Hook {
+    type Target = Ctx;
+
+    fn deref(&self) -> &Ctx {
+        &self.ctx
     }
-    out.push(("python3".to_string(), Vec::new()));
-    out.push(("python".to_string(), Vec::new()));
-    if cfg!(windows) {
-        out.push(("py".to_string(), vec!["-3"]));
-    }
-
-    out
-}
-
-// The first Python 3 that really runs: the Store alias on Windows is on PATH and runs nothing.
-fn find_python() -> Option<(String, Vec<&'static str>)> {
-    python_candidates().into_iter().find(|(program, args)| Command::new(program).args(args).args(["-c", "import sys; sys.exit(sys.version_info < (3, 10))"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success()))
-}
-
-fn bootstrap() -> Option<PathBuf> {
-    Some(crate::plugin_root()?.join("scripts").join("te_bootstrap.py"))
-}
-
-// What is not ported yet: the same hook, handed over whole.
-fn run_python(raw: &[u8]) -> Option<Vec<u8>> {
-    let (program, args) = find_python()?;
-    let mut child = Command::new(program).args(args).arg(bootstrap()?).arg("hook").env("PYTHONUTF8", "1").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
-    child.stdin.take()?.write_all(raw).ok()?;
-    let output = child.wait_with_output().ok()?;
-
-    output.status.success().then_some(output.stdout)
-}
-
-pub fn run_python_cli(args: &[String]) -> i32 {
-    let (Some((program, prefix)), Some(script)) = (find_python(), bootstrap()) else {
-        eprintln!("te: this command still needs Python 3.10 or later, and none was found");
-        return 1;
-    };
-
-    Command::new(program).args(prefix).arg(script).arg("cli").args(args).env("PYTHONUTF8", "1").status().ok().and_then(|status| status.code()).unwrap_or(1)
 }
 
 #[cfg(windows)]
-fn detach(command: &mut Command, breakaway: bool) {
+pub(crate) fn detach(command: &mut Command, breakaway: bool) {
     use std::os::windows::process::CommandExt;
     // CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW, and out of the agent's job when it allows that.
     command.creation_flags(0x0000_0200 | 0x0800_0000 | if breakaway { 0x0100_0000 } else { 0 });
 }
 
 #[cfg(unix)]
-fn detach(command: &mut Command, _breakaway: bool) {
+pub(crate) fn detach(command: &mut Command, _breakaway: bool) {
     use std::os::unix::process::CommandExt;
     command.process_group(0);
-}
-
-// The judge's job and the fold of a finished session stay in Python for now, in the background as before.
-// shortcut: without the Python's WMI fallback, a job the agent's Windows job object kills simply never answers; the guard's stale limit covers the judge, and the next session start folds what was left.
-fn spawn_te(hook: &Hook, words: &[&str], log_name: &str) -> Option<()> {
-    if env("TE_JUDGE_NO_SPAWN").is_some() {
-        return Some(());
-    }
-    let (program, args) = find_python()?;
-    let script = bootstrap()?;
-    fs::create_dir_all(&hook.store.base).ok()?;
-    for breakaway in [true, false] {
-        let log = OpenOptions::new().create(true).append(true).open(hook.store.base.join(log_name)).ok()?;
-        let mut command = Command::new(&program);
-        command.args(&args).arg(&script).arg("cli").args(words).args(["--host", "claude", "--cwd", &hook.repo.root]);
-        command.current_dir(&hook.repo.root).env("PYTHONUTF8", "1").stdin(Stdio::null()).stdout(log.try_clone().ok()?).stderr(log);
-        detach(&mut command, breakaway);
-        if command.spawn().is_ok() {
-            return Some(());
-        }
-    }
-
-    None
 }
 
 struct AsyncJudge<'a> {
@@ -398,7 +342,7 @@ impl BackgroundJudge for AsyncJudge<'_> {
         let job = format!("{}:{}:{}:{at:.3}", guard.turn_key, guard.segment, guard.judge_calls);
         let request = json!({"id": job, "session_id": self.hook.session, "turn_key": guard.turn_key, "segment": guard.segment, "digest": digest, "threshold": self.threshold, "at": at});
         self.hook.store.write(&format!("judge/{}.request.json", self.hook.session), &request).ok()?;
-        spawn_te(self.hook, &["judge", "--session", &self.hook.session, "--job", &job], "judge.log");
+        crate::judge::spawn_job(self.hook, &self.hook.session, &job);
 
         Some(job)
     }
@@ -445,13 +389,14 @@ impl Hook {
         }
     }
 
+    fn cwd(&self) -> String {
+        cwd_of(&self.payload)
+    }
+
     fn session_doc(&self) -> Value {
         match self.store.read(&format!("sessions/{}.json", self.session)) {
             Some(doc @ Value::Object(_)) => doc,
-            _ => {
-                let cwd = Some(self.text("cwd")).filter(|cwd| !cwd.is_empty()).or_else(|| env("CLAUDE_PROJECT_DIR")).or_else(|| std::env::current_dir().ok().map(|dir| dir.display().to_string())).unwrap_or_default();
-                json!({"session_id": self.session, "host": "claude", "started": now(), "cwd": cwd, "turns": [], "nudges": 0, "aborts": 0, "judge_tokens": 0.0, "writer_tokens": 0.0})
-            }
+            _ => json!({"session_id": self.session, "host": "claude", "started": now(), "cwd": self.cwd(), "turns": [], "nudges": 0, "aborts": 0, "judge_tokens": 0.0, "writer_tokens": 0.0}),
         }
     }
 
@@ -543,9 +488,117 @@ impl Hook {
         doc["ended"] = json!(now());
         doc["end_reason"] = self.field("reason").clone();
         self.save(&mut doc)?;
-        spawn_te(self, &["fold", "--session", &self.session], "fold.log");
+        crate::fold::spawn_fold(self, std::slice::from_ref(&self.session));
 
         Ok(json!({}))
+    }
+
+    // The deny list's lines at session start, each said once: what `auto` removed from this checkout's sessions,
+    // and a proposal still waiting (under `propose`, or when `auto` could not write the settings file).
+    fn toolprune_notices(&self, seen: &mut Map<String, Value>) -> Vec<Value> {
+        let (command, unit) = ("/tokeneconomizer:toolprune", "tool");
+        let waiting = self.store.read("untool.json").unwrap_or(Value::Null);
+        let mut mine = crate::denylist::applied_for(&self.store, &self.repo.root);
+        mine.sort();
+        let few = |items: &[String]| format!("{}{}", items.iter().take(4).cloned().collect::<Vec<_>>().join(", "), if items.len() > 4 { "..." } else { "" });
+        let auto = self.config.text("toolprune") == "auto";
+        let mut out = Vec::new();
+        if auto && seen.get("untool_applied").and_then(Value::as_str).unwrap_or("") != mine.join(",") {
+            if !mine.is_empty() {
+                out.push(json!({"systemMessage": format!("TokenEconomizer removed {} {unit}(s) this repository's sessions never used ({}), from this session on. Review with `{command}`; `{command} restore` gives them back.", mine.len(), few(&mine))}));
+            }
+            seen.insert("untool_applied".to_string(), json!(mine.join(",")));
+        }
+        // What this checkout already applied, or gave back, is no news here.
+        let kept = crate::denylist::kept_for(&self.store, &self.repo.root);
+        let refused = waiting.get("auto_apply_refused").filter(|why| auto && python_truthy(why));
+        let proposal: Vec<String> = if auto && refused.is_none() {
+            Vec::new()
+        } else {
+            waiting.get("proposal").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).filter(|tool| !mine.iter().any(|item| item == tool) && !kept.iter().any(|item| item == tool)).map(str::to_string).collect()
+        };
+        if !proposal.is_empty() && seen.get("untool").and_then(Value::as_str) != Some(&proposal.join(",")) {
+            let how = match refused {
+                Some(why) => format!("they could not be applied ({}), and `{command} apply` tries again.", plain_text(why)),
+                None => format!("nothing changes until you run `{command} apply`."),
+            };
+            out.push(json!({"systemMessage": format!("TokenEconomizer: {} {unit}(s) went unused in this repository's recent sessions ({}). Review with `{command}`; {how}", proposal.len(), few(&proposal))}));
+            seen.insert("untool".to_string(), json!(proposal.join(",")));
+        }
+
+        out
+    }
+
+    fn session_start(&self) -> std::io::Result<Value> {
+        let source = Some(self.text("source")).filter(|source| !source.is_empty()).unwrap_or_else(|| "startup".to_string());
+        crate::session::ensure_launcher();
+        let mut doc = self.session_doc();
+        doc["source"] = json!(source);
+        if doc.get("cwd").is_none() {
+            doc["cwd"] = json!(self.cwd());
+        }
+        let mut seen = match self.store.read("notices.json") {
+            Some(Value::Object(seen)) => seen,
+            _ => Map::new(),
+        };
+        let seen_before = seen.clone();
+        let mut outputs: Vec<Value> = Vec::new();
+
+        if self.config.text("microskills") != "off" {
+            let injection = self.store.read("injection.json").unwrap_or(Value::Null);
+            let text = injection.get("rendered").and_then(Value::as_str).unwrap_or("");
+            // A resumed conversation replays what the first start added; a cleared or compacted one has lost it.
+            let fresh = matches!(source.as_str(), "startup" | "new" | "clear" | "compact");
+            if !text.is_empty() && fresh {
+                let facts = text.lines().filter(|line| line.starts_with("- ")).count();
+                self.log("inject", json!({"chars": text.chars().count(), "facts": facts, "source": source}))?;
+                if !self.config.shadow {
+                    outputs.push(merge_context("SessionStart", Some(text), None));
+                    doc["injected_chars"] = json!(text.chars().count());
+                    doc["injected_text"] = json!(text);
+                    if let Some(ids) = injection.get("rendered_ids") {
+                        doc["injected_ids"] = ids.clone();
+                    }
+                    let digest = sha1_smol::Sha1::from(text).digest().to_string();
+                    if seen.get("injection").and_then(Value::as_str) != Some(&digest) {
+                        outputs.push(merge_context("", None, Some(&format!("TokenEconomizer: added {facts} learned fact(s) about {} to this session's context (review with `/tokeneconomizer:microskills`).", self.repo.label))));
+                        seen.insert("injection".to_string(), json!(digest));
+                    }
+                }
+            }
+        }
+
+        if self.config.text("toolprune") != "off" && !self.config.shadow {
+            outputs.extend(self.toolprune_notices(&mut seen));
+        }
+
+        let calls_a_model = self.config.text("microskills").contains("distiller") || self.config.loopguard != "off";
+        if let Some(pause) = crate::sidecall::paused(&self.root).filter(|_| calls_a_model && !self.config.shadow) {
+            if seen.get("sidecall_paused") != pause.get("at") {
+                outputs.push(merge_context("", None, Some("TokenEconomizer: the plugin's own model calls go through `claude -p`, which answered that it is not signed in, so they are paused; facts that need no model call are still learned, and the loop guard redirects only at its backstop. `/tokeneconomizer:config set microskills=on` (or `loopguard=on`) tries again.")));
+                seen.insert("sidecall_paused".to_string(), pause["at"].clone());
+            }
+        }
+
+        if seen != seen_before {
+            self.store.write("notices.json", &Value::Object(seen))?;
+        }
+        self.save(&mut doc)?;
+        crate::session::note_repo(self)?;
+        crate::session::prune_pins(self);
+        crate::fold::spawn_fold(self, &crate::fold::pending_sessions(self, &[&self.session]));
+
+        // Contexts and notices concatenate, as the Python's merge_outputs does.
+        let notices: Vec<&str> = outputs.iter().filter_map(|output| output.get("systemMessage").and_then(Value::as_str)).collect();
+        let mut answer = Map::new();
+        if let Some(context) = outputs.iter().find_map(|output| output.get("hookSpecificOutput")) {
+            answer.insert("hookSpecificOutput".to_string(), context.clone());
+        }
+        if !notices.is_empty() {
+            answer.insert("systemMessage".to_string(), json!(notices.join("\n")));
+        }
+
+        Ok(Value::Object(answer))
     }
 
     fn is_headless(&self) -> bool {
@@ -586,7 +639,7 @@ impl Hook {
         let gate = number(&thr, "gate_min_turns").max(number(&thr, "min_turns"));
         thr.insert("gate_min_turns".to_string(), json!(gate));
         let threshold = number(&thr, "judge_confidence");
-        let is_paused = fs::read(self.root.join("hosts").join("claude").join("sidecall.json")).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()).is_some_and(|pause| pause.get("at").is_some_and(python_truthy));
+        let is_paused = crate::sidecall::paused(&self.root).is_some();
         let mut asynchronous = AsyncJudge { hook: self, threshold };
         let mut silent = NoVerdict;
         let judge = match (envelope, is_paused) {
@@ -625,6 +678,7 @@ impl Hook {
 
     fn handle(&self) -> std::io::Result<Value> {
         match self.text("hook_event_name").as_str() {
+            "SessionStart" => self.session_start(),
             "UserPromptSubmit" => self.user_prompt(),
             "PostToolUse" | "PostToolUseFailure" => self.post_tool(),
             "Stop" => self.stop(),
@@ -634,58 +688,56 @@ impl Hook {
     }
 }
 
-// The hook this program answers itself, or None for one that goes to the Python.
+// The directory the agent is in: the hook's own, else the project's, else this process's.
+fn cwd_of(payload: &Value) -> String {
+    let own = payload.get("cwd").filter(|cwd| python_truthy(cwd)).map(plain_text);
+
+    own.or_else(|| env("CLAUDE_PROJECT_DIR")).or_else(|| std::env::current_dir().ok().map(|dir| dir.display().to_string())).unwrap_or_default()
+}
+
+// The hook for a Claude Code payload that names a session; the session is pinned to its repository by the first one.
 fn native_hook(payload: &Value) -> Option<Hook> {
-    let event = payload.get("hook_event_name")?.as_str()?;
-    if !matches!(event, "UserPromptSubmit" | "PostToolUse" | "PostToolUseFailure" | "Stop" | "SessionEnd") || !is_claude(payload) || truthy(env("TE_FOLD_SYNC")) {
+    if !is_claude(payload) {
         return None;
     }
     let session = plain_text(payload.get("session_id").filter(|id| python_truthy(id))?);
-    let root = state_root();
-    let repo = pinned(&root, &session)?;
-    let repo_dir = root.join("repos").join(&repo.key);
-    let config = Config::load(&root, &repo_dir);
-    if event == "UserPromptSubmit" && config.repomap == "on" {
-        return None;
+    let cwd = cwd_of(payload);
+    let (ctx, unpinned) = crate::session::ctx_for(&session, Path::new(&cwd));
+    let hook = Hook { payload: payload.clone(), session, ctx };
+    // A disabled plugin writes nothing, not even a pin.
+    if hook.config.enabled && unpinned {
+        crate::session::pin(&hook.ctx, &hook.session, &cwd).ok()?;
     }
 
-    Some(Hook { payload: payload.clone(), session, store: Store { base: repo_dir.join("claude") }, config, root, repo })
+    Some(hook)
 }
 
 fn record_error(error: &str) {
-    let root = state_root();
-    let _ = fs::create_dir_all(&root);
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(root.join("errors.log")) {
-        let _ = writeln!(file, "--- at={:.0} pid={} (dam-economizer)\n{error}", now(), std::process::id());
-    }
+    crate::session::append_error(&format!("--- {} pid={} (dam-economizer)\n{error}", crate::session::iso(now()), std::process::id()));
 }
 
 // A hook never fails the agent: whatever goes wrong, it answers `{}` and records why.
 pub fn hook() {
+    // The release build aborts on a panic: answer first, so that a bug never fails the agent.
+    std::panic::set_hook(Box::new(|info| {
+        record_error(&info.to_string());
+        println!("{{}}");
+        std::process::exit(0);
+    }));
     let mut raw = Vec::new();
     let _ = std::io::stdin().read_to_end(&mut raw);
     let mut out = std::io::stdout().lock();
-    if truthy(env("TE_SIDECALL")) || truthy(env("TE_DISABLE")) {
-        let _ = writeln!(out, "{{}}");
-        return;
-    }
     let payload: Value = serde_json::from_slice(&raw).unwrap_or(Value::Null);
-    let answer = match payload.is_object().then(|| native_hook(&payload)).flatten() {
-        Some(hook) if !hook.config.enabled => json!({}),
-        Some(hook) => hook.handle().unwrap_or_else(|error| {
-            record_error(&error.to_string());
-            json!({})
-        }),
-        None => {
-            match run_python(&raw) {
-                Some(answer) => {
-                    let _ = out.write_all(&answer);
-                }
-                None => {
-                    let _ = writeln!(out, "{{}}");
-                }
-            }
-            return;
+    let answer = if truthy(env("TE_SIDECALL")) || truthy(env("TE_DISABLE")) || !payload.is_object() {
+        json!({})
+    } else {
+        match native_hook(&payload) {
+            Some(hook) if !hook.config.enabled => json!({}),
+            Some(hook) => hook.handle().unwrap_or_else(|error| {
+                record_error(&error.to_string());
+                json!({})
+            }),
+            None => json!({}),
         }
     };
     let _ = writeln!(out, "{}", dumps(&answer, None));
@@ -694,6 +746,7 @@ pub fn hook() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
 
     #[test]
     fn json_is_written_as_python_writes_it() {

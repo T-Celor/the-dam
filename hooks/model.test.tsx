@@ -42,13 +42,13 @@ test('tool figures are read from their own output', () => {
   expect(graphNodes('P\ta.py\nN\tF\ta.py\t0\t1\nN\tf\tgo\t0\t2\nE\t0\t1\td\n')).toBe(2)
 })
 
-const NOTHING = { squeezer: null, graph: null, ponytail: null, economizer: null, python: null, teBoot: null }
-const EVERYTHING = { squeezer: 'h', graph: 'g', ponytail: 'y', economizer: 'e', python: 'p', teBoot: 't' }
+const NOTHING = { squeezer: null, graph: null, ponytail: null, economizer: null }
+const EVERYTHING = { squeezer: 'h', graph: 'g', ponytail: 'y', economizer: 'e' }
 
 test('setup installs only what is missing, and nothing twice', () => {
   expect(setupSteps(EVERYTHING, '/plugin')).toEqual([])
   expect(missingNames(EVERYTHING)).toEqual([])
-  expect(missingNames(NOTHING)).toEqual(['dam', 'Python'])
+  expect(missingNames(NOTHING)).toEqual(['dam'])
   const labels = setupSteps(NOTHING, '/plugin').map(step => step.label)
   expect(labels.some(label => label.includes('TokenEconomizer'))).toBe(false)
   expect(labels.includes('dam')).toBe(true)

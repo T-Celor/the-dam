@@ -4,7 +4,7 @@ Thanks for helping. Small, focused pull requests are the easiest to review.
 
 ## Set up
 
-You need Rust (stable), Claude Code, and Python 3.10 or later for TokenEconomizer's bundled parts.
+You need Rust (stable) and Claude Code. The comparison scripts in `benchmarks/` need Python 3.10 or later and a clone of TokenEconomizer.
 
 ```bash
 cd dam && cargo test

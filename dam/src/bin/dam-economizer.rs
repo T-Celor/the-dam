@@ -1,7 +1,8 @@
 use std::io::{BufRead, Write};
 
 fn main() -> std::io::Result<()> {
-    match std::env::args().nth(1).as_deref() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
         Some("--version") => println!("dam-economizer {}", env!("CARGO_PKG_VERSION")),
         Some("hook") => dam::economizer::hook(),
         Some("replay") => {
@@ -10,14 +11,8 @@ fn main() -> std::io::Result<()> {
                 writeln!(out, "{}", dam::loopguard::replay(&line?))?;
             }
         }
-        _ => {
-            let args: Vec<String> = std::env::args().skip(1).collect();
-            match dam::status::run(&args) {
-                Some(text) => println!("{text}"),
-                // Not ported yet: the same command, handed over whole.
-                None => std::process::exit(dam::economizer::run_python_cli(&args)),
-            }
-        }
+        Some("run-spec") if args.len() == 2 => std::process::exit(dam::session::run_spec(&args[1])),
+        _ => std::process::exit(dam::cli::main(&args)),
     }
 
     Ok(())

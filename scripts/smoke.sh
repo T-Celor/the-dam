@@ -67,4 +67,5 @@ hook '"SessionEnd","reason":"exit"' >/dev/null
 check "session recorded" "$(cat "$TOKENECONOMIZER_HOME/repos/$key/claude/sessions/smoke.json")" '"end_reason": "exit"'
 
 check "ponytail" "$(printf '{"session_id":"smoke","cwd":"%s"}' "$repo" | "$run" dam-ponytail activate)" "PONYTAIL"
+check "te command" "$("$root/scripts/te" --cwd "$repo" config show)" "loopguard"
 echo "all good on $folder"

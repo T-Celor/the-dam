@@ -7,8 +7,8 @@ This project builds on the following work, none of whose authors endorse it.
 
 TokenEconomizer, Copyright (c) Microsoft Corporation, Apache License 2.0
 https://github.com/microsoft/TokenEconomizer
-  Bundled unchanged in lib/tokeneconomizer, scripts/te, scripts/te-hook,
-  scripts/te_bootstrap.py and commands/. Licence in lib/LICENSE.
+  Rewritten in Rust in dam/src, for Claude Code only; commands/ are its own.
+  Licence in licenses/TokenEconomizer-LICENSE.
   dam/src/loopguard.rs and dam/src/economizer.rs are Rust rewrites of parts of it,
   changed in language and limited to Claude Code.
 

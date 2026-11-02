@@ -1,6 +1,7 @@
 // The dam: one application with one small program per job, so that each process holds only
 // the code of its own job. No network and no model anywhere.
 pub mod config;
+pub mod context;
 pub mod economizer;
 pub mod folds;
 pub mod graph;
@@ -11,6 +12,16 @@ pub mod ponytail;
 pub mod scan;
 pub mod squeeze;
 pub mod status;
+pub mod trace;
+pub mod toolprune;
+pub mod sidecall;
+pub mod session;
+pub mod pricing;
+pub mod microskills;
+pub mod judge;
+pub mod fold;
+pub mod denylist;
+pub mod cli;
 
 // The plugin's folder: given by Claude Code to a hook, else found above the running program.
 pub fn plugin_root() -> Option<std::path::PathBuf> {

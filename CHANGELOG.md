@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.15.0
+
+- TokenEconomizer is rewritten in Rust for Claude Code: no more Python, and its bundled copy is gone.
+- Dropped: other agents, the repository map, `probe`, `te repos merge` and `migrate`.
+
 ## 0.14.0
 
 - `dam-economizer status` and the end-of-session hook run in Rust; the status line no longer needs Python.

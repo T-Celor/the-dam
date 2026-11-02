@@ -52,37 +52,20 @@ async function firstExisting($: Dollar, names: readonly string[]) {
   return null
 }
 
-async function firstPython($: Dollar, names: readonly string[]) {
-  for (const name of names) {
-    const run = await attempt(() => $.process.run([name, '--version']))
-    if (run?.exitCode === 0) return name
-  }
-
-  return null
-}
-
 let located: Located | null = null
 
 async function locate($: Dollar): Promise<Located> {
   if (located) return located
   const home = await homeOf($)
-  const uvPython = await attempt(async () => {
-    const run = await $.process.run(['uv', 'python', 'find', '3.12'])
-
-    return run.exitCode === 0 ? run.stdout.trim() : null
-  })
-  const envPython = await $.env.get('TE_PYTHON')
   located = {
     squeezer: await firstExisting($, candidates('dam-squeeze', $.plugin.root, home)),
     graph: await firstExisting($, candidates('dam-graph', $.plugin.root, home)),
     ponytail: await firstExisting($, candidates('dam-ponytail', $.plugin.root, home)),
     economizer: await firstExisting($, candidates('dam-economizer', $.plugin.root, home)),
-    python: await firstPython($, [envPython, uvPython, 'python3', 'py'].filter(name => !!name) as string[]),
-    teBoot: `${$.plugin.root}/scripts/te_bootstrap.py`,
   }
   const answer = located
   // Only a complete answer is kept, so one slow start never reads as "not installed" all session.
-  if (missingNames(answer).length > 0 || !answer.python) located = null
+  if (missingNames(answer).length > 0) located = null
 
   return answer
 }
@@ -107,12 +90,7 @@ async function runSetup($: Dollar): Promise<string> {
     }
   }
   located = null
-  const after = await locate($)
-  // TokenEconomizer's own hooks need this where no python3 is on PATH, as a Store alias is not.
-  if (isWindows && after.python && !(await $.env.get('TE_PYTHON')) && after.python !== 'python3') {
-    const run = await attempt(() => $.process.run(['setx', 'TE_PYTHON', after.python as string]))
-    report.push(`${run?.exitCode === 0 ? 'Done' : 'Failed'}: TE_PYTHON`)
-  }
+  await locate($)
   void attempt(() => refresh($))
   if (report.length === 0) return 'All four tools are already installed.'
 

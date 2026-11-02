@@ -1,15 +1,15 @@
 // `te status` (Apache-2.0, Microsoft), rewritten from plugin/cli.py, accounting.py and denylist.py.
 // It only reads: carrying state over from earlier keys stays with the session hooks.
 use crate::config::Config;
-use crate::economizer::{pin_name, state_root, Store};
+use crate::economizer::{pin_name, Store};
 use crate::loopguard::EnvelopeTracker;
-use crate::paths::{abspath, realpath, repo_identity, RepoId};
-use serde_json::{json, Map, Value};
+use crate::context::Ctx;
+use crate::paths::RepoId;
+use serde_json::{json, Value};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const OVERHEAD_KEYS: [&str; 6] = ["optimizer_tokens", "untool_classify_tokens", "untool_judge_tokens", "codex_untool_adapt_tokens", "spiral_judge_tokens", "spiral_nudge_writer_tokens"];
-const HOSTS: [&str; 5] = ["claude", "codex", "copilot", "opencode", "pi"];
 
 // A sum that stays a whole number until a fraction joins it, as Python's does.
 #[derive(Default)]
@@ -102,29 +102,8 @@ fn fmt_tokens(number: f64) -> String {
     format!("{number:.0}")
 }
 
-fn canon(path: &str) -> String {
-    if path.is_empty() { String::new() } else { realpath(Path::new(path)).to_string_lossy().into_owned() }
-}
-
-// What the plugin added to this checkout's settings file.
-fn applied_for(store: &Store, repo_root: &str) -> Value {
-    let doc = store.read("untool_applied.json").unwrap_or(Value::Null);
-    let mut by: Map<String, Value> = Map::new();
-    if let Some(paths) = doc.get("by_path").and_then(Value::as_object) {
-        for (path, items) in paths {
-            by.insert(canon(path), if items.is_null() { json!([]) } else { items.clone() });
-        }
-    } else if truthy(doc.get("tools")) {
-        by.insert(canon(doc.get("path").and_then(Value::as_str).unwrap_or("")), doc["tools"].clone());
-    }
-    let settings = Path::new(repo_root).join(".claude").join("settings.local.json");
-    let wanted = canon(&settings.to_string_lossy());
-
-    by.get(&wanted).filter(|items| truthy(Some(items))).or(by.get("")).filter(|items| truthy(Some(items))).cloned().unwrap_or_else(|| json!([]))
-}
-
 // The repository a running session was pinned to, following any merge made since the pin.
-fn pinned(root: &Path, session: &str) -> Option<RepoId> {
+pub(crate) fn pinned(root: &Path, session: &str) -> Option<RepoId> {
     let doc: Value = serde_json::from_slice(&fs::read(root.join("sessions").join("claude").join(pin_name(session))).ok()?).ok()?;
     let field = |name: &str| doc.get(name).and_then(Value::as_str).unwrap_or("").to_string();
     let mut repo = RepoId { root: field("root"), key: field("key"), label: field("label"), remote: field("remote"), how: field("how") };
@@ -168,41 +147,7 @@ fn describe(repo: &RepoId) -> String {
     }
 }
 
-fn newest_change(dir: &Path) -> Option<std::time::SystemTime> {
-    let own = fs::metadata(dir).ok()?.modified().ok()?;
-    let files = fs::read_dir(dir).ok()?.flatten().filter_map(|entry| entry.metadata().ok()?.modified().ok());
-
-    files.chain([own]).max()
-}
-
-// The agent `te` means without `--host`. Only Claude Code's state is read here.
-fn host_is_claude(repo: &RepoId, root: &Path, asked: Option<&str>) -> bool {
-    if let Some(host) = asked {
-        return host == "claude";
-    }
-    if let Some(host) = std::env::var("TE_HOST").ok().filter(|host| HOSTS.contains(&host.as_str())) {
-        return host == "claude";
-    }
-    let marked = |name: &str| std::env::var(name).is_ok_and(|value| value == "1");
-    if marked("CLAUDECODE") {
-        return true;
-    }
-    if marked("COPILOT_CLI") {
-        return false;
-    }
-    let mut recent = None;
-    for host in HOSTS {
-        if let Some(changed) = newest_change(&root.join("repos").join(&repo.key).join(host)) {
-            if recent.is_none_or(|(_, newest)| changed > newest) {
-                recent = Some((host, changed));
-            }
-        }
-    }
-
-    recent.is_none_or(|(host, _)| host == "claude")
-}
-
-fn gather(repo: &RepoId, root: &Path) -> Value {
+pub(crate) fn gather(repo: &RepoId, root: &Path) -> Value {
     let repo_dir = root.join("repos").join(&repo.key);
     let store = Store { base: repo_dir.join("claude") };
     let config = Config::load(root, &repo_dir);
@@ -230,7 +175,7 @@ fn gather(repo: &RepoId, root: &Path) -> Value {
             "prompts": untool.get("prompts").cloned().unwrap_or(json!(0)),
             "catalog_source": untool.get("catalog_source").cloned().unwrap_or(Value::Null),
             "proposal": untool.get("proposal").cloned().unwrap_or(json!([])),
-            "applied": applied_for(&store, &repo.root),
+            "applied": crate::denylist::applied_for(&store, &repo.root),
         },
         "loopguard": {"mode": config.loopguard, "envelope": tracker.envelope(), "ended_green_turns": tracker.resolved_turns.len()},
         "ledger": summarize(&records),
@@ -247,7 +192,7 @@ fn plain(value: &Value) -> String {
     crate::config::plain_text(value)
 }
 
-fn render(out: &Value, repo: &RepoId, root: &Path) -> String {
+pub(crate) fn render(out: &Value, repo: &RepoId) -> String {
     let config = &out["config"];
     let ledger = &out["ledger"];
     let tokens = |key: &str| fmt_tokens(ledger[key].as_f64().unwrap_or(0.0));
@@ -257,16 +202,6 @@ fn render(out: &Value, repo: &RepoId, root: &Path) -> String {
         format!("  state        {}", plain(&out["state"])),
         format!("  config       microskills={} toolprune={} loopguard={} repomap={} mode={} shadow={}", plain(&config["microskills"]), plain(&config["toolprune"]), plain(&config["loopguard"]), plain(&config["repomap"]), plain(&config["mode"]), plain(&config["shadow"])),
     ];
-    if config["repomap"] != "off" {
-        let state: Value = fs::read(root.join("repos").join(&repo.key).join("repomap.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or(Value::Null);
-        let cached = if truthy(state.get("map")) {
-            let commit: String = state.get("commit").and_then(Value::as_str).filter(|commit| !commit.is_empty()).unwrap_or("?").chars().take(10).collect();
-            format!("{} tokens cached for {commit}", whole(state.get("chars")) / 4)
-        } else {
-            format!("none yet ({})", state.get("error").and_then(Value::as_str).filter(|why| !why.is_empty()).unwrap_or("made after the first session"))
-        };
-        lines.push(format!("  repomap      {cached}"));
-    }
     for warning in out["warnings"].as_array().into_iter().flatten() {
         lines.push(format!("  warning      {}", plain(warning)));
     }
@@ -287,7 +222,7 @@ fn render(out: &Value, repo: &RepoId, root: &Path) -> String {
 }
 
 // Python's json.dumps(indent=2): the same text, with non-ASCII escaped.
-fn pretty(value: &Value) -> String {
+pub(crate) fn pretty(value: &Value) -> String {
     let text = serde_json::to_string_pretty(value).unwrap_or_default();
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -304,31 +239,11 @@ fn pretty(value: &Value) -> String {
     out
 }
 
-// None hands the command back to the Python: another agent's state, or arguments not known here.
-pub fn run(args: &[String]) -> Option<String> {
-    let (mut cwd, mut host, mut as_json, mut asked) = (None::<PathBuf>, None::<&str>, false, false);
-    let mut words = args.iter();
-    while let Some(word) = words.next() {
-        match word.as_str() {
-            "--cwd" => cwd = Some(PathBuf::from(words.next()?)),
-            "--host" => host = Some(words.next()?.as_str()),
-            "--json" => as_json = true,
-            "status" => asked = true,
-            _ => return None,
-        }
-    }
-    if !asked {
-        return None;
-    }
-    let cwd = cwd.or_else(|| std::env::current_dir().ok())?;
-    let root = abspath(&state_root());
-    let repo = repo_identity(&cwd);
-    if !host_is_claude(&repo, &root, host) {
-        return None;
-    }
-    let out = gather(&repo, &root);
+// `te status`: what the plugin has learned for the repository a context names, and what it did.
+pub fn report(ctx: &Ctx, as_json: bool) -> String {
+    let out = gather(&ctx.repo, &ctx.root);
 
-    Some(if as_json { pretty(&out) } else { render(&out, &repo, &root) })
+    if as_json { pretty(&out) } else { render(&out, &ctx.repo) }
 }
 
 #[cfg(test)]
@@ -352,11 +267,5 @@ mod tests {
         assert_eq!(sum["injected_sessions"], 1);
         assert_eq!(fmt_tokens(1234.0), "1.2k");
         assert_eq!(fmt_tokens(512.0), "512");
-    }
-
-    #[test]
-    fn what_is_not_known_here_goes_to_the_python() {
-        assert_eq!(run(&["toolprune".to_string()]), None);
-        assert_eq!(run(&["--host".to_string(), "codex".to_string(), "status".to_string()]), None);
     }
 }

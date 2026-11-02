@@ -48,8 +48,7 @@ Restart Claude Code. Everything starts by itself at each session.
 
 | You need | For |
 |---|---|
-| Nothing | Compression, the code graph, Ponytail's rules, on supported systems |
-| Python 3.10+ | TokenEconomizer's parts not yet ported to Rust. `uv` installs it for you if present |
+| Nothing | Everything, on supported systems |
 | `cargo` | Only on a system with no prebuilt program |
 
 If you already run the separate TokenEconomizer or Ponytail plugins, disable them so that they do not run twice:
@@ -110,9 +109,19 @@ It also reports links graphify does not, and not all of them are verified. It is
 
 [TokenEconomizer](https://github.com/microsoft/TokenEconomizer) by Microsoft notices a turn repeating the same failure and redirects it, leaves out tools a repository never uses, and can learn repository facts. Its commands are here as `/the-dam:status`, `/the-dam:toolprune`, `/the-dam:config` and so on.
 
-The hooks that run on every prompt and tool call, the end of a session and the `status` command are ported to Rust (`dam-economizer`) and read the same state files. Replaying 7,668 hook events from real and made-up sessions through both gave identical answers and state, and `status` matched on 89 repositories, settings and states, apart from how very small decimals are written in its JSON (the same value, `0.00007` rather than `7e-05`). The start of a session, learning from a finished session, the judge, the other commands and other agents still run on the bundled Python, unchanged.
+It is rewritten in Rust (`dam-economizer`), for Claude Code only, and reads the same state files, so existing state keeps working. Against the Python on the same inputs:
 
-Its loop guard can call a model through your own Claude Code to judge a stuck turn, and its fact learning is off by default. Those calls are the only network use the plugin causes itself, and they appear in the `tokens spent` figure. `/the-dam:config` turns them off.
+| Compared | Cases | Differences |
+|---|---|---|
+| Hooks through a turn, on real and made-up sessions | 7,664 events | 0 |
+| Whole sessions with tool pruning and facts on, real logs | 240 hooks | 0 |
+| Session start, fold, pricing, settings, judge | 820 | 1, a checkout count in `repos --json` |
+| Tool pruning, including odd settings files | 587 comparisons | 12, where the Python crashes on a malformed `permissions` and this refuses to edit |
+| Learned facts, including the model's answers | 300 steps | 0, against a copy with one order made stable (the Python's ties vary with its hash seed) |
+
+The judge and the proposer call a model through your own Claude Code; those calls were compared with a stand-in for `claude`. They are the only network use the plugin causes itself, they appear in the `tokens spent` figure, and `/the-dam:config` turns them off. Fact learning is off by default.
+
+Left out: other agents (Codex, Copilot, Pi, OpenCode), the repository map (`dam-graph` fills that role), `probe`, and merging or migrating state between repository keys.
 
 ### Lazy senior dev rules: Ponytail
 
@@ -136,7 +145,7 @@ hooks/register.tsx    status line, /the-dam, calls dam-squeeze and dam-graph
 scripts/dam-run       picks the program built for this machine
 dam/src/bin/          dam-squeeze, dam-graph, dam-ponytail, dam-economizer
 dam/src/              the library they share
-lib/, scripts/te*     TokenEconomizer, bundled
+scripts/te            TokenEconomizer's command line
 skills/, commands/    Ponytail's and TokenEconomizer's
 ```
 
@@ -148,8 +157,8 @@ Peak memory on Windows: `dam-ponytail` 3.5 to 5.9 MB, `dam-graph` 10 MB on 145 f
 - Prebuilt programs come from CI for Windows x64, Linux x64 and macOS. CI runs every program end to end on each (`scripts/smoke.sh`), with no model. Real Claude Code sessions have only been run on Windows.
 - The Windows programs are not signed, so Windows may warn about them.
 - The model has to read the condensed format, which may cost it some effort on heavily folded outputs.
-- TokenEconomizer is not all in Rust yet, so its remaining parts need Python 3.10 or later.
-- The bundled copies of TokenEconomizer and Ponytail do not follow their own releases.
+- Rules a model writes for learned facts run on Rust's regular expressions, which differ from Python's in rare cases.
+- The rewrite of TokenEconomizer and the bundled rules of Ponytail do not follow their own releases.
 
 ## Development
 
