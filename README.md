@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/T-Celor/the-dam/actions/workflows/ci.yml"><img src="https://github.com/T-Celor/the-dam/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Apache 2.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-blue.svg" alt="PolyForm Strict 1.0.0"></a>
   <img src="https://img.shields.io/badge/built%20with-Rust-b7410e.svg" alt="Built with Rust">
   <img src="https://img.shields.io/badge/runs-100%25%20local%20by%20default-2e7d32.svg" alt="Local by default">
 </p>
@@ -172,4 +172,4 @@ claude plugin test .
 
 ## Credits and licence
 
-Apache License 2.0, see [LICENSE](LICENSE). The dam builds on the work of others, listed with their licences in [NOTICE](NOTICE). It is an independent project, not affiliated with or endorsed by Microsoft, Anthropic, or the authors of Headroom, graphify and Ponytail.
+PolyForm Strict License 1.0.0, see [LICENSE](LICENSE): free for personal and other noncommercial use, with no right to redistribute it, change it or use it commercially. This is source-available, not open source. For a commercial licence, contact the author through GitHub. Versions up to 0.15.0 were published under Apache 2.0, and stay under it. The dam builds on the work of others, listed with their licences in [NOTICE](NOTICE). It is an independent project, not affiliated with or endorsed by Microsoft, Anthropic, or the authors of Headroom, graphify and Ponytail.

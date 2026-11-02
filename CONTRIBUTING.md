@@ -24,3 +24,7 @@ claude plugin test .
 ## Report a bug
 
 Open an issue with your system, Claude Code version, what you ran and what you expected. For a compression bug, a small output that reproduces it is ideal. Remove anything private first. For a security problem, see [SECURITY.md](SECURITY.md).
+
+## Licence of contributions
+
+The project is under the PolyForm Strict License, so it needs your permission to use what you send. By opening a pull request, you confirm that the work is yours and let the author use, change, distribute and license it, commercially or not, under any terms.

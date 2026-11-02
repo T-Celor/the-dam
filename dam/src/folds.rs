@@ -1,5 +1,5 @@
 // Reversible folds taken from the rules of Headroom's lossless_compaction.py (Apache-2.0,
-// https://github.com/chopratejas/headroom), rewritten here. Each has an exact inverse, which the
+// https://github.com/headroomlabs-ai/headroom), rewritten here. Each has an exact inverse, which the
 // caller checks before using the result.
 use std::collections::HashMap;
 

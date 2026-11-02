@@ -1,7 +1,9 @@
 The dam
 Copyright 2026 Tristan Celor
 
-Licensed under the Apache License, Version 2.0 (see LICENSE).
+Licensed under the PolyForm Strict License 1.0.0 (see LICENSE), from version 0.16.0 on. Versions
+up to 0.15.0 were published under the Apache License 2.0, and stay under it. These terms cover this
+project's own work: what comes from the projects below stays under their licences.
 
 This project builds on the following work, none of whose authors endorse it.
 
@@ -9,8 +11,6 @@ TokenEconomizer, Copyright (c) Microsoft Corporation, Apache License 2.0
 https://github.com/microsoft/TokenEconomizer
   Rewritten in Rust in dam/src, for Claude Code only; commands/ are its own.
   Licence in licenses/TokenEconomizer-LICENSE.
-  dam/src/loopguard.rs and dam/src/economizer.rs are Rust rewrites of parts of it,
-  changed in language and limited to Claude Code.
 
 Ponytail, Copyright (c) 2026 DietrichGebert, MIT License
 https://github.com/DietrichGebert/ponytail
@@ -26,4 +26,5 @@ graphify, https://graphify.com
   dam-graph is an independent implementation with a similar purpose. It contains no graphify
   code. graphify was used as the reference for its measurements.
 
-Rust dependencies of dam-economizer, each under MIT or Apache-2.0: fancy-regex, md5, serde_json.
+Rust libraries built into the programs: listed with their licence texts in
+licenses/THIRD-PARTY-RUST.txt.

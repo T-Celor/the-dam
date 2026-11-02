@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.0
+
+- Licence changed to PolyForm Strict 1.0.0 from this version on. Earlier versions stay under Apache 2.0.
+- Licence texts of the Rust libraries added in `licenses/THIRD-PARTY-RUST.txt`.
+
 ## 0.15.0
 
 - TokenEconomizer is rewritten in Rust for Claude Code: no more Python, and its bundled copy is gone.

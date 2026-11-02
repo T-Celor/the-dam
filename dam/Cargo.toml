@@ -1,9 +1,9 @@
 [package]
 name = "dam"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2021"
 description = "Lossless output compression, a local code graph and agent hooks for Claude Code."
-license = "Apache-2.0"
+license-file = "../LICENSE"
 repository = "https://github.com/T-Celor/the-dam"
 
 [profile.release]
