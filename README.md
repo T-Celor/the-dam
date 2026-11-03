@@ -16,6 +16,13 @@
   <img src="https://img.shields.io/badge/runs-100%25%20local-2e7d32.svg" alt="Runs locally">
 </p>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="assets/teaser.png">
+    <img src="assets/teaser.gif" width="100%" alt="An animation told by beavers. Title card: The dam, spend fewer tokens in Claude Code without losing a line. The problem: a river of repeated log lines floods toward Claude, who gets dizzy. Compression: a beaver stacks 4,000 identical ERROR lines into one log with a count, 24% fewer tokens and every line kept. Web pages: a beaver chews the cookie banner, menu, ads and footer off a 261 KB page and leaves 3.7 KB of Markdown. The map: a parchment unrolls into a graph of the project and a pin drops on crusher.rs line 118 to answer where SmartCrusher is. Loop guard: Claude spins in a whirlpool repeating retry until a beaver nudges it out with a stick. Tool pruning: a beaver tosses unused tools such as NotebookEdit and CronCreate off the raft and keeps Read, Edit, Bash and Grep. Learned facts: a beaver writes in its notebook that tests run with python -m pytest, confirmed in 3 sessions. Beaver mode: a beaver in a hard hat shrinks 50 lines of code to 1. The end: the status line and the install command, between two waving beavers.">
+  </picture>
+</p>
+
 ```
 🦫 full · 💧 3.1k 25% · 🪵 27 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
 ```

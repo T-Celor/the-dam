@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.19.1
+
+- The scripts are executable again on Linux and macOS: 0.19.0 lost their executable bit, so its hooks could not start there.
+- The README opens with an animation of what each part does, told by beavers (`assets/teaser.py` draws it).
+
 ## 0.19.0
 
 - Ponytail is renamed Beaver: `/the-dam:beaver`, `beaver-review`, `beaver-audit`, `beaver-debt`, `beaver-gain`, `beaver-help`, `/beaver lite|full|ultra`, `stop beaver`. Ponytail's commands and settings still work.
