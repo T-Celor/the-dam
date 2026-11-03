@@ -35,16 +35,31 @@ export function graphNudge(program: string): string {
   return `A map of this project is ready: its code, its documents and its settings. To find where something is defined or described, what it calls or what calls it, or how parts connect, run \`"${program}" query "<name or question>"\` first, before Grep, Glob or Read sweeps: it answers in a few hundred tokens. When a prompt or a Grep names code, the map's answer for those names is added for you.`
 }
 
-const WORTH_SQUEEZING_CHARS = 6000
+const WORTH_SQUEEZING_CHARS = 2000
 // Claude Code hands over at most this much of a longer output, which it saves itself and shows as a preview.
 const MOST_INLINE_CHARS = 29_000
-const WORTH_KEEPING_TOKENS = 200
-type ToolRecord = { stdout?: unknown; content?: unknown; mode?: unknown; isImage?: unknown; backgroundTaskId?: unknown; persistedOutputPath?: unknown }
+const WORTH_KEEPING_TOKENS = 100
+type ToolRecord = { stdout?: unknown; content?: unknown; text?: unknown; mode?: unknown; isImage?: unknown; backgroundTaskId?: unknown; persistedOutputPath?: unknown }
 
-// Bash and PowerShell output, and Grep's matching lines. Read and Edit need the file's exact bytes.
+// An MCP tool's result as plain text: a string, or text blocks only; null for anything else (images, structured data).
+export function mcpText(result: unknown): string | null {
+  if (typeof result === 'string') return result
+  const isText = (block: unknown) => typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'text' && typeof (block as { text?: unknown }).text === 'string'
+  if (!Array.isArray(result) || result.length === 0 || !result.every(isText)) return null
+
+  return result.map(block => (block as { text: string }).text).join('\n')
+}
+
+// The condensed text back in the result's own shape.
+export function withMcpText(result: unknown, text: string): unknown {
+  return typeof result === 'string' ? text : [{ type: 'text', text }]
+}
+
+// Bash and PowerShell output, Grep's matching lines, and MCP tools' text (handed over as `{ text }`).
+// Read and Edit need the file's exact bytes; a subagent's report and WebFetch's answer are short prose with nothing repeated.
 // An output Claude Code saved to a file is read back from it (`persistedOutputPath`), whatever its size.
-export function squeezableField(tool: string, record: ToolRecord): 'stdout' | 'content' | null {
-  const field = tool === 'Bash' || tool === 'PowerShell' ? 'stdout' : tool === 'Grep' && record.mode === 'content' ? 'content' : null
+export function squeezableField(tool: string, record: ToolRecord): 'stdout' | 'content' | 'text' | null {
+  const field = tool === 'Bash' || tool === 'PowerShell' ? 'stdout' : tool === 'Grep' && record.mode === 'content' ? 'content' : tool.startsWith('mcp__') ? 'text' : null
   if (!field || record.isImage || record.backgroundTaskId) return null
   if (field === 'stdout' && typeof record.persistedOutputPath === 'string') return field
   const text = record[field]
@@ -109,8 +124,9 @@ export function fitsInline(text: string): boolean {
 // Rough, as no tokenizer is at hand: about four characters per token.
 const tokensIn = (text: string) => Math.ceil(text.length / 4)
 
-// What a Bash, PowerShell or Grep call printed, in tokens, whether or not it was condensed; 0 for other tools.
+// What a Bash, PowerShell, Grep or MCP call printed, in tokens, whether or not it was condensed; 0 for other tools.
 export function outputTokens(tool: string, record: ToolRecord & { persistedOutputSize?: unknown }): number {
+  if (tool.startsWith('mcp__')) return typeof record.text === 'string' ? tokensIn(record.text) : 0
   if (tool !== 'Bash' && tool !== 'PowerShell' && tool !== 'Grep') return 0
   if (typeof record.persistedOutputSize === 'number') return Math.ceil(record.persistedOutputSize / 4)
   const text = tool === 'Grep' ? record.content : record.stdout

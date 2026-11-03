@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
 import type { Gains, JournalEntry, Stats } from '../types'
-import { EMPTY, ICON, economizerEntries, formatCount, gainNote, journalLine, journalView, projectFlow, reportOf, sessionFigures, signed, statusOf, totalLines } from './model'
+import { EMPTY, ICON, carryStep, economizerEntries, formatCount, gainNote, journalLine, journalView, projectFlow, reportOf, sessionFigures, signed, statusOf, totalLines } from './model'
 import type { Located } from './tools'
 import {
   candidates,
@@ -19,6 +19,8 @@ import {
   fitsInline,
   looksLikeWebPage,
   outputTokens,
+  mcpText,
+  withMcpText,
   pageUrl,
   savedPreview,
   standoutLines,
@@ -172,15 +174,18 @@ const SAVED = 'saved'
 const savedHereKey = async ($: Dollar) => `saved:${await $.session.id()}`
 
 // What the tools printed and what compression took out, as one record per session with its project, written in turn.
-type FlowRecord = { project: string; saved: number; seen: number; spent?: number }
+type FlowRecord = { project: string; saved: number; seen: number; spent?: number; avoided?: number; carry?: number; messages?: number }
 let flowing: Promise<unknown> = Promise.resolve()
 
-function addFlow($: Dollar, seen: number, saved: number, spent = 0) {
+// `step` is a main-loop request: its message count, and the pruned tools' schemas it did not carry.
+function addFlow($: Dollar, seen: number, saved: number, spent = 0, step?: { messages: number; pruned: number }) {
   flowing = flowing.then(async () => {
     const key = `flow:${await $.session.id()}`
     const was = ((await $.store.get(key)) ?? null) as FlowRecord | null
     const project = was?.project ?? (await $.session.root())
-    await $.store.set(key, { project, saved: (was?.saved ?? 0) + saved, seen: (was?.seen ?? 0) + seen, spent: (was?.spent ?? 0) + spent })
+    const before = { carry: (was?.carry ?? 0) + saved, avoided: was?.avoided ?? 0, messages: was?.messages ?? 0 }
+    const carried = step ? carryStep(before, step.messages, step.pruned) : before
+    await $.store.set(key, { project, saved: (was?.saved ?? 0) + saved, seen: (was?.seen ?? 0) + seen, spent: (was?.spent ?? 0) + spent, ...carried })
   }).catch(() => undefined)
 
   return flowing
@@ -191,7 +196,7 @@ async function flows($: Dollar) {
   const [records, session, root] = await Promise.all([Promise.all(keys.map(key => $.store.get(key) as Promise<FlowRecord | null | undefined>)), $.session.id(), $.session.root()])
   const here = records[keys.indexOf(`flow:${session}`)]
 
-  return { session: { saved: Number(here?.saved ?? 0), seen: Number(here?.seen ?? 0), spent: Number(here?.spent ?? 0) }, project: projectFlow(records, root) }
+  return { session: { saved: Number(here?.saved ?? 0), seen: Number(here?.seen ?? 0), spent: Number(here?.spent ?? 0), avoided: Number(here?.avoided ?? 0) }, project: projectFlow(records, root) }
 }
 
 async function savedTotal($: Dollar) {
@@ -305,6 +310,7 @@ async function readContext($: Dollar): Promise<Stats['context']> {
   const breakdown = usage?.context.breakdown
   const percent = usage?.context.percent ?? breakdown?.percentage
   if (!usage || percent === undefined) return null
+  await attempt(() => rememberToolSizes($, breakdown?.mcpTools ?? []))
 
   return { percent, total: breakdown?.totalTokens ?? usage.context.tokens ?? 0, max: usage.context.window }
 }
@@ -330,9 +336,24 @@ async function noteChanges($: Dollar, gains: { pruned: number; pending: number }
 // Where TokenEconomizer keeps this repository's state, from its status: its events are the journal's other half.
 let economizerState: string | null = null
 
+// The schema size of each MCP tool a session had loaded, kept across sessions: a pruned tool is no longer there to measure.
+// Built-in tools are not counted one by one, and a deferred schema costs a request almost nothing, so neither counts.
+const TOOL_SIZES = 'toolsizes'
+let prunedTokens = 0
+
+async function rememberToolSizes($: Dollar, tools: ReadonlyArray<{ name: string; tokens: number; isLoaded: boolean }>) {
+  const loaded = tools.filter(tool => tool.isLoaded && tool.tokens > 0)
+  if (loaded.length === 0) return
+  const sizes = ((await $.store.get(TOOL_SIZES)) ?? {}) as Record<string, number>
+  await $.store.set(TOOL_SIZES, { ...sizes, ...Object.fromEntries(loaded.map(tool => [tool.name, tool.tokens])) })
+}
+
 async function readEconomizer($: Dollar, program: string) {
   const out = (await $.process.run([program, 'status', '--json'])).stdout
-  economizerState = (JSON.parse(out) as { state?: string }).state ?? null
+  const status = JSON.parse(out) as { state?: string; toolprune?: { applied?: string[] } }
+  economizerState = status.state ?? null
+  const sizes = ((await $.store.get(TOOL_SIZES)) ?? {}) as Record<string, number>
+  prunedTokens = (status.toolprune?.applied ?? []).reduce((sum, name) => sum + Number(sizes[name] ?? 0), 0)
 
   return parseEconomizer(out)
 }
@@ -465,7 +486,9 @@ export const register: Register = on => {
     const step = yield* next(e)
     const u = step?.usage
     const spent = (u?.input_tokens ?? 0) + (u?.output_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0)
-    if (spent > 0) void addFlow($, 0, 0, spent).then(() => checkSoon($))
+    // A subagent's requests carry none of the main loop's outputs.
+    const mainStep = e.agentId ? undefined : { messages: e.messageCount, pruned: prunedTokens }
+    if (spent > 0) void addFlow($, 0, 0, spent, mainStep).then(() => checkSoon($))
 
     return step
   })
@@ -477,11 +500,17 @@ export const register: Register = on => {
 
     const ran = await next(e)
     if (ran.deny !== undefined || ran.isError) return ran
-    const printed = outputTokens(e.tool, ran.result as Record<string, unknown>)
+    // An MCP tool's text goes through as `{ text }`, and back in its own shape.
+    const mcp = e.tool.startsWith('mcp__') ? mcpText(ran.result) : null
+    const given = (mcp === null ? ran.result : { text: mcp }) as Record<string, unknown>
+    const printed = outputTokens(e.tool, given)
     if (printed > 0) void addFlow($, printed, 0)
     // A big output is condensed before the model reads it.
     const command = e.tool === 'Bash' || e.tool === 'PowerShell' ? e.command : undefined
-    const record = (await attempt(() => squeeze($, e.tool, ran.result as Record<string, unknown>, command))) ?? (ran.result as Record<string, unknown>)
+    const condensed = await attempt(() => squeeze($, e.tool, given, command))
+    if (mcp !== null) checkSoon($)
+    if (mcp !== null) return condensed ? ({ ...ran, result: withMcpText(ran.result, condensed.text as string) } as typeof ran) : ran
+    const record = condensed ?? (ran.result as Record<string, unknown>)
     checkSoon($)
     // A search for one name also gets where the graph says it is defined and who calls it.
     const name = e.tool === 'Grep' ? grepName(e.pattern) : null

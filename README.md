@@ -18,13 +18,15 @@
 
 <p align="center">
   <picture>
+    <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: reduce)" srcset="assets/teaser-dark.png">
     <source media="(prefers-reduced-motion: reduce)" srcset="assets/teaser.png">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/teaser-dark.gif">
     <img src="assets/teaser.gif" width="100%" alt="An animation in three parts. A title card: the beaver icon, The dam, spend fewer tokens in Claude Code without losing a line, its six parts (compression, web pages, map, tool pruning, loop guard, Beaver), a Claude Code plugin in Rust that runs locally, built on TokenEconomizer, Ponytail, Headroom, markdowner and html-to-markdown. Then an illustration, not a measurement: what Claude reads in a session drawn as a bar of the work itself plus five kinds of waste (repeated output, page clutter, broad searches, unused tools, loops). The parts switch on one by one, each card lighting up with an example (ERROR retry ×4000; 261 KB of HTML to 3.7 KB of Markdown; SmartCrusher found at crusher.rs:118; Read and Edit kept, Notebook and Cron left out; the same error three times met with try another way; 50 lines down to 1), and each new bar shrinks its waste below a dashed line at the cost without the dam. It ends on measured figures: 100% of lines recoverable after compression against Headroom's 69.9%, a GitHub page 99% smaller as Markdown, 2,112 files mapped in 1.5 s against graphify's 816 s, TokenEconomizer's 18.4 to 30.9% lower cost, and bars of the share Claude no longer reads: 99% for a GitHub page, 84% for Wikipedia, 81% for the Rust book, 73% for Hacker News, 24.1% for tool output and 45% fewer output tokens in Ponytail's benchmark.">
   </picture>
 </p>
 
 ```
-🦫 full · 💧 3.1k/12.4M (0.02%) · 🪵 27 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
+🦫 full · 💧 412k/12.4M (3.2%) · 🪵 27 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
 ```
 
 ## Contents
@@ -78,7 +80,7 @@ One icon per tool, always in the same order. `0`, `off` or `–` (nothing to mea
 | Icon | Tool | Figure |
 |---|---|---|
 | 🦫 | Beaver | its level in this session |
-| 💧 | Compression | tokens saved / every token this session counted (share saved) |
+| 💧 | Compression and pruning | tokens this session's requests did not carry / every token they counted (share). A token taken out of a tool output is counted once per later request, as each would have re-read it, until a compaction; a pruned MCP tool's schema once per request |
 | 🪵 | Tool pruning | tools left out, `+n` waiting to be |
 | 🌀 | Loop guard | loops stopped |
 | 🧠 | Learned facts | facts given to the model |
@@ -104,7 +106,7 @@ flowchart LR
 
 | Part | Concept | What the model gets |
 |---|---|---|
-| **Compression** `dam-squeeze` | Lines that differ only by numbers become a template and a table of values; identical lines a count; search hits and paths grouped by file; JSON records a table. Errors and outliers stay plain lines. Every result is decoded and checked against the source before use. | The same information in fewer tokens, the original in `~/.claude/the-dam-outputs/` |
+| **Compression** `dam-squeeze` | Bash, PowerShell, Grep and MCP outputs of 2,000 characters or more. Lines that differ only by numbers become a template and a table of values; identical lines a count; search hits and paths grouped by file; JSON records a table. Errors and outliers stay plain lines. Every result is decoded and checked against the source before use. | The same information in fewer tokens, the original in `~/.claude/the-dam-outputs/` |
 | **Web pages** `dam-squeeze --web` | A page a command fetched (`curl`, `wget`, `Invoke-WebRequest`): its main content picked as Readability does, written as Markdown with html-to-markdown's rules (escaping, tables with spans, code blocks, absolute links). | Title, address and the page as Markdown; the full HTML kept in a file |
 | **Map** `dam-graph` | Who defines, calls, extends and imports what, in 10 languages, plus document headings, links and quoted code names, and the keys of YAML, TOML and JSON. Rebuilt in the background at session start. | Where a name is defined, what calls it and which document describes it, added when a prompt or a `Grep` names it |
 | **Loop guard** | A turn repeating the same failure is checked by a judge model, then redirected once. | A short note to try another approach |

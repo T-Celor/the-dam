@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.0
+
+- 💧 counts what each request did not carry: a token taken out of a tool output stays out of every later request, so it counts once per request until a compaction empties the context. A pruned MCP tool's schema counts once per request, with its size measured while it was loaded. 0.19.2 counted a saved token once against a total that counts the context at every request, which read as 0.1%.
+- MCP tools' text outputs are condensed too, back in their own shape; images and structured results are left alone.
+- Outputs are condensed from 2,000 characters instead of 6,000, when that saves 100 tokens or more.
+- The README's animation comes in a light and a dark theme, following the reader's, drawn in Apple's system colours and type at 1680 × 900, with the logo drawn from its own shapes.
+- Subagents' reports and WebFetch's answers stay as they are: short prose with nothing repeated. Read stays exact, as Edit needs the file's bytes.
+
 ## 0.19.2
 
 - 💧 reads `saved/total (%)`: what compression saved against every token this session's model requests counted (input, cache and output, subagents included), so it moves from the first answer even when nothing could be condensed.

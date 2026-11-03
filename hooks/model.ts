@@ -36,19 +36,32 @@ export function percentOf(flow: Flow): string | null {
   return flow.seen > 0 ? `${Math.round((Math.min(flow.saved, flow.seen) / flow.seen) * 100)}%` : null
 }
 
-// What compression saved against every token the session's requests counted (input, cache and output), as `saved/total (%)`.
+// What the requests did not carry against every token they counted (input, cache and output), as `avoided/total (%)`.
+// A saved token is re-read by every later request, so it counts once per request; before the first, it counts once.
 export function savedOfSpent(flow: Flow): string {
-  if (flow.spent <= 0) return formatCount(flow.saved)
-  const share = (flow.saved / (flow.saved + flow.spent)) * 100
+  const avoided = Math.max(flow.saved, flow.avoided ?? 0)
+  if (flow.spent <= 0) return formatCount(avoided)
+  const share = (avoided / (avoided + flow.spent)) * 100
 
-  return `${formatCount(flow.saved)}/${formatCount(flow.spent)} (${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : Math.round(share)}%)`
+  return `${formatCount(avoided)}/${formatCount(flow.spent)} (${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : Math.round(share)}%)`
 }
 
-type FlowRecord = { project?: unknown; saved?: unknown; seen?: unknown; spent?: unknown } | null | undefined
+// What compression took out that is still in the context, the running total of what requests did not carry, and the message count last seen.
+export type Carry = { carry: number; avoided: number; messages: number }
+
+// One model request: it did not carry what is still taken out, nor the pruned tools' schemas.
+// Fewer messages than the last request means the context was compacted: the condensed outputs left it.
+export function carryStep(was: Carry, messages: number, pruned: number): Carry {
+  const carry = messages < was.messages ? 0 : was.carry
+
+  return { carry, avoided: was.avoided + carry + pruned, messages }
+}
+
+type FlowRecord = { project?: unknown; saved?: unknown; seen?: unknown; spent?: unknown; avoided?: unknown } | null | undefined
 
 // One project's compression, from every session's record.
 export function projectFlow(records: FlowRecord[], project: string): Flow {
-  return records.reduce<Flow>((sum, record) => (record?.project === project ? { saved: sum.saved + Number(record.saved ?? 0), seen: sum.seen + Number(record.seen ?? 0), spent: sum.spent + Number(record.spent ?? 0) } : sum), { saved: 0, seen: 0, spent: 0 })
+  return records.reduce<Flow>((sum, record) => (record?.project === project ? { saved: sum.saved + Number(record.saved ?? 0), seen: sum.seen + Number(record.seen ?? 0), spent: sum.spent + Number(record.spent ?? 0), avoided: (sum.avoided ?? 0) + Number(record.avoided ?? 0) } : sum), { saved: 0, seen: 0, spent: 0, avoided: 0 })
 }
 
 const withShare = savedOfSpent
@@ -169,7 +182,7 @@ export function totalLines(s: Stats, here: SessionFigures): string[] {
   const context = s.context ? `${Math.round(s.context.percent)}% of the context used (${formatCount(s.context.total)} of ${formatCount(s.context.max)} tokens)` : 'context not measured yet'
 
   return [
-    `${ICON.water} ${savedOfSpent(s.session)} tokens saved of this session's total${percentOf(s.session) ? `, ${percentOf(s.session)} of what the tools printed` : ''}`,
+    `${ICON.water} ${savedOfSpent(s.session)} tokens kept out of this session's requests: ${formatCount(s.session.saved)} taken out of tool outputs${percentOf(s.session) ? ` (${percentOf(s.session)} of what they printed)` : ''}, then not re-read`,
     `   this project ${withShare(s.project)}, every project ${formatCount(s.saved)}`,
     `${ICON.logs} ${s.pruned} tools left out of this session${s.pending > 0 ? `, ${s.pending} more waiting` : ''}`,
     `${ICON.whirl} ${here.loops} loops stopped`,

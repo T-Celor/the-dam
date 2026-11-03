@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, economizerEntries, projectFlow, savedOfSpent, formatCount, gainNote, journalLine, journalView, reportOf, sessionFigures, statusOf, totalLines } from './model'
-import { candidates, codeNames, looksLikeWebPage, pageUrl, exactEntries, graphNodes, graphQuestion, grepName, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, savedPreview, standoutLines, worthGraphing } from './tools'
+import { EMPTY, carryStep, economizerEntries, projectFlow, savedOfSpent, formatCount, gainNote, journalLine, journalView, reportOf, sessionFigures, statusOf, totalLines } from './model'
+import { candidates, codeNames, mcpText, withMcpText, looksLikeWebPage, pageUrl, exactEntries, graphNodes, graphQuestion, grepName, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, savedPreview, standoutLines, worthGraphing } from './tools'
 
 const ALL = { squeezer: true, graphify: true, economizer: true, beaver: true }
 
@@ -71,6 +71,13 @@ test('only big Bash text gets squeezed, never file bytes or search hits', () => 
   expect(squeezableField('Bash', { stdout: 'preview', persistedOutputPath: '/p' })).toBe('stdout')
   expect(squeezableField('Bash', { stdout: big, backgroundTaskId: 't' })).toBe(null)
   expect(squeezableField('Bash', { stdout: 'x'.repeat(30_000) })).toBe(null)
+  expect(squeezableField('mcp__s__t', { text: big })).toBe('text')
+  expect(squeezableField('Bash', { stdout: 'x'.repeat(2_500) })).toBe('stdout')
+  expect(mcpText([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }])).toBe('a\nb')
+  expect(mcpText([{ type: 'image', data: '' }])).toBe(null)
+  expect(mcpText({ rows: [] })).toBe(null)
+  expect(withMcpText('x', 'y')).toBe('y')
+  expect(withMcpText([{ type: 'text', text: 'x' }], 'y')).toEqual([{ type: 'text', text: 'y' }])
 })
 
 test('a squeeze keeps its answer only when it saves enough, and names the full output', () => {
@@ -155,9 +162,9 @@ test('the totals are this session\'s, counted from its journal', () => {
   expect(here).toEqual({ loops: 1, facts: 3, mapAnswers: 1 })
   const s = { ...EMPTY, saved: 133_000, session: { saved: 3_100, seen: 12_400, spent: 3_096_900 }, project: { saved: 45_200, seen: 90_400, spent: 0 }, pending: 2, level: 'ultra', hasGraph: true, nodes: 400 }
   const lines = totalLines(s, here)
-  expect(lines[0]).toBe("💧 3.1k/3.1M (0.10%) tokens saved of this session's total, 25% of what the tools printed")
+  expect(lines[0]).toBe("💧 3.1k/3.1M (0.10%) tokens kept out of this session's requests: 3.1k taken out of tool outputs (25% of what they printed), then not re-read")
   expect(lines[1]).toBe('   this project 45.2k, every project 133k')
-  expect(projectFlow([{ project: 'C:/a', saved: 10, seen: 40 }, { project: 'C:/b', saved: 5, seen: 5 }, null, { project: 'C:/a', saved: 2, seen: 20 }], 'C:/a')).toEqual({ saved: 12, seen: 60, spent: 0 })
+  expect(projectFlow([{ project: 'C:/a', saved: 10, seen: 40 }, { project: 'C:/b', saved: 5, seen: 5 }, null, { project: 'C:/a', saved: 2, seen: 20 }], 'C:/a')).toEqual({ saved: 12, seen: 60, spent: 0, avoided: 0 })
   expect(lines).toContain('🪵 0 tools left out of this session, 2 more waiting')
   expect(lines).toContain('🌀 1 loops stopped')
   expect(lines).toContain('🗺️ 1 answers from the map (400 places)')
@@ -216,4 +223,13 @@ test('token counts reach G and T, and savings read against the session total', (
   expect(formatCount(2_500_000_000)).toBe('2.5G')
   expect(formatCount(3_000_000_000_000)).toBe('3T')
   expect(savedOfSpent({ saved: 40_000, seen: 0, spent: 360_000 })).toBe('40k/360k (10%)')
+  expect(savedOfSpent({ saved: 1_000, seen: 0, spent: 300_000, avoided: 100_000 })).toBe('100k/300k (25%)')
+})
+
+test('a saved token counts once per request that does not carry it, until a compaction', () => {
+  let c = { carry: 2_000, avoided: 0, messages: 0 }
+  c = carryStep(c, 10, 500)
+  c = carryStep(c, 12, 500)
+  expect(c).toEqual({ carry: 2_000, avoided: 5_000, messages: 12 })
+  expect(carryStep(c, 3, 500)).toEqual({ carry: 0, avoided: 5_500, messages: 3 })
 })
