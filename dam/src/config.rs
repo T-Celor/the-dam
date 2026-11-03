@@ -170,7 +170,7 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Self {
-        let rest = json!({"microskills": "off", "microskills_max_facts": 4, "microskills_max_tokens": 150, "microskills_propose_every": 3, "toolprune": "auto", "toolprune_evidence": 10, "toolprune_min_sessions": 2, "toolprune_sessions": 5, "toolprune_quiet_minutes": 60, "toolprune_protect": [], "repomap_tokens": 2048, "repomap_python": "", "repomap_timeout": 8, "paid_model": "", "vocabulary": "auto"});
+        let rest = json!({"microskills": "envfacts+distiller", "microskills_max_facts": 4, "microskills_max_tokens": 150, "microskills_propose_every": 3, "toolprune": "auto", "toolprune_evidence": 10, "toolprune_min_sessions": 2, "toolprune_sessions": 5, "toolprune_quiet_minutes": 60, "toolprune_protect": [], "repomap_tokens": 2048, "repomap_python": "", "repomap_timeout": 8, "paid_model": "", "vocabulary": "auto"});
         let Value::Object(rest) = rest else { unreachable!("an object above") };
 
         Config { enabled: true, mode: "auto".to_string(), loopguard: "nudge".to_string(), aggr: "default".to_string(), nudges: 1, thresholds: Map::new(), repomap: "off".to_string(), shadow: false, rest, warnings: Vec::new() }
@@ -206,8 +206,8 @@ impl Config {
         if !number.is_finite() {
             return reject("must be finite".to_string());
         }
-        if is_int && value.is_string() && number.fract() != 0.0 {
-            return reject(format!("invalid literal for int() with base 10: {}", repr(value)));
+        if is_int && number.fract() != 0.0 {
+            return reject("must be a whole number".to_string());
         }
         let number = if is_int { number.trunc() } else { number };
         if number < low || high.is_some_and(|top| number > top) {

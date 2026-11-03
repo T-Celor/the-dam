@@ -1,6 +1,8 @@
-export type ToolsPresent = { squeezer: boolean; graphify: boolean; economizer: boolean; ponytail: boolean }
+export type ToolsPresent = { squeezer: boolean; graphify: boolean; economizer: boolean; beaver: boolean }
 export type ContextStats = { percent: number; total: number; max: number }
 export type Gains = { saved: number; pruned: number; facts: number; loops: number; nodes: number }
+// What the tools printed, in tokens, and what compression took out of it.
+export type Flow = { saved: number; seen: number }
 
 export type Stats = Gains & {
   // Tools TokenEconomizer will prune once idle, and what its own work cost in tokens.
@@ -10,12 +12,16 @@ export type Stats = Gains & {
   tools: ToolsPresent
   isCompressing: boolean
   hasGraph: boolean
-  // Ponytail's level in this session, null when it is off or not started.
+  // Beaver's level in this session, null when it is off or not started.
   level: string | null
+  // Compression in this session and in this project; `saved` above is every project's.
+  session: Flow
+  project: Flow
 }
 
 // One line of the session's journal: when, which tool (its icon), what it did.
-export type JournalEntry = { at: number; icon: string; text: string }
+// `count`: how many of a thing the entry adds to the session's totals (learned facts), where it is not one.
+export type JournalEntry = { at: number; icon: string; text: string; count?: number }
 
 declare module 'claude-code' {
   interface PluginState {

@@ -8,7 +8,7 @@ pub mod graph;
 pub mod json;
 pub mod loopguard;
 pub mod paths;
-pub mod ponytail;
+pub mod beaver;
 pub mod scan;
 pub mod squeeze;
 pub mod status;
@@ -21,6 +21,8 @@ pub mod microskills;
 pub mod judge;
 pub mod fold;
 pub mod denylist;
+pub mod docs;
+pub mod web;
 pub mod cli;
 
 // The plugin's folder: given by Claude Code to a hook, else found above the running program.

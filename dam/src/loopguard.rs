@@ -18,11 +18,13 @@ static TEST_RUN: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)(runtests(\.py)?|\b
 static ERR: LazyLock<Regex> = LazyLock::new(|| re(r"(?im)(Traceback \(most recent call last\)|\b\w*Error\b|\bFAILED\b|\bassert\b|Exception|errors during collection|^# fail [1-9]|^not ok \d|\b[1-9]\d* (?:failing|failures?)\b|Failures: [1-9]|^(?-i:--- FAIL: |FAIL\t|FAIL$))"));
 static FAILURE_NOISE: LazyLock<Regex> = LazyLock::new(|| re(r"0x[0-9a-f]+|\d+|/\S+"));
 static SPACES: LazyLock<Regex> = LazyLock::new(|| re(r"\s+"));
-static VERIFY: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)(?:^|[\s;&|(])(?:~?/)?(?:[\w.\-]+/)*(?:pytest|py\.test|tox|nox|python\d?(?:\.\d+)?\s+-m\s+(?:pytest|unittest)|manage\.py\s+test|runtests(?:\.py)?|jest|vitest|mocha|ava|playwright\s+test|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|go\s+test|cargo\s+(?:test|nextest)|(?:mvn|mvnw|\./mvnw)\s+(?:\S+\s+)*test|(?:gradle|gradlew|\./gradlew)\s+(?:\S+\s+)*test|make\s+(?:test|check)|ctest|rspec|phpunit|dotnet\s+test|swift\s+test|mix\s+test|deno\s+test|node\s+--test|bazel\s+test|(?:\./)?bin/test)(?![\w.\-/])"));
-static VERIFY_AT_START: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)\A(?:^|[\s;&|(])?(?:~?/)?(?:[\w.\-]+/)*(?:pytest|py\.test|tox|nox|python\d?(?:\.\d+)?\s+-m\s+(?:pytest|unittest)|manage\.py\s+test|runtests(?:\.py)?|jest|vitest|mocha|ava|playwright\s+test|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|go\s+test|cargo\s+(?:test|nextest)|(?:mvn|mvnw|\./mvnw)\s+(?:\S+\s+)*test|(?:gradle|gradlew|\./gradlew)\s+(?:\S+\s+)*test|make\s+(?:test|check)|ctest|rspec|phpunit|dotnet\s+test|swift\s+test|mix\s+test|deno\s+test|node\s+--test|bazel\s+test|(?:\./)?bin/test)(?![\w.\-/])"));
+static VERIFY: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)(?:^|[\s;&|(])(?:(?:~?/)?(?:[\w.\-]+/)*python\d?(?:\.\d+)?\s+)?(?:~?/)?(?:[\w.\-]+/)*(?:pytest|py\.test|tox|nox|python\d?(?:\.\d+)?\s+-m\s+(?:pytest|unittest)|manage\.py\s+test|runtests(?:\.py)?|jest|vitest|mocha|ava|playwright\s+test|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|go\s+test|cargo\s+(?:test|nextest)|(?:mvn|mvnw|\./mvnw)\s+(?:\S+\s+)*test|(?:gradle|gradlew|\./gradlew)\s+(?:\S+\s+)*test|make\s+(?:test|check)|ctest|rspec|phpunit|dotnet\s+test|swift\s+test|mix\s+test|deno\s+test|node\s+--test|bazel\s+test|(?:\./)?bin/test)(?![\w.\-/])"));
+static VERIFY_AT_START: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)\A(?:^|[\s;&|(])?(?:(?:~?/)?(?:[\w.\-]+/)*python\d?(?:\.\d+)?\s+)?(?:~?/)?(?:[\w.\-]+/)*(?:pytest|py\.test|tox|nox|python\d?(?:\.\d+)?\s+-m\s+(?:pytest|unittest)|manage\.py\s+test|runtests(?:\.py)?|jest|vitest|mocha|ava|playwright\s+test|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|go\s+test|cargo\s+(?:test|nextest)|(?:mvn|mvnw|\./mvnw)\s+(?:\S+\s+)*test|(?:gradle|gradlew|\./gradlew)\s+(?:\S+\s+)*test|make\s+(?:test|check)|ctest|rspec|phpunit|dotnet\s+test|swift\s+test|mix\s+test|deno\s+test|node\s+--test|bazel\s+test|(?:\./)?bin/test)(?![\w.\-/])"));
 static QUOTED: LazyLock<Regex> = LazyLock::new(|| re(r#"'[^']*'|"(?:\\.|[^"\\])*""#));
 static NOT_A_RUN: LazyLock<Regex> = LazyLock::new(|| re(r"\s(?:-h|--help|--version|--collect-only|--co|--list\S*)(?!\S)"));
-static PREFIX: LazyLock<Regex> = LazyLock::new(|| re(r"^\s*(?:(?:\w+=\S*|time|nice|nohup|command|env|timeout(?:\s+(?:-\S+|[A-Z]+|\d\S*))+)\s+)*"));
+// What may precede the command itself: `FOO=1 timeout 60 npm test`, and a launcher that runs it in the project's
+// environment, `uv run pytest`, `npx jest`, `bundle exec rspec`.
+static PREFIX: LazyLock<Regex> = LazyLock::new(|| re(r"^\s*(?:(?:\w+=\S*|time|nice|nohup|command|env|timeout(?:\s+(?:-\S+|[A-Z]+|\d\S*))+|(?:(?:uv|poetry|pipenv|pdm|hatch|rye)\s+run|npx|bunx|(?:npm|pnpm|yarn)\s+(?:exec|dlx)|bundle\s+exec|xvfb-run)(?:\s+-\S+)*)\s+)*"));
 static REPORT: LazyLock<Regex> = LazyLock::new(|| re(r"^\s*(?:echo|printf|true|:|exit)(?:\s|$)"));
 static RUN_FAILED: LazyLock<Regex> = LazyLock::new(|| re(r"(?m)\b[1-9]\d* (?:failed|errors?)\b.*\bin \d+(?:\.\d+)?s\b|^FAILED \((?:failures|errors)=|^tests finished:.*\b[1-9]\d* (?:failed|exceptions?)\b|^# fail [1-9]|^Tests:.*\b[1-9]\d* failed\b|^\s*Tests\s+[1-9]\d* failed\b|^\s*[1-9]\d* failing\b|^(?:--- FAIL: |FAIL\t|FAIL$)|^test result: FAILED|\b\d+ examples?, [1-9]\d* failures?\b|Tests run: \d+, Failures: (?:[1-9]|0, Errors: [1-9])|BUILD FAIL(?:URE|ED)"));
 static RUN_PASSED: LazyLock<Regex> = LazyLock::new(|| re(r"(?m)\b\d+ passed\b.*\bin \d+(?:\.\d+)?s\b|^OK(?: \(.*\))?\s*$|^tests finished: \d+ passed|^# fail 0\b|^Tests:\s+\d+ passed|^\s*Tests\s+\d+ passed|^\s*\d+ passing\b|^ok\s+\S+\s+(?:\d+(?:\.\d+)?s|\(cached\))|^test result: ok\.|\b\d+ examples?, 0 failures\b|BUILD SUCCESS"));
@@ -901,6 +903,10 @@ impl EnvelopeTracker {
         self.resolved_turns.iter().map(|turn| *turn as f64).collect()
     }
 
+    pub fn min_samples(&self) -> usize {
+        self.min_samples
+    }
+
     pub fn envelope(&self) -> Option<f64> {
         if self.resolved_turns.len() < self.min_samples {
             return None;
@@ -1064,7 +1070,7 @@ impl TurnGuard {
             self.edits += 1;
             return;
         }
-        let verifies = command.is_some_and(|text| hit(&VERIFY, text));
+        let verifies = status_of_tests(command).is_some();
         if has_shell_edits {
             self.last_edit = self.cum_turns - i64::from(verifies);
             self.edits += 1;

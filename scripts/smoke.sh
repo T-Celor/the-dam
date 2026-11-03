@@ -17,7 +17,7 @@ case "$(uname -s)-$(uname -m)" in
   *) echo "unknown system" >&2; exit 1 ;;
 esac
 mkdir -p "$root/bin/$folder"
-for name in dam-squeeze dam-graph dam-ponytail dam-economizer; do
+for name in dam-squeeze dam-graph dam-beaver dam-economizer; do
   cp "$root/dam/target/release/$name$ext" "$root/bin/$folder/$name$ext"
 done
 run="$root/scripts/dam-run"
@@ -66,6 +66,6 @@ hook '"Stop","prompt_id":"p1"' >/dev/null
 hook '"SessionEnd","reason":"exit"' >/dev/null
 check "session recorded" "$(cat "$TOKENECONOMIZER_HOME/repos/$key/claude/sessions/smoke.json")" '"end_reason": "exit"'
 
-check "ponytail" "$(printf '{"session_id":"smoke","cwd":"%s"}' "$repo" | "$run" dam-ponytail activate)" "PONYTAIL"
+check "beaver" "$(printf '{"session_id":"smoke","cwd":"%s"}' "$repo" | "$run" dam-beaver activate)" "BEAVER"
 check "te command" "$("$root/scripts/te" --cwd "$repo" config show)" "loopguard"
 echo "all good on $folder"

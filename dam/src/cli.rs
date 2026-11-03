@@ -44,7 +44,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--host" => out.host = Some(value("--host")?),
             "--session" => out.sessions.push(value("--session")?),
             "--job" => out.job = Some(value("--job")?),
-            "--json" | "--global" | "--quiet" | "--verbose" => {
+            "--json" | "--global" | "--quiet" | "--verbose" | "--explain" => {
                 out.flags.insert(word.trim_start_matches('-').to_string());
             }
             _ => out.words.push(word.clone()),
@@ -422,7 +422,7 @@ pub fn main(raw: &[String]) -> i32 {
     let command = args.words.first().map_or("", String::as_str);
     match command {
         "status" => {
-            println!("{}", status::report(&Ctx::for_cwd(&args.cwd()), args.flag("json")));
+            println!("{}", status::report(&Ctx::for_cwd(&args.cwd()), args.flag("json"), args.flag("explain")));
             0
         }
         "microskills" | "facts" => crate::microskills::command(&Ctx::for_cwd(&args.cwd())),

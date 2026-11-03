@@ -62,7 +62,7 @@ pub(crate) fn state_path(mech: &Path, sub: &str, repo: &str) -> PathBuf {
     let dir = mech.join(sub);
     let _ = fs::create_dir_all(&dir);
 
-    dir.join(format!("{}.json", repo.replace('/', "__")))
+    dir.join(format!("{}.json", crate::paths::repo_filename(repo)))
 }
 
 // Outer None where the file exists and cannot be read, which makes Python's json.load raise.

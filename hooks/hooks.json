@@ -2,7 +2,7 @@
   "modules": [
     "./register.tsx"
   ],
-  "description": "The dam: TokenEconomizer and Ponytail hooks, plus the module that compresses outputs and reports.",
+  "description": "The dam: TokenEconomizer and Beaver hooks, plus the module that compresses outputs and reports.",
   "hooks": {
     "SessionStart": [
       {
@@ -19,9 +19,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" dam-ponytail activate",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" dam-beaver activate",
             "timeout": 15,
-            "statusMessage": "Loading ponytail mode..."
+            "statusMessage": "Waking the beaver..."
           }
         ]
       }
@@ -40,9 +40,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" dam-ponytail track",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" dam-beaver track",
             "timeout": 15,
-            "statusMessage": "Tracking ponytail mode..."
+            "statusMessage": "Listening for the beaver..."
           }
         ]
       }
@@ -96,9 +96,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" dam-ponytail subagent",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" dam-beaver subagent",
             "timeout": 15,
-            "statusMessage": "Loading ponytail mode..."
+            "statusMessage": "Waking the beaver..."
           }
         ]
       }

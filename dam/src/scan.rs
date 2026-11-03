@@ -32,6 +32,9 @@ pub enum Kind {
     File,
     Function,
     Type,
+    // A document's heading or a settings file's table, and a settings file's top-level key.
+    Section,
+    Key,
 }
 
 #[derive(Debug)]

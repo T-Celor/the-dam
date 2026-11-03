@@ -264,6 +264,16 @@ pub fn schedule_pending(ctx: &Ctx) -> Option<f64> {
     wait
 }
 
+// A waiter killed with its session (a closed terminal, a reboot) would leave the pending list waiting for good: the
+// fold only starts one when a proposal is new. Each session start starts another while a list waits and no heartbeat is fresh.
+pub fn revive_waiter(ctx: &Ctx) {
+    let is_waiting = ctx.store.read("untool.json").and_then(|unt| unt.get("auto_pending").cloned()).is_some_and(|pending| python_truthy(&pending));
+    let is_alive = mtime(&ctx.store.base.join("toolprune-waiter")).is_some_and(|wrote| now() - wrote < 2.0 * WAITER_POLL_S);
+    if is_waiting && !is_alive && std::env::var("TE_FOLD_SYNC").as_deref() != Ok("1") {
+        spawn_waiter(ctx);
+    }
+}
+
 // The waiter is this program again, detached, as the fold's other jobs are.
 fn spawn_waiter(ctx: &Ctx) -> Option<()> {
     crate::session::spawn(ctx, &["toolprune", "apply-pending"], "fold.log").then_some(())
@@ -382,7 +392,7 @@ fn kill_tree(child: &mut std::process::Child) {
 
 // The tool list from a `claude -p` session's init event; the process is killed right after it, before the model is asked anything.
 fn init_tools(cli: &str) -> (Vec<String>, Value) {
-    let mut command = Command::new(cli);
+    let Ok(mut command) = crate::sidecall::command(cli) else { return (Vec::new(), Value::Null) };
     command.args(["-p", "Reply with OK", "--output-format", "stream-json", "--verbose", "--model", "haiku", "--max-turns", "1"]).args(claude_flags(cli));
     let cwd = scratch_dir("te-probe-");
     command.env("TE_SIDECALL", "1").current_dir(&cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
@@ -433,12 +443,18 @@ fn refresh_catalog(root: &Path) -> Result<(PathBuf, Vec<String>), String> {
 
 fn prompt_tokens(cli: &str, flags: &[String], extra: &[String]) -> Result<(i64, Option<Value>), String> {
     let cwd = scratch_dir("te-measure-");
-    let out = Command::new(cli).args(["-p", "Reply with exactly: OK", "--output-format", "json", "--model", "haiku", "--max-turns", "1"]).args(flags).args(extra).env("TE_SIDECALL", "1").current_dir(&cwd).stdin(Stdio::null()).output();
+    let out = crate::sidecall::command(cli)?.args(["-p", "Reply with exactly: OK", "--output-format", "json", "--model", "haiku", "--max-turns", "1"]).args(flags).args(extra).env("TE_SIDECALL", "1").current_dir(&cwd).stdin(Stdio::null()).output();
     let _ = fs::remove_dir_all(&cwd);
     let out = out.map_err(|e| e.to_string())?;
-    let data: Value = if out.stdout.iter().all(u8::is_ascii_whitespace) { json!({}) } else { serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())? };
+    let data: Value = serde_json::from_slice(&out.stdout).ok().filter(Value::is_object).unwrap_or_else(|| json!({}));
     let usage = data.get("usage").cloned().unwrap_or(Value::Null);
-    let tokens = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].iter().map(|key| usage.get(key).map_or(0, count)).sum();
+    let tokens: i64 = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].iter().map(|key| usage.get(key).map_or(0, count)).sum();
+    // A failed probe would otherwise count as 0 tokens, and the whole request as saved.
+    if !out.status.success() || python_truthy(data.get("is_error").unwrap_or(&Value::Null)) || tokens == 0 {
+        let what = if out.status.success() { "reported no usage".to_string() } else { format!("exited {}", out.status.code().unwrap_or(-1)) };
+        let said = String::from_utf8_lossy(if out.stderr.is_empty() { &out.stdout } else { &out.stderr }).trim().chars().take(300).collect::<String>();
+        return Err(format!("`claude -p` {what}: {}", if said.is_empty() { "no output" } else { &said }));
+    }
 
     Ok((tokens, data.get("total_cost_usd").filter(|cost| python_truthy(cost)).cloned()))
 }
@@ -448,7 +464,14 @@ fn measure(tools: &[String]) -> Result<Value, String> {
     let cli = claude_cli();
     let flags = claude_flags(&cli);
     let (full, first) = prompt_tokens(&cli, &flags, &[])?;
-    let (lean, second) = prompt_tokens(&cli, &flags, &["--disallowed-tools".to_string(), tools.join(",")])?;
+    // The deny list as a settings file rather than `--disallowed-tools`: hundreds of names overflow cmd.exe's 8191-character
+    // line, and bare-name deny rules remove the same tools, as `toolprune apply` writes them.
+    let dir = scratch_dir("te-deny-");
+    let settings = dir.join("settings.json");
+    fs::write(&settings, serde_json::to_string(&json!({"permissions": {"deny": tools}})).unwrap_or_default()).map_err(|e| e.to_string())?;
+    let lean = prompt_tokens(&cli, &flags, &["--settings".to_string(), settings.to_string_lossy().into_owned()]);
+    let _ = fs::remove_dir_all(&dir);
+    let (lean, second) = lean?;
     let costs: Vec<Value> = [first, second].into_iter().flatten().collect();
     let cost = if costs.iter().all(|cost| cost.is_i64()) { json!(costs.iter().map(count).sum::<i64>()) } else { json!((costs.iter().filter_map(Value::as_f64).sum::<f64>() * 1e4).round() / 1e4) };
 

@@ -1,5 +1,6 @@
-// The hooks of Ponytail (MIT, https://github.com/DietrichGebert/ponytail), rewritten for Claude Code:
-// `activate` at session start, `subagent` for each subagent, `track` for each prompt.
+// Beaver: the lazy senior developer rules of Ponytail (MIT, https://github.com/DietrichGebert/ponytail), its hooks
+// rewritten for Claude Code: `activate` at session start, `subagent` for each subagent, `track` for each prompt.
+// What Ponytail called its settings (PONYTAIL_* variables, ~/.config/ponytail, `/ponytail`) still works.
 // A hook must never block the session, so stdin gets a second and every failure is silent.
 use crate::json;
 use crate::scan::{self, lang_of};
@@ -24,6 +25,11 @@ fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
+// BEAVER_<name>, else Ponytail's PONYTAIL_<name>.
+fn setting(name: &str) -> Option<String> {
+    env(&format!("BEAVER_{name}")).or_else(|| env(&format!("PONYTAIL_{name}")))
+}
+
 fn home() -> PathBuf {
     env("USERPROFILE").or_else(|| env("HOME")).map_or_else(|| PathBuf::from("."), PathBuf::from)
 }
@@ -41,7 +47,15 @@ fn config_path() -> PathBuf {
         home().join(".config")
     };
 
-    dir.join("ponytail").join("config.json")
+    dir.join("beaver").join("config.json")
+}
+
+fn ponytail_config_path() -> PathBuf {
+    config_path().parent().and_then(Path::parent).unwrap_or(Path::new(".")).join("ponytail").join("config.json")
+}
+
+fn configured_level(path: &Path) -> Option<String> {
+    fs::read_to_string(path).ok().and_then(|text| json::field(text.trim_start_matches('\u{feff}'), "defaultMode")).and_then(|value| normal_level(&value))
 }
 
 fn normal_level(text: &str) -> Option<String> {
@@ -51,9 +65,10 @@ fn normal_level(text: &str) -> Option<String> {
 }
 
 fn default_level() -> String {
-    env("PONYTAIL_DEFAULT_MODE")
+    setting("DEFAULT_MODE")
         .and_then(|value| normal_level(&value))
-        .or_else(|| fs::read_to_string(config_path()).ok().and_then(|text| json::field(text.trim_start_matches('\u{feff}'), "defaultMode")).and_then(|value| normal_level(&value)))
+        .or_else(|| configured_level(&config_path()))
+        .or_else(|| configured_level(&ponytail_config_path()))
         .unwrap_or_else(|| DEFAULT_LEVEL.to_string())
 }
 
@@ -71,7 +86,7 @@ fn write_default_level(level: &str) {
 }
 
 fn shared_state() -> PathBuf {
-    claude_dir().join(".ponytail-active")
+    claude_dir().join(".beaver-active")
 }
 
 // The hook's session, from its input: each session keeps its own level, even beside another in the same project.
@@ -80,7 +95,7 @@ static SESSION: OnceLock<String> = OnceLock::new();
 const LEVEL_KEPT: Duration = Duration::from_secs(7 * 24 * 3600);
 
 fn levels_dir() -> PathBuf {
-    claude_dir().join("ponytail-modes")
+    claude_dir().join("beaver-modes")
 }
 
 fn project_state() -> Option<PathBuf> {
@@ -151,14 +166,14 @@ pub fn filter_skill(body: &str, level: &str) -> String {
 }
 
 fn skill_path() -> PathBuf {
-    crate::plugin_root().unwrap_or_default().join("skills").join("ponytail").join("SKILL.md")
+    crate::plugin_root().unwrap_or_default().join("skills").join("beaver").join("SKILL.md")
 }
 
 fn instructions(level: &str) -> String {
     let level = normal_level(level).unwrap_or_else(|| DEFAULT_LEVEL.to_string());
     match fs::read_to_string(skill_path()) {
-        Ok(body) => format!("PONYTAIL MODE ACTIVE — level: {level}\n\n{}", filter_skill(&body, &level)),
-        Err(_) => format!("PONYTAIL MODE ACTIVE — level: {level}\n\nYou are a lazy senior developer: the smallest change that fully solves the task, and never cut validation, error handling, security or anything the user asked for."),
+        Ok(body) => format!("BEAVER MODE ACTIVE — level: {level}\n\n{}", filter_skill(&body, &level)),
+        Err(_) => format!("BEAVER MODE ACTIVE — level: {level}\n\nYou are a lazy senior developer: the smallest change that fully solves the task, and never cut validation, error handling, security or anything the user asked for."),
     }
 }
 
@@ -274,7 +289,7 @@ fn activate() {
     }
     set_level(&level);
     let mut output = instructions(&level);
-    if env("PONYTAIL_MAP").as_deref() != Some("0") {
+    if setting("MAP").as_deref() != Some("0") {
         let map = codebase_map(&crate::graph::source_files(), Path::new("."));
         if !map.is_empty() {
             output = format!("{output}\n\n{map}");
@@ -283,7 +298,7 @@ fn activate() {
     print!("{output}");
 }
 
-// PONYTAIL_SUBAGENT_MATCHER as words separated by |, any of which may appear in the agent's type.
+// BEAVER_SUBAGENT_MATCHER (or PONYTAIL_SUBAGENT_MATCHER) as words separated by |, any of which may appear in the agent's type.
 // shortcut: not a full regular expression as upstream, add one if `^` or `.*` scoping is ever needed.
 fn matches_agent(matcher: &str, agent: &str) -> bool {
     let agent = agent.to_lowercase();
@@ -294,7 +309,7 @@ fn matches_agent(matcher: &str, agent: &str) -> bool {
 fn subagent() {
     let input = read_stdin();
     let Some(level) = live_level().filter(|level| level != "off") else { return };
-    if let Some(matcher) = env("PONYTAIL_SUBAGENT_MATCHER") {
+    if let Some(matcher) = setting("SUBAGENT_MATCHER") {
         if !matches_agent(&matcher, &json::field(&input, "agent_type").unwrap_or_default()) {
             return;
         }
@@ -306,13 +321,13 @@ fn subagent() {
 pub fn answer_prompt(prompt: &str, live: Option<&str>, default: &str) -> Option<PromptAction> {
     let prompt = prompt.trim().to_lowercase();
     let bare = prompt.trim_end_matches(['.', '!', '?', ' ', '\t', '\n']);
-    if bare == "stop ponytail" || bare == "normal mode" {
+    if bare == "stop beaver" || bare == "stop ponytail" || bare == "normal mode" {
         return Some(PromptAction::Off);
     }
     let mut parts = prompt.split_whitespace();
     let command = parts.next()?;
     let command = command.strip_prefix(['/', '@', '$'])?;
-    if !matches!(command, "ponytail" | "ponytail:ponytail" | "the-dam:ponytail") {
+    if !matches!(command, "beaver" | "the-dam:beaver" | "ponytail" | "ponytail:ponytail" | "the-dam:ponytail") {
         return None;
     }
     match parts.next().unwrap_or("") {
@@ -340,16 +355,16 @@ fn track() {
     match answer_prompt(&prompt, live_level().as_deref(), &default_level()) {
         Some(PromptAction::Off) => {
             clear_level();
-            print!("PONYTAIL MODE OFF");
+            print!("BEAVER MODE OFF");
         }
         Some(PromptAction::Default(level)) => {
             write_default_level(&level);
-            print!("PONYTAIL DEFAULT SET — new sessions start in {level}.");
+            print!("BEAVER DEFAULT SET — new sessions start in {level}.");
         }
-        Some(PromptAction::Report(level)) => print!("PONYTAIL MODE ACTIVE — level: {level}"),
+        Some(PromptAction::Report(level)) => print!("BEAVER MODE ACTIVE — level: {level}"),
         Some(PromptAction::Set(level)) => {
             set_level(&level);
-            print!("PONYTAIL MODE CHANGED — level: {level}");
+            print!("BEAVER MODE CHANGED — level: {level}");
         }
         None => {}
     }
@@ -361,7 +376,7 @@ pub fn run(args: &[String]) {
         Some("subagent") => subagent(),
         Some("track") => track(),
         _ => {
-            eprintln!("usage: dam-ponytail activate | subagent | track");
+            eprintln!("usage: dam-beaver activate | subagent | track");
             std::process::exit(2);
         }
     }
@@ -385,6 +400,9 @@ mod tests {
     #[test]
     fn prompts_ask_what_upstream_lets_them() {
         let set = |w: &str| Some(PromptAction::Set(w.to_string()));
+        assert_eq!(answer_prompt("/beaver ultra", None, "full"), set("ultra"));
+        assert_eq!(answer_prompt("/the-dam:beaver lite", None, "full"), set("lite"));
+        assert_eq!(answer_prompt("Stop beaver.", None, "full"), Some(PromptAction::Off));
         assert_eq!(answer_prompt("/ponytail ultra", None, "full"), set("ultra"));
         assert_eq!(answer_prompt("/the-dam:ponytail lite", None, "full"), set("lite"));
         assert_eq!(answer_prompt("$PONYTAIL", None, "lite"), set("lite"));
@@ -393,7 +411,7 @@ mod tests {
         assert_eq!(answer_prompt("/ponytail off", None, "full"), Some(PromptAction::Off));
         assert_eq!(answer_prompt("Stop ponytail!", None, "full"), Some(PromptAction::Off));
         assert_eq!(answer_prompt("/ponytail default lite", None, "full"), Some(PromptAction::Default("lite".to_string())));
-        for ordinary in ["add a normal mode toggle", "/ponytail-review", "/ponytail banana", "fix the ponytail", "", "/ponytail default review"] {
+        for ordinary in ["add a normal mode toggle", "/ponytail-review", "/beaver-review", "the beaver builds dams", "/ponytail banana", "fix the ponytail", "", "/ponytail default review"] {
             assert_eq!(answer_prompt(ordinary, None, "full"), None, "{ordinary}");
         }
     }

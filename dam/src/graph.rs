@@ -1,5 +1,7 @@
-// dam-graph: a code graph made and queried locally. `update` writes .dam-graph/graph.tsv,
-// `query "question"` answers from it. No network and no model, by construction.
+// dam-graph: the project's map, made and queried locally: its code, and its documents and settings
+// (`docs`). `update` writes .dam-graph/graph.tsv, `query "question"` answers from it. No network and
+// no model, by construction.
+use crate::docs::{self, doc_kind};
 use crate::scan::{self, lang_of, Kind, Scan};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -24,7 +26,7 @@ struct Node {
 struct Graph {
     files: Vec<String>,
     nodes: Vec<Node>,
-    // from, to, relation: c(alls), i(mports), b(ase), d(efines).
+    // from, to, relation: c(alls), i(mports), b(ase), d(efines), l(inks to), m(entions).
     edges: Vec<(usize, usize, char)>,
 }
 
@@ -44,18 +46,31 @@ fn walk(dir: &Path, out: &mut Vec<String>) {
 }
 
 // What git tracks, so ignored and generated files stay out; every file where there is no git.
-pub fn source_files() -> Vec<String> {
+fn listed_files() -> Vec<String> {
     let listed = Command::new("git").args(["ls-files", "-z"]).output().ok().filter(|run| run.status.success());
-    let mut files = match listed {
+    match listed {
         Some(run) => String::from_utf8_lossy(&run.stdout).split('\0').filter(|f| !f.is_empty()).map(str::to_string).collect(),
         None => {
             let mut found = Vec::new();
             walk(Path::new("."), &mut found);
             found
         }
-    };
+    }
+}
+
+pub fn source_files() -> Vec<String> {
+    let mut files = listed_files();
     // A minified bundle is someone else's code on one line: nothing a graph can say about it helps.
     files.retain(|f| lang_of(f).is_some() && !f.contains(".min.") && !f.split('/').any(|part| SKIPPED_DIRS.contains(&part)));
+    files.sort();
+
+    files
+}
+
+// The documents and settings the map reads, beside the code.
+fn doc_files() -> Vec<String> {
+    let mut files = listed_files();
+    files.retain(|f| doc_kind(f).is_some() && !f.split('/').any(|part| SKIPPED_DIRS.contains(&part) || part.starts_with('.') && part.len() > 1) && fs::metadata(f).is_ok_and(|m| m.len() <= MOST_FILE_BYTES));
     files.sort();
 
     files
@@ -123,8 +138,10 @@ fn import_targets(import: &str, by_last: &HashMap<&str, Vec<usize>>, files: &[St
 }
 
 fn build() -> Graph {
-    let files = source_files();
+    let mut files = source_files();
     let scans = scan_all(&files);
+    let code_count = files.len();
+    files.extend(doc_files());
     let mut graph = Graph { files, ..Graph::default() };
     let mut by_last: HashMap<&str, Vec<usize>> = HashMap::new();
     for (f, file) in graph.files.iter().enumerate() {
@@ -223,10 +240,43 @@ fn build() -> Graph {
             }
         }
     }
+    add_docs(&graph.files, code_count, &by_name, &mut nodes, &mut edges);
     graph.nodes = nodes;
     graph.edges = edges;
 
     graph
+}
+
+// Documents and settings on the map: their headings and keys as places, a link as a route to another
+// document, a quoted code name as a route to its definition.
+const MOST_MENTIONED_PLACES: usize = 3;
+
+fn add_docs(files: &[String], code_count: usize, by_name: &HashMap<&str, Vec<usize>>, nodes: &mut Vec<Node>, edges: &mut Vec<(usize, usize, char)>) {
+    let index: HashMap<&str, usize> = files.iter().enumerate().map(|(f, file)| (file.as_str(), f)).collect();
+    let mut seen = HashSet::new();
+    for (f, file) in files.iter().enumerate().skip(code_count) {
+        let Some(kind) = doc_kind(file) else { continue };
+        let Ok(bytes) = fs::read(file) else { continue };
+        let found = docs::scan_doc(&String::from_utf8_lossy(&bytes), kind);
+        for (name, line, kind) in found.sections.into_iter().map(|(n, l)| (n, l, Kind::Section)).chain(found.keys.into_iter().map(|(n, l)| (n, l, Kind::Key))) {
+            nodes.push(Node { name, kind, file: f, line });
+            edges.push((f, nodes.len() - 1, 'd'));
+        }
+        for link in found.links {
+            if let Some(&target) = index.get(docs::resolve_link(file, &link).as_str()).filter(|&&t| t != f) {
+                if seen.insert((f, target, 'l')) {
+                    edges.push((f, target, 'l'));
+                }
+            }
+        }
+        for name in found.mentions {
+            for &target in by_name.get(name.as_str()).into_iter().flatten().take(MOST_MENTIONED_PLACES) {
+                if seen.insert((f, target, 'm')) {
+                    edges.push((f, target, 'm'));
+                }
+            }
+        }
+    }
 }
 
 fn kind_letter(kind: Kind) -> char {
@@ -234,6 +284,8 @@ fn kind_letter(kind: Kind) -> char {
         Kind::File => 'F',
         Kind::Function => 'f',
         Kind::Type => 't',
+        Kind::Section => 's',
+        Kind::Key => 'k',
     }
 }
 
@@ -266,6 +318,8 @@ fn load(path: &str) -> std::io::Result<Graph> {
                 let kind = match cells.next() {
                     Some("F") => Kind::File,
                     Some("t") => Kind::Type,
+                    Some("s") => Kind::Section,
+                    Some("k") => Kind::Key,
                     _ => Kind::Function,
                 };
                 let name = cells.next().unwrap_or("").to_string();
@@ -362,6 +416,8 @@ fn label(graph: &Graph, id: usize) -> String {
         Kind::File => graph.files[node.file].clone(),
         Kind::Function => format!("{}()", node.name),
         Kind::Type => node.name.clone(),
+        Kind::Section => format!("§ {}", node.name),
+        Kind::Key => format!("{}:", node.name),
     }
 }
 
@@ -395,6 +451,10 @@ fn answer(graph: &Graph, question: &str) -> String {
             ("imports", related(true, 'i')),
             ("imported by", related(false, 'i')),
             ("defines", related(true, 'd')),
+            ("links to", related(true, 'l')),
+            ("linked from", related(false, 'l')),
+            ("mentions", related(true, 'm')),
+            ("mentioned in", related(false, 'm')),
         ] {
             if !ids.is_empty() {
                 out.push_str(&format!("  {title}: {}\n", names(ids)));
@@ -453,6 +513,19 @@ mod tests {
             ],
             edges: vec![(3, 2, 'c'), (1, 0, 'i'), (0, 2, 'd')],
         }
+    }
+
+    #[test]
+    fn a_heading_is_found_and_says_which_code_it_mentions() {
+        let mut graph = sample();
+        graph.files.push("docs/deploy.md".into());
+        graph.nodes.push(Node { name: "deploy.md".into(), kind: Kind::File, file: 2, line: 1 });
+        graph.nodes.push(Node { name: "Release procedure".into(), kind: Kind::Section, file: 2, line: 4 });
+        graph.edges.extend([(4, 5, 'd'), (4, 2, 'm')]);
+        let out = answer(&graph, "where is the release procedure described");
+        assert!(out.contains("§ Release procedure docs/deploy.md:4"), "{out}");
+        let code = answer(&graph, "apply_deny");
+        assert!(code.contains("mentioned in: docs/deploy.md"), "{code}");
     }
 
     #[test]

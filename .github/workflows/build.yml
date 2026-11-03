@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p out
-          for name in dam-squeeze dam-graph dam-ponytail dam-economizer; do
+          for name in dam-squeeze dam-graph dam-beaver dam-economizer; do
             cp "dam/target/release/$name${{ matrix.ext }}" out/
           done
       - uses: actions/upload-artifact@v4

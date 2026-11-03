@@ -1,9 +1,9 @@
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--version") {
-        println!("dam-ponytail {}", env!("CARGO_PKG_VERSION"));
+        println!("dam-beaver {}", env!("CARGO_PKG_VERSION"));
         return;
     }
 
-    dam::ponytail::run(&args);
+    dam::beaver::run(&args);
 }

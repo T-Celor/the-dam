@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, economizerEntries, formatCount, gainNote, journalLine, reportOf, statusOf, totalLines } from './model'
-import { candidates, codeNames, exactEntries, graphNodes, graphQuestion, grepName, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, savedPreview, standoutLines, worthGraphing } from './tools'
+import { EMPTY, economizerEntries, projectFlow, formatCount, gainNote, journalLine, journalView, reportOf, sessionFigures, statusOf, totalLines } from './model'
+import { candidates, codeNames, looksLikeWebPage, pageUrl, exactEntries, graphNodes, graphQuestion, grepName, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, savedPreview, standoutLines, worthGraphing } from './tools'
 
-const ALL = { squeezer: true, graphify: true, economizer: true, ponytail: true }
+const ALL = { squeezer: true, graphify: true, economizer: true, beaver: true }
 
 test('counts read short', () => {
   expect(formatCount(1_234_000)).toBe('1.2M')
@@ -19,13 +19,14 @@ test('a check announces only what is new', () => {
 
 test('the status line and the report state the real figures', () => {
   const context = { percent: 31, total: 310_000, max: 1_000_000 }
-  const s = { ...EMPTY, tools: ALL, context, saved: 5_000, pruned: 2, pending: 4, facts: 3, loops: 1, overhead: 10_500, nodes: 400, hasGraph: true }
-  expect(statusOf({ ...s, level: 'full' })).toBe('🦫 full · 💧 5k · 🪵 2+4 · 🌀 1 · 🧠 3 · 🗺️ 400 · 🌊 31%')
-  expect(statusOf(EMPTY)).toBe('🦫')
-  expect(statusOf({ ...EMPTY, saved: 1_500, pruned: 2 })).toBe('🦫 · 💧 1.5k · 🪵 2')
-  expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Compression: 5k tokens saved\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ Code graph: 400 nodes\n  ✓ Ponytail: active')
-  expect(reportOf({ ...s, hasGraph: false })).toContain('… Code graph: not for this folder')
-  expect(reportOf({ ...s, isCompressing: false })).toContain('✗ Compression: 5k tokens saved, turned off')
+  const session = { saved: 5_000, seen: 20_000 }
+  const s = { ...EMPTY, tools: ALL, context, saved: 90_000, session, project: { saved: 12_000, seen: 30_000 }, pruned: 2, pending: 4, facts: 3, loops: 1, overhead: 10_500, nodes: 400, hasGraph: true }
+  expect(statusOf({ ...s, level: 'full' })).toBe('🦫 full · 💧 5k 25% · 🪵 2+4 · 🌀 1 · 🧠 3 · 🗺️ 400 · 🌊 31%')
+  expect(statusOf(EMPTY)).toBe('🦫 off · 💧 0 · 🪵 0 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
+  expect(statusOf({ ...EMPTY, session: { saved: 1_500, seen: 0 }, pruned: 2 })).toBe('🦫 off · 💧 1.5k · 🪵 2 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
+  expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Compression: 5k (25%) tokens saved in this session, 12k (40%) in this project, 90k in all\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ Map: 400 places\n  ✓ Beaver: active')
+  expect(reportOf({ ...s, hasGraph: false })).toContain('… Map: not for this folder')
+  expect(reportOf({ ...s, isCompressing: false })).toContain('✗ Compression: 5k (25%) tokens saved in this session')
   expect(reportOf(EMPTY).split('not installed').length - 1).toBe(4)
 })
 
@@ -33,7 +34,8 @@ test('only a real project is worth a graph', () => {
   const files = (n: number, name: string) => Array.from({ length: n }, (_, i) => `src/${i}${name}`).join('\n')
   expect(worthGraphing(files(20, '.ts'))).toBe(true)
   expect(worthGraphing(files(19, '.py'))).toBe(false)
-  expect(worthGraphing(files(100, '.md'))).toBe(false)
+  expect(worthGraphing(files(100, '.md'))).toBe(true)
+  expect(worthGraphing(files(100, '.txt'))).toBe(false)
   expect(worthGraphing('')).toBe(false)
 })
 
@@ -43,8 +45,8 @@ test('tool figures are read from their own output', () => {
   expect(graphNodes('P\ta.py\nN\tF\ta.py\t0\t1\nN\tf\tgo\t0\t2\nE\t0\t1\td\n')).toBe(2)
 })
 
-const NOTHING = { squeezer: null, graph: null, ponytail: null, economizer: null }
-const EVERYTHING = { squeezer: 'h', graph: 'g', ponytail: 'y', economizer: 'e' }
+const NOTHING = { squeezer: null, graph: null, beaver: null, economizer: null }
+const EVERYTHING = { squeezer: 'h', graph: 'g', beaver: 'y', economizer: 'e' }
 
 test('setup installs only what is missing, and nothing twice', () => {
   expect(setupSteps(EVERYTHING, '/plugin')).toEqual([])
@@ -141,12 +143,26 @@ test('the journal reads the events TokenEconomizer wrote for this session only',
   expect(journalLine({ at: new Date(2026, 0, 1, 9, 5).getTime(), icon: '💧', text: 'x' })).toBe('09:05  💧 x')
 })
 
-test('the totals give this session share and every tool figure', () => {
-  const lines = totalLines({ ...EMPTY, saved: 45_200, pending: 2, level: 'ultra' }, 3_100)
-  expect(lines[0]).toBe('💧 45.2k tokens saved by compression, 3.1k in this session')
-  expect(lines).toContain('🪵 0 tools pruned, 2 waiting')
-  expect(lines).toContain('🦫 Ponytail ultra')
-  expect(lines).toContain('🗺️ no code graph here')
+test('the totals are this session\'s, counted from its journal', () => {
+  const entries = [
+    { at: 1, icon: '🌀', text: 'loop redirected (x), after 9 tool calls' },
+    { at: 2, icon: '🌀', text: 'turn still stuck after a redirect' },
+    { at: 3, icon: '🧠', text: '3 learned facts added to the context', count: 3 },
+    { at: 4, icon: '🗺️', text: 'map built: 10 nodes in 1.0 s' },
+    { at: 5, icon: '🗺️', text: 'map answered for crush_rows in your prompt' },
+  ]
+  const here = sessionFigures(entries)
+  expect(here).toEqual({ loops: 1, facts: 3, mapAnswers: 1 })
+  const s = { ...EMPTY, saved: 133_000, session: { saved: 3_100, seen: 12_400 }, project: { saved: 45_200, seen: 90_400 }, pending: 2, level: 'ultra', hasGraph: true, nodes: 400 }
+  const lines = totalLines(s, here)
+  expect(lines[0]).toBe('💧 3.1k tokens saved by compression, 25% of what the tools printed (12.4k)')
+  expect(lines[1]).toBe('   this project 45.2k (50%), every project 133k')
+  expect(projectFlow([{ project: 'C:/a', saved: 10, seen: 40 }, { project: 'C:/b', saved: 5, seen: 5 }, null, { project: 'C:/a', saved: 2, seen: 20 }], 'C:/a')).toEqual({ saved: 12, seen: 60 })
+  expect(lines).toContain('🪵 0 tools left out of this session, 2 more waiting')
+  expect(lines).toContain('🌀 1 loops stopped')
+  expect(lines).toContain('🗺️ 1 answers from the map (400 places)')
+  expect(lines).toContain('🦫 Beaver ultra')
+  expect(totalLines(EMPTY, sessionFigures([]))).toContain('🗺️ no map here')
 })
 
 test('a graph question is read from the command that asks it', () => {
@@ -173,4 +189,25 @@ test('only the entries about exactly that name are kept', () => {
   const answer = '3 nodes. Best matches of 3:\n\nSmartCrusherPlanner a.rs:49\n\nSmartCrusher b.py:269\n  called by: main()\n\ncrusher() c.py:1'
   expect(exactEntries(answer, 'SmartCrusher')).toEqual(['SmartCrusher b.py:269\n  called by: main()'])
   expect(exactEntries(answer, 'crusher')).toEqual(['crusher() c.py:1'])
+})
+
+test('the journal shows the newest first and leaves room for the totals', () => {
+  const entries = [1, 2, 3, 4, 5, 6].map(at => ({ at, icon: '💧', text: String(at) }))
+  expect(journalView(entries, 8).shown.map(e => e.at)).toEqual([6, 5, 4, 3, 2, 1])
+  const tight = journalView(entries, 8, 15)
+  expect(tight.shown.map(e => e.at)).toEqual([6, 5, 4])
+  expect(tight.older).toBe(3)
+  expect(journalView(entries, 8, 17)).toEqual({ shown: [...entries].reverse(), older: 0 })
+  expect(journalView(entries, 8, 5).shown).toEqual([])
+})
+
+test('a fetched web page is recognised, with or without its headers, and other outputs are not', () => {
+  expect(looksLikeWebPage('<!DOCTYPE html><html><body>x</body></html>')).toBe(true)
+  expect(looksLikeWebPage('HTTP/2 200\r\ncontent-type: text/html\r\n\r\n<html lang="en">')).toBe(true)
+  expect(looksLikeWebPage('error: expected <html> at line 3')).toBe(false)
+  expect(looksLikeWebPage('{"body": "<html>"}')).toBe(false)
+  expect(pageUrl('curl -sL "https://example.com/a?b=1" | head')).toBe('https://example.com/a?b=1')
+  expect(pageUrl('(Invoke-WebRequest https://x.org/p).Content')).toBe('https://x.org/p')
+  expect(pageUrl('ls')).toBe(null)
+  expect(squeezableField('PowerShell', { stdout: 'x'.repeat(20_000) })).toBe('stdout')
 })

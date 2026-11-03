@@ -10,6 +10,18 @@ static URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*url\s*=\s*(\S+)\
 static SCHEME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z+]+://").expect("fixed"));
 static USER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[^@/]+@").expect("fixed"));
 static SCP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[^/]+:[^/\d]").expect("fixed"));
+static DRIVE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-zA-Z]:/").expect("fixed"));
+static SLASHES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/+").expect("fixed"));
+static UNSAFE_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"[<>:"/\\|?*]+"#).expect("fixed"));
+
+// One file or folder name for a repository's state (names.py): `owner/repo` is `owner__repo`, and a label holding a
+// Windows path stays one name. Only trailing dots and spaces go, which Windows refuses; a leading dot stays.
+pub fn repo_filename(repo: &str) -> String {
+    let name = UNSAFE_NAME.replace_all(repo, "__");
+    let name = name.trim_end_matches(['.', ' ']);
+
+    if name.is_empty() { "repo".to_string() } else { name.to_string() }
+}
 static NOT_SLUG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^a-z0-9]+").expect("fixed"));
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,7 +159,8 @@ pub fn normalize_remote(url: &str) -> String {
     let text = url.trim();
     let text = SCHEME.replace(text, "");
     let text = USER.replace(&text, "");
-    let text = if SCP.is_match(&text).unwrap_or(false) { text.replacen(':', "/", 1) } else { text.to_string() };
+    let text = SLASHES.replace_all(&text.replace('\\', "/"), "/").to_string();
+    let text = if !DRIVE.is_match(&text).unwrap_or(false) && SCP.is_match(&text).unwrap_or(false) { text.replacen(':', "/", 1) } else { text };
     let text = text.trim_end_matches('/');
 
     text.strip_suffix(".git").unwrap_or(text).to_lowercase()
@@ -215,5 +228,21 @@ mod tests {
     #[test]
     fn the_key_digest_is_sha1() {
         assert_eq!(digest("abc"), "a9993e3647");
+    }
+}
+
+#[cfg(test)]
+mod tests_upstream {
+    use super::*;
+
+    // The values upstream's paths.normalize_remote and names.repo_filename give.
+    #[test]
+    fn windows_remotes_and_state_names_match_upstream() {
+        for (remote, want) in [(r"C:\Work\Sample\Repo", "c:/work/sample/repo"), (r"C:\Work\Sample\Repo", "c:/work/sample/repo"), ("C:/Work/Sample/Repo.git", "c:/work/sample/repo"), ("git@example.com:Owner/Repo.git", "example.com/owner/repo"), ("https://example.com/Owner/Repo", "example.com/owner/repo"), ("ssh://git@host:22/a/b.git", "host:22/a/b"), ("host:path/x", "host/path/x")] {
+            assert_eq!(normalize_remote(remote), want, "{remote}");
+        }
+        for (label, want) in [("owner/repo", "owner__repo"), (".dotfiles", ".dotfiles"), (r"C:\Work\Repo", "C__Work__Repo"), ("a:b", "a__b"), ("trailing. ", "trailing"), ("...", "repo"), ("x<y>z|w?*", "x__y__z__w__")] {
+            assert_eq!(repo_filename(label), want, "{label}");
+        }
     }
 }

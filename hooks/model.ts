@@ -1,5 +1,5 @@
 // What the plugin says, in words.
-import type { Gains, JournalEntry, Stats } from '../types'
+import type { Flow, Gains, JournalEntry, Stats } from '../types'
 
 export const EMPTY: Stats = {
   context: null,
@@ -10,14 +10,16 @@ export const EMPTY: Stats = {
   pending: 0,
   overhead: 0,
   nodes: 0,
-  tools: { squeezer: false, graphify: false, economizer: false, ponytail: false },
+  tools: { squeezer: false, graphify: false, economizer: false, beaver: false },
   isCompressing: true,
   hasGraph: false,
   level: null,
+  session: { saved: 0, seen: 0 },
+  project: { saved: 0, seen: 0 },
 }
 
 // One element of the dam per tool, shown with its figure.
-export const ICON = { ponytail: '🦫', water: '💧', logs: '🪵', whirl: '🌀', memory: '🧠', map: '🗺️', level: '🌊' } as const
+export const ICON = { beaver: '🦫', water: '💧', logs: '🪵', whirl: '🌀', memory: '🧠', map: '🗺️', level: '🌊' } as const
 
 export function formatCount(n: number): string {
   const short = (value: number) => value.toFixed(1).replace(/\.0$/, '')
@@ -27,6 +29,20 @@ export function formatCount(n: number): string {
   return String(Math.round(n))
 }
 
+// The share of what the tools printed that compression took out, or null before anything was printed.
+export function percentOf(flow: Flow): string | null {
+  return flow.seen > 0 ? `${Math.round((Math.min(flow.saved, flow.seen) / flow.seen) * 100)}%` : null
+}
+
+type FlowRecord = { project?: unknown; saved?: unknown; seen?: unknown } | null | undefined
+
+// One project's compression, from every session's record.
+export function projectFlow(records: FlowRecord[], project: string): Flow {
+  return records.reduce<Flow>((sum, record) => (record?.project === project ? { saved: sum.saved + Number(record.saved ?? 0), seen: sum.seen + Number(record.seen ?? 0) } : sum), { saved: 0, seen: 0 })
+}
+
+const withShare = (flow: Flow) => `${formatCount(flow.saved)}${percentOf(flow) ? ` (${percentOf(flow)})` : ''}`
+
 // What a check found since the last one, or null when nothing is new.
 export function gainNote(before: Gains, after: Gains): string | null {
   const labels: Array<[keyof Gains, string]> = [
@@ -34,7 +50,7 @@ export function gainNote(before: Gains, after: Gains): string | null {
     ['pruned', 'tools pruned'],
     ['facts', 'facts learned'],
     ['loops', 'loops stopped'],
-    ['nodes', 'graph nodes'],
+    ['nodes', 'places on the map'],
   ]
   const parts = labels.filter(([kind]) => after[kind] > before[kind]).map(([kind, label]) => `+${formatCount(after[kind] - before[kind])} ${label}`)
 
@@ -48,7 +64,7 @@ const OFF = '✗'
 const MISSING = 'not installed'
 
 function compressionRow(s: Stats): [string, string] {
-  const saved = `${formatCount(s.saved)} tokens saved`
+  const saved = `${withShare(s.session)} tokens saved in this session, ${withShare(s.project)} in this project, ${formatCount(s.saved)} in all`
   if (!s.tools.squeezer) return [OFF, MISSING]
 
   return s.isCompressing ? [OK, saved] : [OFF, `${saved}, turned off (/the-dam-compress)`]
@@ -66,18 +82,18 @@ export const signed = (text: string) => `${BEAVER} ${text}`
 
 // The one line that stays on screen: each tool's icon and figure, and nothing for a tool with nothing to show.
 export function statusOf(s: Stats): string {
-  const tools = s.pruned + s.pending > 0 ? `${s.pruned}${s.pending > 0 ? `+${s.pending}` : ''}` : null
-  const parts: Array<[string, string | null]> = [
-    [ICON.ponytail, s.level ?? ''],
-    [ICON.water, s.saved > 0 ? formatCount(s.saved) : null],
-    [ICON.logs, tools],
-    [ICON.whirl, s.loops > 0 ? String(s.loops) : null],
-    [ICON.memory, s.facts > 0 ? String(s.facts) : null],
-    [ICON.map, s.hasGraph && s.nodes > 0 ? formatCount(s.nodes) : null],
-    [ICON.level, s.context ? `${Math.round(s.context.percent)}%` : null],
+  // Every tool keeps its place, so the line reads the same in every session; `–` where there is nothing to measure.
+  const parts: Array<[string, string]> = [
+    [ICON.beaver, s.level ?? 'off'],
+    [ICON.water, `${formatCount(s.session.saved)}${percentOf(s.session) ? ` ${percentOf(s.session)}` : ''}`],
+    [ICON.logs, `${s.pruned}${s.pending > 0 ? `+${s.pending}` : ''}`],
+    [ICON.whirl, String(s.loops)],
+    [ICON.memory, String(s.facts)],
+    [ICON.map, s.hasGraph && s.nodes > 0 ? formatCount(s.nodes) : '–'],
+    [ICON.level, s.context ? `${Math.round(s.context.percent)}%` : '–'],
   ]
 
-  return parts.filter(([, figure]) => figure !== null).map(([icon, figure]) => (figure ? `${icon} ${figure}` : icon)).join(' · ')
+  return parts.map(([icon, figure]) => `${icon} ${figure}`).join(' · ')
 }
 
 const LOOP_REASON = /^[^:(]+/
@@ -95,7 +111,7 @@ export function economizerEntries(text: string, sessionId: string): JournalEntry
     if (event?.session_id !== sessionId || typeof event.at !== 'number') continue
     const at = event.at * 1000
     const reason = String(event.reason ?? '').match(LOOP_REASON)?.[0].trim() ?? ''
-    if (event.kind === 'inject') entries.push({ at, icon: ICON.memory, text: `${Number(event.facts ?? 0)} learned facts added to the context` })
+    if (event.kind === 'inject') entries.push({ at, icon: ICON.memory, text: `${Number(event.facts ?? 0)} learned facts added to the context`, count: Number(event.facts ?? 0) })
     if (event.kind === 'nudge') entries.push({ at, icon: ICON.whirl, text: `loop redirected${reason ? ` (${reason})` : ''}, after ${Number(event.tool_calls ?? 0)} tool calls` })
     if (event.kind === 'abort') entries.push({ at, icon: ICON.whirl, text: `turn still stuck after a redirect${reason ? ` (${reason})` : ''}: you were told how to stop it` })
   }
@@ -111,19 +127,47 @@ export function journalLine(entry: JournalEntry): string {
   return `${two(at.getHours())}:${two(at.getMinutes())}  ${entry.icon} ${entry.text}`
 }
 
-// The totals under the journal: every session's for what is counted across sessions, this one's beside it.
-export function totalLines(s: Stats, savedHere: number): string[] {
+// Rows the pane spends on its own lines: the journal's title, the gap and the totals' title.
+const PANE_TITLE_ROWS = 3
+
+// The journal as the pane shows it: newest first, as many as fit above the totals, then how many older ones are left out.
+// `bodyRows` absent (a pane laid inline fits its tree) keeps every entry.
+export function journalView(entries: JournalEntry[], totals: number, bodyRows?: number): { shown: JournalEntry[]; older: number } {
+  const newest = [...entries].sort((a, b) => b.at - a.at)
+  const room = bodyRows === undefined ? newest.length : Math.max(1, bodyRows - totals - PANE_TITLE_ROWS)
+  if (newest.length <= room) return { shown: newest, older: 0 }
+  const shown = newest.slice(0, Math.max(0, room - 1))
+
+  return { shown, older: newest.length - shown.length }
+}
+
+// What this session did, counted from its journal; compression is counted in tokens, in the stats.
+export type SessionFigures = { loops: number; facts: number; mapAnswers: number }
+
+export function sessionFigures(entries: JournalEntry[]): SessionFigures {
+  const of = (icon: string, starts: string) => entries.filter(entry => entry.icon === icon && entry.text.startsWith(starts))
+
+  return {
+    loops: of(ICON.whirl, 'loop redirected').length,
+    facts: of(ICON.memory, '').reduce((sum, entry) => sum + (entry.count ?? 0), 0),
+    mapAnswers: of(ICON.map, 'map answered').length + of(ICON.map, 'map asked').length,
+  }
+}
+
+// The totals under the journal, this session's; what only exists for the whole repository says so.
+export function totalLines(s: Stats, here: SessionFigures): string[] {
   const context = s.context ? `${Math.round(s.context.percent)}% of the context used (${formatCount(s.context.total)} of ${formatCount(s.context.max)} tokens)` : 'context not measured yet'
 
   return [
-    `${ICON.water} ${formatCount(s.saved)} tokens saved by compression, ${formatCount(savedHere)} in this session`,
-    `${ICON.logs} ${s.pruned} tools pruned${s.pending > 0 ? `, ${s.pending} waiting` : ''}`,
-    `${ICON.whirl} ${s.loops} loops stopped`,
-    `${ICON.memory} ${s.facts} learned facts in use`,
-    `${ICON.map} ${s.hasGraph ? `${formatCount(s.nodes)} nodes in the code graph` : 'no code graph here'}`,
-    `${ICON.ponytail} Ponytail ${s.level ?? 'off'}`,
+    `${ICON.water} ${formatCount(s.session.saved)} tokens saved by compression${percentOf(s.session) ? `, ${percentOf(s.session)} of what the tools printed (${formatCount(s.session.seen)})` : ''}`,
+    `   this project ${withShare(s.project)}, every project ${formatCount(s.saved)}`,
+    `${ICON.logs} ${s.pruned} tools left out of this session${s.pending > 0 ? `, ${s.pending} more waiting` : ''}`,
+    `${ICON.whirl} ${here.loops} loops stopped`,
+    `${ICON.memory} ${here.facts} learned facts added`,
+    `${ICON.map} ${s.hasGraph ? `${here.mapAnswers} answers from the map (${formatCount(s.nodes)} places)` : 'no map here'}`,
+    `${ICON.beaver} Beaver ${s.level ?? 'off'}`,
     `${ICON.level} ${context}`,
-    `TokenEconomizer's own model calls: ${formatCount(s.overhead)} tokens spent`,
+    `TokenEconomizer's own model calls in this repository: ${formatCount(s.overhead)} tokens`,
   ]
 }
 
@@ -133,8 +177,8 @@ export function reportOf(s: Stats): string {
   const rows: Array<[string, [string, string]]> = [
     ['Compression', compressionRow(s)],
     ['TokenEconomizer', s.tools.economizer ? [OK, economizerLine(s)] : [OFF, MISSING]],
-    ['Code graph', !s.tools.graphify ? [OFF, MISSING] : s.hasGraph ? [OK, `${formatCount(s.nodes)} nodes`] : [WAIT, 'not for this folder: under 20 tracked code files']],
-    ['Ponytail', s.tools.ponytail ? [OK, 'active'] : [OFF, MISSING]],
+    ['Map', !s.tools.graphify ? [OFF, MISSING] : s.hasGraph ? [OK, `${formatCount(s.nodes)} places`] : [WAIT, 'not for this folder: under 20 tracked code or document files']],
+    ['Beaver', s.tools.beaver ? [OK, 'active'] : [OFF, MISSING]],
   ]
 
   return [signed('The dam'), `  Context ${context}`, ...rows.map(([name, [mark, detail]]) => `  ${mark} ${name}: ${detail}`)].join('\n')

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.19.0
+
+- Ponytail is renamed Beaver: `/the-dam:beaver`, `beaver-review`, `beaver-audit`, `beaver-debt`, `beaver-gain`, `beaver-help`, `/beaver lite|full|ultra`, `stop beaver`. Ponytail's commands and settings still work.
+- Beaver's rules are shorter and tell the model to ask the map before searching, follow the learned facts and open a condensed output's original only when needed.
+- `UPSTREAM` records the release or commit the dam follows from Ponytail, TokenEconomizer, Headroom and graphify, and `scripts/upstream.sh` shows what changed in each since.
+- The code graph is now the map, and it reads documents and settings: Markdown and reStructuredText headings, links and quoted code names, and the top-level keys of YAML, TOML and JSON.
+- Fact learning is on by default. As in Microsoft's version, it collects from the first session, and its proposer first calls a model after the second.
+- A pending list of tools to leave out no longer waits for good when its waiting process was killed: each session start starts another.
+- The status line always shows every tool, with `0`, `off` or `–`.
+- `/the-dam`'s journal shows the newest entries first, leaves out what does not fit with a count, and keeps this session's totals on its last rows.
+- The tokens saved in this session are counted per session id, so a reload of the plugin no longer starts them again at 0.
+- A web page a `Bash` or `PowerShell` command fetched reaches the model as Markdown, as markdowner gives it: its main content, without menus, scripts or styles, with the full HTML kept in a file. Written in Rust, with no network call and no parser library.
+- The Markdown follows html-to-markdown's rules: a backslash only where text would read as Markdown, hard line breaks, tables with spans, captions and empty headers, and layout tables read as text.
+- The status line and `/the-dam` show the tokens compression saved in this session and in this project, each with its share of what the tools printed.
+- `PowerShell` output is condensed like `Bash` output.
+- TokenEconomizer brought in line with Microsoft's main of 2026-11-02 (d58755d), for what concerns Claude Code:
+  - the loop guard sees a test run started through a launcher (`uv run pytest`, `npx jest`, `bundle exec rspec`) or a Python (`python tests/runtests.py`), and counts a run as a check only where `status_of_tests` does;
+  - a repository whose label holds a Windows path keeps one state file name, and local Windows remotes are recognised;
+  - a loop-guard count threshold with a fraction is refused;
+  - `claude` installed by npm as a `.cmd` shim is started without cmd.exe;
+  - `toolprune measure` passes the deny list as a settings file and reports a failed probe instead of counting it as saved;
+  - `/the-dam:status` explains each mechanism's state (`te status --explain`).
+
 ## 0.18.0
 
 - The status line shows one icon and figure per tool, and leaves out a tool with nothing to show.

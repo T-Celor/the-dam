@@ -587,6 +587,7 @@ impl Hook {
         crate::session::note_repo(self)?;
         crate::session::prune_pins(self);
         crate::fold::spawn_fold(self, &crate::fold::pending_sessions(self, &[&self.session]));
+        crate::toolprune::revive_waiter(self);
 
         // Contexts and notices concatenate, as the Python's merge_outputs does.
         let notices: Vec<&str> = outputs.iter().filter_map(|output| output.get("systemMessage").and_then(Value::as_str)).collect();

@@ -182,6 +182,98 @@ pub(crate) fn gather(repo: &RepoId, root: &Path) -> Value {
     })
 }
 
+// `te status --explain`: the saved state described in words, never a guess at why a past turn did not act.
+fn explanations(root: &Path, repo: &RepoId) -> Value {
+    let repo_dir = root.join("repos").join(&repo.key);
+    let store = Store { base: repo_dir.join("claude") };
+    let config = Config::load(root, &repo_dir);
+    if !config.enabled {
+        return json!({"plugin": "plugin is disabled; hooks record nothing"});
+    }
+    let injection = store.read("injection.json").filter(Value::is_object).unwrap_or_else(|| json!({}));
+    let untool = store.read("untool.json").filter(Value::is_object).unwrap_or_else(|| json!({}));
+    let tracker = EnvelopeTracker::load(&store.read("envelope.json").unwrap_or(Value::Null), &config.aggr, &config.thresholds);
+    let paused = crate::sidecall::paused(root).is_some();
+    let mut notes = serde_json::Map::new();
+    if config.shadow {
+        notes.insert("plugin".into(), json!("shadow mode: new decisions are recorded, not applied"));
+    }
+    let (facts_detail, tools_detail) = ("see microskills with the same --host/--cwd", "see toolprune with the same --host/--cwd");
+    let profile = config.text("microskills");
+    let proposer = profile.contains("distiller");
+    let skills = if profile == "off" {
+        "off; cached facts are not injected".to_string()
+    } else if truthy(injection.get("rendered")) {
+        let base = if config.shadow { "cached facts present; injection suppressed in shadow mode" } else { "cached facts are available for session start" };
+        if proposer && paused { format!("{base}; model proposer paused") } else { base.to_string() }
+    } else if proposer && paused {
+        format!("model proposer paused after a sign-in failure; {facts_detail}")
+    } else if injection.as_object().is_some_and(serde_json::Map::is_empty) {
+        "no learning snapshot recorded for this agent/repository yet".to_string()
+    } else {
+        let why = match injection.get("facts").and_then(Value::as_object) {
+            None => "no fact details recorded in the last learning snapshot".to_string(),
+            Some(facts) => {
+                // Metadata is not a fact, and an unfamiliar state is not evidence of zero facts.
+                let rows: Vec<&Value> = facts.iter().filter(|(key, _)| !matches!(key.as_str(), "_profile" | "_vocab" | "_task" | "_extractors")).map(|(_, row)| row).collect();
+                let states = ["CANDIDATE", "ACTIVE", "RETIRED"];
+                let state = |row: &Value| row.get("state").and_then(Value::as_str).map(str::to_string);
+                if rows.iter().any(|row| !state(row).is_some_and(|found| states.contains(&found.as_str()))) {
+                    "fact lifecycle details unavailable in the last learning snapshot".to_string()
+                } else if rows.is_empty() {
+                    "no facts tracked in the last learning snapshot".to_string()
+                } else {
+                    let count = |name: &str| rows.iter().filter(|row| state(row).as_deref() == Some(name)).count();
+                    format!("{} candidate, {} active, {} retired; no facts rendered", count("CANDIDATE"), count("ACTIVE"), count("RETIRED"))
+                }
+            }
+        };
+        format!("{why}; {facts_detail}")
+    };
+    notes.insert("microskills".into(), json!(skills));
+    let prune = config.text("toolprune");
+    let tools = if prune == "off" {
+        "off; previously applied rules are not restored automatically".to_string()
+    } else {
+        let proposal: Vec<&str> = untool.get("proposal").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+        let pending: Vec<&str> = untool.get("auto_pending").and_then(|held| held.get("items")).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+        let why = if !proposal.is_empty() {
+            if config.shadow {
+                "proposal recorded in shadow mode"
+            } else if prune == "propose" {
+                "proposal awaiting approval"
+            } else if truthy(untool.get("auto_apply_refused")) {
+                "automatic apply was refused"
+            } else if proposal.iter().any(|tool| pending.contains(tool)) {
+                "proposal held for the idle wait"
+            } else {
+                "unapplied proposal recorded"
+            }
+        } else if !crate::denylist::applied_for(&store, &repo.root).is_empty() {
+            "deny rules recorded as applied for this checkout"
+        } else if untool.as_object().is_some_and(serde_json::Map::is_empty) {
+            "no tool-usage snapshot recorded for this agent/repository yet"
+        } else {
+            // A zero proposal can mean used, protected or kept tools, not only too little evidence.
+            "no eligible proposal recorded"
+        };
+        format!("{why}; {tools_detail}")
+    };
+    notes.insert("toolprune".into(), json!(tools));
+    let guard = if config.loopguard == "off" {
+        "off".to_string()
+    } else if tracker.envelope().is_none() {
+        format!("learning baseline: {}/{} ended-green turns", tracker.resolved_turns.len(), tracker.min_samples())
+    } else if paused {
+        "judge calls paused after a sign-in failure; backstop remains active".to_string()
+    } else {
+        "baseline ready; per-turn reasons cannot be inferred from these totals".to_string()
+    };
+    notes.insert("loopguard".into(), json!(guard));
+
+    Value::Object(notes)
+}
+
 fn listed(value: &Value) -> String {
     let items: Vec<&str> = value.as_array().map_or_else(Vec::new, |items| items.iter().filter_map(Value::as_str).collect());
 
@@ -217,6 +309,9 @@ pub(crate) fn render(out: &Value, repo: &RepoId) -> String {
     let guard = &out["loopguard"];
     let envelope = guard["envelope"].as_f64().filter(|size| *size != 0.0).map_or_else(|| "not learned yet".to_string(), |size| format!("{size:.0} tool calls"));
     lines.push(format!("  loopguard    envelope {envelope} ({} ended-green turns); {} redirect(s), {} still-stuck notice(s) over {} turns", guard["ended_green_turns"], ledger["nudges"], ledger["aborts"], ledger["turns"]));
+    for (name, why) in out.get("explanations").and_then(Value::as_object).into_iter().flatten() {
+        lines.push(format!("  explain      {name}: {}", plain(why)));
+    }
 
     lines.join("\n")
 }
@@ -240,8 +335,11 @@ pub(crate) fn pretty(value: &Value) -> String {
 }
 
 // `te status`: what the plugin has learned for the repository a context names, and what it did.
-pub fn report(ctx: &Ctx, as_json: bool) -> String {
-    let out = gather(&ctx.repo, &ctx.root);
+pub fn report(ctx: &Ctx, as_json: bool, explain: bool) -> String {
+    let mut out = gather(&ctx.repo, &ctx.root);
+    if explain {
+        out["explanations"] = explanations(&ctx.root, &ctx.repo);
+    }
 
     if as_json { pretty(&out) } else { render(&out, &ctx.repo) }
 }

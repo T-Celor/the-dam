@@ -14,13 +14,27 @@ https://github.com/microsoft/TokenEconomizer
 
 Ponytail, Copyright (c) 2026 DietrichGebert, MIT License
 https://github.com/DietrichGebert/ponytail
-  skills/ is taken from it. Licence in skills/PONYTAIL-LICENSE.
-  dam/src/ponytail.rs is a Rust rewrite of its Claude Code hooks.
+  Beaver is built on it: skills/beaver* are rewritten from its skills, and
+  dam/src/beaver.rs is a Rust rewrite of its Claude Code hooks.
+  Licence in skills/PONYTAIL-LICENSE.
 
 Headroom, Copyright 2025 Headroom Contributors, Apache License 2.0
 https://github.com/headroomlabs-ai/headroom
   dam/src/folds.rs follows the rules of its transforms/lossless_compaction.py,
   rewritten in Rust.
+
+markdowner, Copyright (c) 2024 Dhravya Shah, MIT License
+https://github.com/supermemoryai/markdowner
+  dam/src/web.rs gives a web page to the model as markdowner does. It contains no markdowner code.
+  Its choice of a page's main content follows Mozilla's Readability (Apache License 2.0,
+  https://github.com/mozilla/readability), including its lists of class names, and its Markdown
+  follows the rules of Turndown (MIT, https://github.com/mixmark-io/turndown), both rewritten in Rust.
+
+html-to-markdown, Copyright (c) 2018 Johannes Kaufmann, MIT License
+https://github.com/JohannesKaufmann/html-to-markdown
+  dam/src/web.rs follows its smart escaping, hard breaks, table spans and captions and layout
+  tables, rewritten in Rust, and was compared with its golden test files. It contains no
+  html-to-markdown code.
 
 graphify, https://graphify.com
   dam-graph is an independent implementation with a similar purpose. It contains no graphify

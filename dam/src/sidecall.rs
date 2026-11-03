@@ -103,6 +103,47 @@ pub fn which(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH")?).find_map(|dir| extensions.iter().map(|ext| dir.join(format!("{name}{ext}"))).find(|candidate| candidate.is_file()))
 }
 
+static SHIM_TARGET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""%~?dp0%?\\([^"]+)"\s*%\*"#).expect("fixed"));
+static SHIM_PROG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"SET "_prog=([^"%]+)""#).expect("fixed"));
+
+// What the npm shim at `path` runs: [program, script] or [executable], or None when it cannot be read so.
+fn shim_argv(path: &Path) -> Option<Vec<String>> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let target = SHIM_TARGET.captures_iter(&text).flatten().last()?.get(1)?.as_str().replace('\\', std::path::MAIN_SEPARATOR_STR);
+    let base = path.parent()?;
+    let target = base.join(target);
+    if !target.is_file() {
+        return None;
+    }
+    let target_text = target.to_string_lossy().into_owned();
+    if target_text.to_lowercase().ends_with(".exe") {
+        return Some(vec![target_text]);
+    }
+    let name = SHIM_PROG.captures(&text).ok().flatten().and_then(|found| found.get(1)).map_or("node", |found| found.as_str());
+    let beside = base.join(format!("{name}.exe"));
+    let program = if beside.is_file() { Some(beside) } else { which(name) }?;
+
+    Some(vec![program.to_string_lossy().into_owned(), target_text])
+}
+
+// The agent CLI `cli` (a name or a path) as a command started with no shell in between. On Windows an npm-installed
+// CLI is a `.cmd` shim that runs through cmd.exe, which parses every argument again: a newline ends the command and
+// `%VAR%` expands, while a side call's prompt is session content. A batch file that is not such a shim is not run.
+pub fn command(cli: &str) -> Result<Command, String> {
+    if !cfg!(windows) {
+        return Ok(Command::new(cli));
+    }
+    let found = if Path::new(cli).is_file() { Some(PathBuf::from(cli)) } else { which(cli) };
+    let Some(found) = found.filter(|path| path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))) else {
+        return Ok(Command::new(cli));
+    };
+    let argv = shim_argv(&found).ok_or_else(|| format!("{}: a batch file that is not an npm shim, whose arguments cmd.exe would parse again", found.display()))?;
+    let mut command = Command::new(&argv[0]);
+    command.args(&argv[1..]);
+
+    Ok(command)
+}
+
 // `claude` on PATH, else the native installer's `~/.local/bin/claude`, else the bare name.
 pub fn claude_cli() -> String {
     if let Some(found) = which("claude") {
@@ -117,7 +158,7 @@ pub fn claude_cli() -> String {
 // shortcut: one Claude Code per process, so `--help` is read once whatever path asked for it.
 fn claude_help(cli: &str) -> &'static str {
     HELP.get_or_init(|| {
-        let mut command = Command::new(cli);
+        let Ok(mut command) = command(cli) else { return String::new() };
         command.arg("--help");
         run_capture(command, None, Duration::from_secs(30)).map(|output| output.stdout).unwrap_or_default()
     })
@@ -143,7 +184,7 @@ pub fn claude_call(prompt: &str, model: &str) -> Result<(String, Option<f64>), S
     let cli = claude_cli();
     let dir = TempDir::new("te-side-").map_err(|error| error.to_string())?;
     let model = if model.is_empty() { "haiku" } else { model };
-    let mut command = Command::new(&cli);
+    let mut command = command(&cli)?;
     command.args(["-p", "--output-format", "json", "--max-turns", "1", "--tools", ""]).args(claude_no_mcp(&cli, &dir.0).map_err(|error| error.to_string())?).args(["--model", model]).args(claude_flags(&cli));
     command.env("TE_SIDECALL", "1").current_dir(&dir.0);
     let output = run_capture(command, Some(prompt), Duration::from_secs(TIMEOUT_S))?;

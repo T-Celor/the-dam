@@ -6,35 +6,23 @@
 
 <p align="center">
   <strong>Spend fewer tokens in Claude Code, without losing a line.</strong><br>
-  Lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.
+  Lossless output compression, web pages as Markdown, a local map of the project, a loop guard, tool pruning and lazy-senior-dev rules, in one plugin.
 </p>
 
 <p align="center">
   <a href="https://github.com/T-Celor/the-dam/actions/workflows/ci.yml"><img src="https://github.com/T-Celor/the-dam/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Strict%201.0.0-blue.svg" alt="PolyForm Strict 1.0.0"></a>
   <img src="https://img.shields.io/badge/built%20with-Rust-b7410e.svg" alt="Built with Rust">
-  <img src="https://img.shields.io/badge/runs-100%25%20local%20by%20default-2e7d32.svg" alt="Local by default">
+  <img src="https://img.shields.io/badge/runs-100%25%20local-2e7d32.svg" alt="Runs locally">
 </p>
 
----
-
-Coding agents burn context on repeated log lines, broad searches and failing loops. The dam sits between the tools and the model and cuts that waste, then shows what each tool did in one status line, one icon per tool:
-
 ```
-🦫 full · 💧 45.2k · 🪵 3+2 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
+🦫 full · 💧 3.1k 25% · 🪵 27 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
 ```
 
-| Icon | Tool | Figure |
-|---|---|---|
-| 🦫 | Ponytail | its level in this session |
-| 💧 | Compression | tokens saved, every session together |
-| 🪵 | Tool pruning | tools removed, plus those waiting |
-| 🌀 | Loop guard | loops stopped |
-| 🧠 | Learned facts | facts in use |
-| 🗺️ | Code graph | nodes |
-| 🌊 | Context | share of the window used |
+## Contents
 
-A tool with nothing to show yet stays out of the line. Type `/the-dam` to open the session's journal beside the chat: what each tool did and when, then the totals. Where no pane can be drawn (`claude -p`), it answers with the totals.
+[Install](#install) · [Commands](#commands) · [The status line](#the-status-line) · [How it works](#how-it-works) · [Gains](#gains) · [Built on](#built-on-and-followed) · [Maintenance](#maintenance) · [Limits](#limits) · [Licence](#licence)
 
 ## Install
 
@@ -45,142 +33,198 @@ In Claude Code:
 /plugin install the-dam@the-dam
 ```
 
-Restart Claude Code. Everything starts by itself at each session.
+Restart Claude Code. Every part starts by itself at each session.
 
 | You need | For |
 |---|---|
-| Nothing | Everything, on supported systems |
-| `cargo` | Only on a system with no prebuilt program |
+| Nothing | Windows x64, Linux x64 and arm64, macOS x64 and arm64: the programs come prebuilt |
+| `cargo` | Any other system: the plugin offers to build them |
 
-If you already run the separate TokenEconomizer or Ponytail plugins, disable them so that they do not run twice:
+If you also run the separate TokenEconomizer or Ponytail plugins, turn them off so they do not act twice:
 
 ```
 claude plugin disable tokeneconomizer@tokeneconomizer
 claude plugin disable ponytail@ponytail
 ```
 
-## What it does
+## Commands
 
-### Lossless compression: `dam-squeeze`
+| Command | What it does |
+|---|---|
+| `/the-dam` | Opens the session's journal beside the chat: what each tool did, newest first, then the totals |
+| `/the-dam-compress` | Turns compression on or off |
+| `/the-dam:status` | What TokenEconomizer learned for this repository, with a plain explanation of each mechanism's state |
+| `/the-dam:toolprune` | The tools left out of this repository's sessions; give one back, or apply a waiting list now |
+| `/the-dam:config` | Turn each TokenEconomizer mechanism on or off, or tune it |
+| `/the-dam:microskills` | The repository facts learned and given to the model at session start |
+| `/the-dam:repos` | Every repository with learned state |
+| `/beaver lite\|full\|ultra\|off` | Beaver's level for this session (`full` by default) |
+| `/the-dam:beaver-review` | Review of a change: bugs, security, load, missing tests, what to cut |
+| `/the-dam:beaver-audit` | The same review for the whole repository, ranked |
+| `/the-dam:beaver-debt` | Every `shortcut:` comment, as a ledger |
+| `/the-dam:beaver-gain`, `:beaver-help` | Beaver's benchmark and reference card |
 
-`Bash` outputs and `Grep`'s matching lines of 6,000 characters or more are condensed before the model reads them, and no line is dropped:
+## The status line
 
-- runs of lines that differ only by numbers become a template and a table of what varies;
-- identical lines become a count, and repeated blocks a reference;
-- search hits and path listings are grouped under their file or directory;
-- a JSON array of records becomes a table.
+One icon per tool, always in the same order. `0`, `off` or `–` (nothing to measure yet) when a tool has done nothing.
 
-Errors, warnings and values that stand out (a 503 among 200s) stay plain lines, and code keeps its shape. Every result is decoded and compared with the source before it is used; only trailing spaces and terminal colours may differ. If anything fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged. The original also stays in `~/.claude/the-dam-outputs/` (the newest 200, across sessions), and the model is told where.
-
-An output too long for Claude Code to show, which it saves to a file and previews, is condensed from that file. If it then fits, the model gets all of it. If not, the saved file holds the condensed form, and in place of the first 2 KB the model sees the lines that stand out (errors, failures, warnings), the first lines of the condensed form and where both files are.
-
-Compared with [Headroom](https://github.com/headroomlabs-ai/headroom) 0.42 in its token mode, on 43 real outputs of the size this plugin compresses:
-
-| | Headroom | `dam-squeeze` |
+| Icon | Tool | Figure |
 |---|---|---|
-| Tokens saved (estimated, 4 characters per token) | **27.3%** | 24.1% |
+| 🦫 | Beaver | its level in this session |
+| 💧 | Compression | tokens saved in this session, and their share of everything the tools printed |
+| 🪵 | Tool pruning | tools left out, `+n` waiting to be |
+| 🌀 | Loop guard | loops stopped |
+| 🧠 | Learned facts | facts given to the model |
+| 🗺️ | Map | places on the project's map |
+| 🌊 | Context | share of the context window in use |
+
+`/the-dam` adds the same for the project and for every project.
+
+## How it works
+
+```mermaid
+flowchart LR
+    P[Your prompt] --> M{{map facts for the code names it holds}} --> C[Claude]
+    C -- tool call --> T[Bash · PowerShell · Grep]
+    T --> W{web page?}
+    W -- yes --> MD[Markdown: main content only]
+    W -- no --> S[lossless fold]
+    MD --> C
+    S --> C
+    C -. stuck on a failure .-> L[loop guard redirect]
+    SS[Session start] --> F[learned facts] & B[Beaver rules] & G[map rebuilt] & TP[unused tools left out]
+```
+
+| Part | Concept | What the model gets |
+|---|---|---|
+| **Compression** `dam-squeeze` | Lines that differ only by numbers become a template and a table of values; identical lines a count; search hits and paths grouped by file; JSON records a table. Errors and outliers stay plain lines. Every result is decoded and checked against the source before use. | The same information in fewer tokens, the original in `~/.claude/the-dam-outputs/` |
+| **Web pages** `dam-squeeze --web` | A page a command fetched (`curl`, `wget`, `Invoke-WebRequest`): its main content picked as Readability does, written as Markdown with html-to-markdown's rules (escaping, tables with spans, code blocks, absolute links). | Title, address and the page as Markdown; the full HTML kept in a file |
+| **Map** `dam-graph` | Who defines, calls, extends and imports what, in 10 languages, plus document headings, links and quoted code names, and the keys of YAML, TOML and JSON. Rebuilt in the background at session start. | Where a name is defined, what calls it and which document describes it, added when a prompt or a `Grep` names it |
+| **Loop guard** | A turn repeating the same failure is checked by a judge model, then redirected once. | A short note to try another approach |
+| **Tool pruning** | A tool unused over 10 prompts in 2 sessions, or 5 sessions, is left out of later sessions once the repository has been idle an hour. | A shorter tool list on every request |
+| **Learned facts** | Failures repeated across sessions, and a model review every 3 sessions, become facts once 3 sessions confirm them. | A build step or the command spelling that works here, at session start |
+| **Beaver** | The smallest change that fully solves the task; ask the map before searching. | Rules at session start and for each subagent |
+
+Several sessions can run at once, in one project or several: each keeps its own level, its own originals and its own counts.
+
+## Gains
+
+### Compression
+
+Against [Headroom](https://github.com/headroomlabs-ai/headroom) 0.42 in token mode, on 43 real outputs of 6,000 characters or more:
+
+| | Headroom | the dam |
+|---|---|---|
+| Tokens saved | **27.3%** | 24.1% |
 | Lines recoverable from the result | 69.9% | **100%** |
-| Median time per output | about 8 s on a freshly started proxy, 45 ms warm in an earlier run | **15 ms** |
-| Memory | about 1 GB, always on | **11 MB peak on a 1.9 MB log** |
+| Median time per output | 45 ms warm, about 8 s cold | **15 ms** |
+| Memory | about 1 GB, always on | **11 MB** peak |
 
-Headroom saves more because it drops content past its caps, and it offers a retrieval tool to get that content back. The dam keeps every line. On code and listings with little repetition it saves little or nothing.
+Headroom saves a little more by dropping content past its caps. The dam keeps every line.
 
-### A local code graph: `dam-graph`
+### Web pages
 
-At each session start, in a git repository with at least 20 tracked code files, it rebuilds in the background who defines, calls, extends and imports what, in Python, JavaScript, TypeScript, Rust, Java, C#, Go, C, C++ and Kotlin. The model is told it can ask:
+Five real pages, HTML as fetched against the Markdown the model reads:
 
+| Page | HTML | Markdown | Saved | Time |
+|---|---|---|---|---|
+| GitHub repository page | 261 KB | 3.7 KB | **99%** | 0.11 s |
+| Wikipedia, "Beaver" | 778 KB | 128 KB | **84%** | 0.18 s |
+| The Rust book, installation | 31 KB | 6.1 KB | **81%** | 0.15 s |
+| Hacker News front page | 34 KB | 9.4 KB | **73%** | 0.13 s |
+| The Rust blog | 99 KB | 42 KB | **58%** | 0.14 s |
+
+```mermaid
+xychart-beta
+    title "Share of a fetched page the model no longer reads"
+    x-axis ["GitHub", "Wikipedia", "Rust book", "Hacker News", "Rust blog"]
+    y-axis "saved %" 0 --> 100
+    bar [99, 84, 81, 73, 58]
 ```
-dam-graph query "how does the log compressor keep error lines"
-```
 
-The model is told from the first prompt; a query made before the first build ends builds the graph itself. It does not have to ask: when a prompt names code (`parseConfig`, `crush_rows()`, `SmartCrusher`), or a `Grep` looks for one name, what the graph knows of that name (where it is defined, what it calls, what calls it) is added for the model. A sentence with no such name gets nothing added, as the graph's answer to plain words is too loose to be worth its tokens. No model and no network. `.dam-graph/` goes in `.git/info/exclude`, so your `.gitignore` stays as it is.
+The conversion alone (no main-content choice) matches 75% of the lines of html-to-markdown's own test files, once HTML comments, which the dam leaves out on purpose, and column padding are set aside.
 
-Measured against [graphify](https://graphify.com)'s structural graph as the reference, on four repositories of 18 to 2,112 source files:
+### Map
 
-| | graphify | `dam-graph` |
+Against [graphify](https://graphify.com)'s structural graph, on four repositories of 18 to 2,112 source files:
+
+| | graphify | the dam |
 |---|---|---|
-| Time to build, 2,112 files | 816 s | **1.5 s** |
-| Definitions found | reference | 96 to 99.9% |
-| Calls found | reference | 96 to 100% |
-| Imports found | reference | 80 to 100% |
+| Build time, 2,112 files | 816 s | **1.5 s** |
+| Definitions / calls / imports found | reference | 96–99.9% / 96–100% / 80–100% |
 | Right place named, 15 questions | 12 | **15** |
 | Mean answer size | 1,656 tokens | **772 tokens** |
 
-It also reports links graphify does not, and not all of them are verified. It is a scanner rather than a parser, so unusual syntax can be missed. It does not read documents or images, and does not cluster or draw the graph.
+With documents and settings, the map of a 2,551-file repository holds 44,672 places and builds in 1.5 s.
 
-### A loop guard and tool pruning: TokenEconomizer
+### Published results of the projects it builds on
 
-[TokenEconomizer](https://github.com/microsoft/TokenEconomizer) by Microsoft notices a turn repeating the same failure and redirects it, leaves out tools a repository never uses, and can learn repository facts. Its commands are here as `/the-dam:status`, `/the-dam:toolprune`, `/the-dam:config` and so on.
+| Project | Their measurement |
+|---|---|
+| TokenEconomizer | 18.4–30.9% lower mean cost on SWE-Bench tasks, across five agent–model pairs ([paper](https://arxiv.org/abs/2610.22732)) |
+| Ponytail (Beaver's rules) | 53% fewer lines of code, 45% fewer output tokens, 26% lower cost, 41% less time, on 39 tasks × 5 runs |
 
-It is rewritten in Rust (`dam-economizer`), for Claude Code only, and reads the same state files, so existing state keeps working. Against the Python on the same inputs:
+```mermaid
+xychart-beta
+    title "Ponytail's benchmark: share of the no-rules baseline"
+    x-axis ["Lines of code", "Output tokens", "Cost", "Time"]
+    y-axis "% of baseline" 0 --> 100
+    bar [47, 55, 74, 59]
+```
+
+### Rewrite faithfulness
+
+TokenEconomizer is rewritten in Rust and compared with Microsoft's Python on the same inputs:
 
 | Compared | Cases | Differences |
 |---|---|---|
-| Hooks through a turn, on real and made-up sessions | 7,664 events | 0 |
-| Whole sessions with tool pruning and facts on, real logs | 240 hooks | 0 |
-| Session start, fold, pricing, settings, judge | 820 | 1, a checkout count in `repos --json` |
-| Tool pruning, including odd settings files | 587 comparisons | 12, where the Python crashes on a malformed `permissions` and this refuses to edit |
-| Learned facts, including the model's answers | 300 steps | 0, against a copy with one order made stable (the Python's ties vary with its hash seed) |
+| Hooks through a turn, real and made-up sessions | 7,664 events | 0 |
+| Whole sessions with tool pruning and facts | 240 hooks | 0 |
+| Test-run detection, latest upstream | 25 commands | 0 |
+| Session start, fold, pricing, settings, judge | 820 | 1 (a checkout count in `repos --json`) |
 
-The judge and the proposer call a model through your own Claude Code; those calls were compared with a stand-in for `claude`. They are the only network use the plugin causes itself, they appear in the `tokens spent` figure, and `/the-dam:config` turns them off. Fact learning is off by default.
+## Built on and followed
 
-Left out: other agents (Codex, Copilot, Pi, OpenCode), the repository map (`dam-graph` fills that role), `probe`, and merging or migrating state between repository keys.
+| Project | Licence | Used for | Followed at |
+|---|---|---|---|
+| [TokenEconomizer](https://github.com/microsoft/TokenEconomizer) (Microsoft) | Apache 2.0 | Loop guard, tool pruning, learned facts: rewritten in Rust | `d58755d` |
+| [Ponytail](https://github.com/DietrichGebert/ponytail) (Dietrich Gebert) | MIT | Beaver: its rules, rewritten, and its hooks in Rust | `v5.3.3` |
+| [Headroom](https://github.com/headroomlabs-ai/headroom) | Apache 2.0 | The folding rules of its lossless compaction | `fc1ba89` |
+| [markdowner](https://github.com/supermemoryai/markdowner) | MIT | The idea: web pages for a model as Markdown | `f887834` |
+| [html-to-markdown](https://github.com/JohannesKaufmann/html-to-markdown) | MIT | Escaping, table and layout rules, and its tests as a reference | `v2.5.2` |
+| [Readability](https://github.com/mozilla/readability), [Turndown](https://github.com/mixmark-io/turndown) | Apache 2.0, MIT | Main-content choice and Markdown rules | – |
+| [graphify](https://graphify.com) | – | Reference for the map's measurements; no code taken | `v0.9.99` |
 
-### Lazy senior dev rules: Ponytail
+Each is credited with its licence in [NOTICE](NOTICE). None of their authors endorse this project.
 
-The rules of [Ponytail](https://github.com/DietrichGebert/ponytail) by Dietrich Gebert: the smallest change that fully solves the task. `dam-ponytail` rewrites its hooks for Claude Code, with its levels (`/ponytail lite|full|ultra`, `stop ponytail`) and its map of what already exists in the codebase. Its task board, webhook and status badge are left out.
+## Maintenance
 
-## Several sessions at once
-
-Sessions may run side by side, in one project or several:
-
-- each keeps its own Ponytail level, its own saved originals and its own count of tokens saved;
-- TokenEconomizer's state files are written under the same locks as Microsoft's version, and a session is counted once in its ledger whichever session folds it;
-- a session that ends headless (`claude -p`) is counted at the next session start rather than at its end, as Claude Code allows a session-end hook only a moment.
-
-## Commands
-
-| Command | Does |
+| What | How |
 |---|---|
-| `/the-dam` | Opens the session's journal and the totals beside the chat |
-| `/the-dam-compress` | Turns compression on or off |
-| `/the-dam:status`, `:toolprune`, `:config`, `:microskills`, `:repos` | TokenEconomizer's own |
-| `/the-dam:ponytail`, `:ponytail-review`, `:ponytail-audit`, `:ponytail-debt` | Ponytail's own |
-
-## How it fits together
-
-One Rust application with a small program per job, so that each process holds only the code of its own job, and a thin TypeScript module for the parts Claude Code runs itself.
+| Following upstream | [`UPSTREAM`](UPSTREAM) records the release or commit followed for each project. `scripts/upstream.sh` reports what changed since; `scripts/upstream.sh <tool>` shows the diff of the files that matter. Changes are ported by hand, then the line is moved. |
+| Tests | `cd dam && cargo test` (99 tests), `claude plugin test .` (21), `claude plugin validate .` |
+| Comparisons | `benchmarks/` holds the scripts behind the figures above |
+| CI | Every push: tests on Windows, Linux and macOS, then every program run end to end (`scripts/smoke.sh`) with no model |
+| Builds | CI builds the programs for five platforms and commits them, so installing needs no compiler |
+| Changes | [CHANGELOG.md](CHANGELOG.md) |
 
 ```
-hooks/register.tsx    status line, /the-dam, calls dam-squeeze and dam-graph
-scripts/dam-run       picks the program built for this machine
-dam/src/bin/          dam-squeeze, dam-graph, dam-ponytail, dam-economizer
-dam/src/              the library they share
-scripts/te            TokenEconomizer's command line
-skills/, commands/    Ponytail's and TokenEconomizer's
+hooks/register.tsx    status line, /the-dam pane, compression and map calls
+dam/src/bin/          dam-squeeze, dam-graph, dam-beaver, dam-economizer
+dam/src/              the library they share (web.rs, graph.rs, squeeze.rs, ...)
+skills/, commands/    Beaver's and TokenEconomizer's
+scripts/              dam-run (picks the right program), te, upstream.sh, smoke.sh
 ```
-
-Peak memory on Windows: `dam-ponytail` 3.5 to 5.9 MB, `dam-graph` 10 MB on 145 files and 67 MB on 2,112.
 
 ## Limits
 
-- Token savings are estimates, not measured by a tokenizer. The counter covers compression only.
-- Prebuilt programs come from CI for Windows x64, Linux x64 and macOS. CI runs every program end to end on each (`scripts/smoke.sh`), with no model. Real Claude Code sessions have only been run on Windows.
+- Token figures are estimates at four characters per token, not a tokenizer's count.
+- Real Claude Code sessions have been run on Windows only; the other systems are covered by CI, without a model.
 - The Windows programs are not signed, so Windows may warn about them.
-- The model has to read the condensed format, which may cost it some effort on heavily folded outputs.
-- Rules a model writes for learned facts run on Rust's regular expressions, which differ from Python's in rare cases.
-- The rewrite of TokenEconomizer and the bundled rules of Ponytail do not follow their own releases.
+- The map is a scanner rather than a parser: unusual syntax can be missed, and documents are read for their headings, links and quoted names only.
+- Web conversion keeps no images given as `data:` and no HTML comments, and drops empty and in-page links.
+- TokenEconomizer's rewrite is for Claude Code only (not Codex, Copilot, Pi, OpenCode or Cursor).
 
-## Development
+## Licence
 
-```bash
-cd dam && cargo test
-claude plugin validate .
-claude plugin test .
-```
-
-`benchmarks/` holds the comparison scripts behind the numbers above. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Credits and licence
-
-PolyForm Strict License 1.0.0, see [LICENSE](LICENSE): free for personal and other noncommercial use, with no right to redistribute it, change it or use it commercially. This is source-available, not open source. For a commercial licence, contact the author through GitHub. Versions up to 0.15.0 were published under Apache 2.0, and stay under it. The dam builds on the work of others, listed with their licences in [NOTICE](NOTICE). It is an independent project, not affiliated with or endorsed by Microsoft, Anthropic, or the authors of Headroom, graphify and Ponytail.
+PolyForm Strict License 1.0.0, see [LICENSE](LICENSE): free for personal and other noncommercial use, with no right to redistribute it, change it or use it commercially. This is source-available, not open source. For a commercial licence, contact the author through GitHub. Versions up to 0.15.0 were published under Apache 2.0 and stay under it. The work this project builds on stays under its own licences, listed in [NOTICE](NOTICE). The dam is not affiliated with Microsoft, Anthropic or the authors of the projects above.

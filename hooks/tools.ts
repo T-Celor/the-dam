@@ -1,7 +1,7 @@
 export type Located = {
   squeezer: string | null
   graph: string | null
-  ponytail: string | null
+  beaver: string | null
   economizer: string | null
 }
 
@@ -18,7 +18,7 @@ export function candidates(name: string, root: string, home: string | undefined)
 
 export function missingNames(found: Located): string[] {
   return [
-    found.squeezer && found.graph && found.ponytail && found.economizer ? null : 'dam',
+    found.squeezer && found.graph && found.beaver && found.economizer ? null : 'dam',
   ].filter(name => name !== null)
 }
 
@@ -26,13 +26,13 @@ export function missingNames(found: Located): string[] {
 export function setupSteps(found: Located, root: string): Step[] {
   const steps: Step[] = []
   // The plugin ships a Windows build; elsewhere it builds from its own source.
-  if (!found.squeezer || !found.graph || !found.ponytail || !found.economizer) steps.push({ label: 'dam', argv: ['cargo', 'install', '--path', `${root}/dam`] })
+  if (!found.squeezer || !found.graph || !found.beaver || !found.economizer) steps.push({ label: 'dam', argv: ['cargo', 'install', '--path', `${root}/dam`] })
 
   return steps
 }
 
 export function graphNudge(program: string): string {
-  return `A code graph of this project is ready. To find where something is defined, what it calls or what calls it, or how parts connect, run \`"${program}" query "<name or question>"\` first, before Grep, Glob or Read sweeps: it answers in a few hundred tokens. When a prompt or a Grep names code, its answer for those names is added for you.`
+  return `A map of this project is ready: its code, its documents and its settings. To find where something is defined or described, what it calls or what calls it, or how parts connect, run \`"${program}" query "<name or question>"\` first, before Grep, Glob or Read sweeps: it answers in a few hundred tokens. When a prompt or a Grep names code, the map's answer for those names is added for you.`
 }
 
 const WORTH_SQUEEZING_CHARS = 6000
@@ -41,10 +41,10 @@ const MOST_INLINE_CHARS = 29_000
 const WORTH_KEEPING_TOKENS = 200
 type ToolRecord = { stdout?: unknown; content?: unknown; mode?: unknown; isImage?: unknown; backgroundTaskId?: unknown; persistedOutputPath?: unknown }
 
-// Bash output and Grep's matching lines. Read and Edit need the file's exact bytes.
+// Bash and PowerShell output, and Grep's matching lines. Read and Edit need the file's exact bytes.
 // An output Claude Code saved to a file is read back from it (`persistedOutputPath`), whatever its size.
 export function squeezableField(tool: string, record: ToolRecord): 'stdout' | 'content' | null {
-  const field = tool === 'Bash' ? 'stdout' : tool === 'Grep' && record.mode === 'content' ? 'content' : null
+  const field = tool === 'Bash' || tool === 'PowerShell' ? 'stdout' : tool === 'Grep' && record.mode === 'content' ? 'content' : null
   if (!field || record.isImage || record.backgroundTaskId) return null
   if (field === 'stdout' && typeof record.persistedOutputPath === 'string') return field
   const text = record[field]
@@ -72,12 +72,33 @@ const PREVIEW_CHARS = 2000
 
 // What the model sees of an output still too long once condensed, in place of Claude Code's own preview:
 // where the condensed file is, the lines that stand out, and its first lines.
-export function savedPreview(condensed: string, before: number, after: number, saved: string, original: string, standout: string[]): string {
+export function savedPreview(condensed: string, before: number, after: number, saved: string, original: string, standout: string[], isWeb = false): string {
   const head = condensed.slice(0, PREVIEW_CHARS)
   const cut = head.length < condensed.length ? head.slice(0, head.lastIndexOf('\n') + 1) || head : head
-  const lines = standout.length ? `\nLines that stand out:\n${standout.join('\n')}\n` : ''
+  const lines = standout.length && !isWeb ? `\nLines that stand out:\n${standout.join('\n')}\n` : ''
+  const how = isWeb ? `turned this web page into Markdown, from about ${before} to ${after} tokens` : `condensed it from about ${before} to ${after} tokens without dropping any line`
 
-  return `[Output too long to show. The dam condensed it from about ${before} to ${after} tokens without dropping any line, into ${saved}: read that file for the rest. Original: ${original}.]\n${lines}\nFirst lines:\n${cut}`
+  return `[Output too long to show. The dam ${how}, into ${saved}: read that file for the rest. Original: ${original}.]\n${lines}\nFirst lines:\n${cut}`
+}
+
+const PAGE_START = /^\s*(?:<!doctype html|<html[\s>]|<head[\s>]|<\?xml[^>]*>\s*(?:<!doctype html|<html))/i
+
+// Whether an output is a web page (with the headers `curl -i` prints, or none), which dam-squeeze --web turns into Markdown.
+export function looksLikeWebPage(text: string): boolean {
+  const head = text.slice(0, 8192).replace(/^\uFEFF/, '')
+  const body = head.startsWith('HTTP/') ? head.slice(head.search(/\r?\n\r?\n/) + 1) : head
+
+  return PAGE_START.test(body)
+}
+
+// The first web address a command names, for the links of the page it fetched.
+export function pageUrl(command: string | undefined): string | null {
+  return command?.match(/https?:\/\/[^\s'"`<>|;)]+/)?.[0] ?? null
+}
+
+// What the model reads under a page turned into Markdown: what was left out, and where the HTML is.
+export function webNote(before: number, after: number, path: string): string {
+  return `\n\n[The dam turned this web page into Markdown, from about ${before} to ${after} tokens: its main content, without menus, scripts or styles. The full HTML: ${path}.]`
 }
 
 // Whether a condensed output is small enough for Claude Code to show inline.
@@ -87,6 +108,15 @@ export function fitsInline(text: string): boolean {
 
 // Rough, as no tokenizer is at hand: about four characters per token.
 const tokensIn = (text: string) => Math.ceil(text.length / 4)
+
+// What a Bash, PowerShell or Grep call printed, in tokens, whether or not it was condensed; 0 for other tools.
+export function outputTokens(tool: string, record: ToolRecord & { persistedOutputSize?: unknown }): number {
+  if (tool !== 'Bash' && tool !== 'PowerShell' && tool !== 'Grep') return 0
+  if (typeof record.persistedOutputSize === 'number') return Math.ceil(record.persistedOutputSize / 4)
+  const text = tool === 'Grep' ? record.content : record.stdout
+
+  return typeof text === 'string' ? tokensIn(text) : 0
+}
 
 export function squeezed(original: string, text: string): { text: string; before: number; after: number } | null {
   const [before, after] = [tokensIn(original), tokensIn(text)]
@@ -111,12 +141,12 @@ export function parseEconomizer(stdout: string) {
   }
 }
 
-const CODE_FILE = /\.(py|js|jsx|ts|tsx|java|kt|go|rs|c|h|cc|cpp|hpp|cs|rb|php|swift|scala|lua|sh)$/i
+const MAPPED_FILE = /\.(py|js|jsx|ts|tsx|java|kt|go|rs|c|h|cc|cpp|hpp|cs|rb|php|swift|scala|lua|sh|md|markdown|mdx|rst|ya?ml|toml|json)$/i
 const WORTH_GRAPHING_FILES = 20
 
-// A graph only pays for itself in a real project: `listing` is the output of `git ls-files`.
+// A map only pays for itself in a real project, of code or of documents: `listing` is the output of `git ls-files`.
 export function worthGraphing(listing: string): boolean {
-  return listing.split('\n').filter(path => CODE_FILE.test(path.trim())).length >= WORTH_GRAPHING_FILES
+  return listing.split('\n').filter(path => MAPPED_FILE.test(path.trim())).length >= WORTH_GRAPHING_FILES
 }
 
 const GRAPH_QUERY = /dam-graph(?:\.exe)?"?\s+query\s+(.+)/
@@ -161,7 +191,7 @@ export function exactEntries(answer: string, name: string): string[] {
 
 // What the model reads about the names a prompt or a search named, in place of finding them itself.
 export function graphFacts(entries: string[], program: string): string {
-  return `The project's code graph on these names (\`"${program}" query "<question>"\` asks it more):\n\n${entries.join('\n\n')}`
+  return `The project's map on these names (\`"${program}" query "<question>"\` asks it more):\n\n${entries.join('\n\n')}`
 }
 
 // The number of nodes in dam-graph's table.
