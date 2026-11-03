@@ -384,6 +384,16 @@ fn squeeze(text: &str) -> String {
     best.filter(|result| result.len() < text.len()).unwrap_or_else(|| text.to_string())
 }
 
+// Keeps the `keep` newest files of `dir`: the originals every session saves there.
+pub fn prune(dir: &std::path::Path, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries.flatten().filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path()))).collect();
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, path) in files.into_iter().skip(keep) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 pub fn run(arg: Option<&str>) -> io::Result<()> {
     let mut bytes = Vec::new();
     io::stdin().read_to_end(&mut bytes)?;

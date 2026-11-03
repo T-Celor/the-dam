@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.0
+
+- Outputs Claude Code saves to a file because they are too long are condensed too, with errors and warnings put in front.
+- `Grep` results are condensed.
+- The code graph is announced from the first prompt, and a query builds it when it is not there yet. Prompts no longer wait up to 3 seconds each.
+- Ponytail's start hook can no longer run past Claude Code's limit on a large project: its codebase map stops at 3 seconds.
+- Several sessions at once: each has its own Ponytail level, saved originals and count; two graph builds no longer share a temporary file.
+- The session-end hook no longer starts PowerShell, which made Claude Code cancel it.
+
 ## 0.16.0
 
 - Licence changed to PolyForm Strict 1.0.0 from this version on. Earlier versions stay under Apache 2.0.

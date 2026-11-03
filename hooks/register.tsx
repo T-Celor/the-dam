@@ -11,6 +11,9 @@ import {
   missingNames,
   parseEconomizer,
   setupSteps,
+  fitsInline,
+  savedPreview,
+  standoutLines,
   squeezableField,
   squeezed,
   squeezeNote,
@@ -129,6 +132,10 @@ function checkSoon($: Dollar) {
 const COMPRESS_OFF = 'compress-off'
 const SQUEEZE_TIMEOUT_MS = 3_000
 const KEPT_OUTPUTS = 20
+// Every session's originals together; older ones go at each session start.
+const KEPT_ALL_OUTPUTS = 200
+// This process's own name for its files and count, so that sessions running side by side never write over each other.
+const SESSION_TAG = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
 async function toggleCompression($: Dollar): Promise<string> {
   const wasOff = Boolean(await $.store.get(COMPRESS_OFF))
@@ -142,31 +149,54 @@ async function toggleCompression($: Dollar): Promise<string> {
 
 let keptOutputs = 0
 
-// All projects together: a folder of its own for each session must not start the pile again from nothing.
+// The tokens saved, as one key per session: each session writes only its own, and the total is their sum.
 const SAVED = 'saved'
+const SAVED_HERE = `saved:${SESSION_TAG}`
+
+async function savedTotal($: Dollar) {
+  const keys = (await $.store.keys()).filter(key => key === SAVED || key.startsWith('saved:'))
+  const values = await Promise.all(keys.map(key => $.store.get(key)))
+
+  return values.reduce<number>((sum, value) => sum + Number(value ?? 0), 0)
+}
 
 async function squeeze($: Dollar, tool: string, record: Record<string, unknown>) {
   const field = squeezableField(tool, record)
   const { squeezer } = await locate($)
   if (!field || !squeezer || (await $.store.get(COMPRESS_OFF))) return null
-  const original = record[field] as string
+  // A large output Claude Code already saved: condensed from the file, and shown inline if it then fits.
+  const persisted = field === 'stdout' && typeof record.persistedOutputPath === 'string' ? record.persistedOutputPath : null
+  const original = persisted ? await $.fs.read(persisted) : (record[field] as string)
   const run = await attempt(() => $.process.run([squeezer], { stdin: original, timeoutMs: SQUEEZE_TIMEOUT_MS }))
   if (run?.exitCode !== 0) return null
   const result = squeezed(original, run.stdout)
   if (!result) return null
-  // A ring of files: the full outputs stay readable without piling up on disk.
-  keptOutputs = (keptOutputs + 1) % KEPT_OUTPUTS
-  const path = `${await homeOf($)}/.claude/the-dam-outputs/${keptOutputs}.txt`
-  await $.fs.write(path, original)
+  const isInline = !persisted || fitsInline(result.text)
+  let path = isInline ? persisted : null
+  if (!path) {
+    // A ring of files: the full outputs stay readable without piling up on disk.
+    keptOutputs = (keptOutputs + 1) % KEPT_OUTPUTS
+    path = `${await homeOf($)}/.claude/the-dam-outputs/${SESSION_TAG}-${keptOutputs}.txt`
+    await $.fs.write(path, original)
+  }
   const gain = Math.max(0, result.before - result.after)
   // A count that fails must not throw away the compression itself.
   await attempt(async () => {
-    const saved = Number((await $.store.get(SAVED)) ?? 0) + gain
-    await $.store.set(SAVED, saved)
+    await $.store.set(SAVED_HERE, Number((await $.store.get(SAVED_HERE)) ?? 0) + gain)
+    const saved = await savedTotal($)
     await change($, current => ({ ...current, saved }))
   })
 
-  return { ...record, [field]: result.text + squeezeNote(result.before, result.after, path) }
+  // Still too long to show: the saved file holds the condensed form, and the model gets our preview of it.
+  if (persisted && !isInline) {
+    await $.fs.write(persisted, result.text + squeezeNote(result.before, result.after, path))
+    const preview = savedPreview(result.text, result.before, result.after, persisted, path, standoutLines(original))
+
+    return { ...record, stdout: preview, persistedOutputPath: undefined, persistedOutputSize: undefined }
+  }
+  const condensed = { ...record, [field]: result.text + squeezeNote(result.before, result.after, path) }
+
+  return persisted ? { ...condensed, persistedOutputPath: undefined, persistedOutputSize: undefined } : condensed
 }
 
 let hasEditedCode = false
@@ -181,14 +211,19 @@ async function reweave($: Dollar) {
   await attempt(() => $.process.run([graph, 'update'], { timeoutMs: 120_000 }))
 }
 
-// Rebuilt at every opening of a real project, as it takes about a second: a `git pull` cannot leave it behind.
+async function graphable($: Dollar) {
+  const { graph } = await locate($)
+  if (!graph) return false
+  const listing = await attempt(() => $.process.run(['git', 'ls-files']))
+
+  return listing?.exitCode === 0 && worthGraphing(listing.stdout)
+}
+
+// Rebuilt at every opening of a real project, as it takes seconds at most: a `git pull` cannot leave it behind.
 async function buildGraph($: Dollar) {
   const { graph } = await locate($)
-  if (!graph) return
-  const listing = await attempt(() => $.process.run(['git', 'ls-files']))
-  if (listing?.exitCode !== 0 || !worthGraphing(listing.stdout)) return
   const excludePath = await attempt(() => $.process.run(['git', 'rev-parse', '--git-path', 'info/exclude']))
-  if (excludePath?.exitCode !== 0) return
+  if (!graph || excludePath?.exitCode !== 0) return
   // Out of git's sight without touching the project's own .gitignore.
   const path = excludePath.stdout.trim()
   const excluded = (await attempt(() => $.fs.read(path))) ?? ''
@@ -196,8 +231,8 @@ async function buildGraph($: Dollar) {
   await attempt(() => $.process.run([graph, 'update'], { timeoutMs: GRAPH_TIMEOUT_MS }))
 }
 
-// The first prompt waits a moment for the first graph, so that the model is told about it.
-let graphReady: Promise<unknown> = Promise.resolve()
+// Whether this project gets a graph, known a moment after the session starts: the first prompt waits for that, not for the graph.
+let isGraphable: Promise<boolean> = Promise.resolve(false)
 const GRAPH_WAIT_MS = 3_000
 
 async function readContext($: Dollar): Promise<Stats['context']> {
@@ -228,7 +263,7 @@ async function readSources($: Dollar, tools: Located, saved: number) {
 
 async function refresh($: Dollar) {
   const tools = await locate($)
-  const [context, isOff, graph, storedSaved] = await Promise.all([readContext($), $.store.get(COMPRESS_OFF), attempt(() => $.fs.stat(GRAPH)), $.store.get(SAVED)])
+  const [context, isOff, graph, storedSaved] = await Promise.all([readContext($), $.store.get(COMPRESS_OFF), attempt(() => $.fs.stat(GRAPH)), savedTotal($)])
   const gains = await readSources($, tools, Number(storedSaved ?? 0))
   await change($, current => ({
     ...current,
@@ -248,8 +283,14 @@ export const register: Register = on => {
     void attempt(async () => {
       await installMissing($)
       await checkGains($)
+      const { squeezer } = await locate($)
+      const home = await homeOf($)
+      if (squeezer && home) await $.process.run([squeezer, '--prune', `${home}/.claude/the-dam-outputs`, String(KEPT_ALL_OUTPUTS)])
     })
-    graphReady = attempt(() => buildGraph($).then(() => checkGains($)))
+    isGraphable = attempt(() => graphable($)).then(Boolean)
+    void isGraphable.then(isWorth => {
+      if (isWorth) void attempt(() => buildGraph($).then(() => checkGains($)))
+    })
     $.clock.every(CONTEXT_EVERY_MS, () => void refreshContext($))
 
     return next(e)
@@ -266,9 +307,9 @@ export const register: Register = on => {
   // Tells the model about the graph only where one exists, so other projects pay nothing.
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
-    // The file itself, as the figures may not have been read yet when the first prompt comes.
-    await attempt(() => Promise.race([graphReady, $.clock.sleep(GRAPH_WAIT_MS)]))
-    if (!(await attempt(() => $.fs.stat(GRAPH)))) return composed
+    // A query builds the graph when it is not there yet, so the model can be told before the first build ends.
+    const isWorth = await attempt(() => Promise.race([isGraphable, $.clock.sleep(GRAPH_WAIT_MS).then(() => false)]))
+    if (!isWorth && !(await attempt(() => $.fs.stat(GRAPH)))) return composed
 
     return {
       sections: [...composed.sections, { id: 'the-dam:graph', text: graphNudge((await locate($)).graph ?? 'dam-graph'), scope: 'session' as const }],

@@ -9,7 +9,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{mpsc, OnceLock};
 use std::time::Duration;
 
 const LEVELS: [&str; 4] = ["off", "lite", "full", "ultra"];
@@ -17,6 +17,8 @@ const DEFAULT_LEVEL: &str = "full";
 const MAP_BUDGET: usize = 2000;
 const MOST_MAP_FILES: usize = 4000;
 const MOST_MAP_BYTES: u64 = 65_536;
+// Claude Code gives the start hook 15 seconds; a first read of a large project from a cold disk can take more.
+const MAP_TIME: std::time::Duration = std::time::Duration::from_secs(3);
 
 fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.is_empty())
@@ -72,13 +74,32 @@ fn shared_state() -> PathBuf {
     claude_dir().join(".ponytail-active")
 }
 
-// One level per project, so sessions in different repositories do not overwrite each other.
+// The hook's session, from its input: each session keeps its own level, even beside another in the same project.
+static SESSION: OnceLock<String> = OnceLock::new();
+// A session's level outlives it by this long at most, so the folder does not grow for ever.
+const LEVEL_KEPT: Duration = Duration::from_secs(7 * 24 * 3600);
+
+fn levels_dir() -> PathBuf {
+    claude_dir().join("ponytail-modes")
+}
+
 fn project_state() -> Option<PathBuf> {
     let project = env("CLAUDE_PROJECT_DIR")?;
     let mut hasher = DefaultHasher::new();
     project.trim().hash(&mut hasher);
+    SESSION.get().map(String::as_str).unwrap_or("").hash(&mut hasher);
 
-    Some(claude_dir().join("ponytail-modes").join(format!("{:016x}", hasher.finish())))
+    Some(levels_dir().join(format!("{:016x}", hasher.finish())))
+}
+
+fn prune_levels() {
+    let Ok(entries) = fs::read_dir(levels_dir()) else { return };
+    for entry in entries.flatten() {
+        let age = entry.metadata().and_then(|meta| meta.modified()).ok().and_then(|at| at.elapsed().ok());
+        if age.is_some_and(|age| age > LEVEL_KEPT) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 fn set_level(level: &str) {
@@ -168,7 +189,11 @@ pub fn codebase_map(files: &[String], root: &Path) -> String {
     wanted.sort_by_key(|file| (!is_shared(file), file.to_string()));
     let mut folders: Vec<(String, Vec<Vec<String>>)> = Vec::new();
     let mut places: BTreeMap<String, usize> = BTreeMap::new();
+    let started = std::time::Instant::now();
     for file in wanted {
+        if started.elapsed() > MAP_TIME {
+            break;
+        }
         let Some(lang) = lang_of(file) else { continue };
         let path = root.join(file);
         if !fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() <= MOST_MAP_BYTES) {
@@ -228,12 +253,15 @@ fn read_stdin() -> String {
         let _ = send.send(bytes);
     });
     let bytes = receive.recv_timeout(Duration::from_secs(1)).unwrap_or_default();
+    let input = String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string();
+    let _ = SESSION.set(json::field(&input, "session_id").unwrap_or_default());
 
-    String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string()
+    input
 }
 
 fn activate() {
     let input = read_stdin();
+    prune_levels();
     // Compaction runs this again inside one conversation, which keeps its live level.
     let level = if json::field(&input, "source").as_deref() == Some("compact") { live_level().unwrap_or_else(|| "off".to_string()) } else { default_level() };
     if level == "off" {
@@ -260,9 +288,10 @@ fn matches_agent(matcher: &str, agent: &str) -> bool {
 }
 
 fn subagent() {
+    let input = read_stdin();
     let Some(level) = live_level().filter(|level| level != "off") else { return };
     if let Some(matcher) = env("PONYTAIL_SUBAGENT_MATCHER") {
-        if !matches_agent(&matcher, &json::field(&read_stdin(), "agent_type").unwrap_or_default()) {
+        if !matches_agent(&matcher, &json::field(&input, "agent_type").unwrap_or_default()) {
             return;
         }
     }

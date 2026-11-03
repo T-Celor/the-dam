@@ -120,6 +120,15 @@ pub fn pending_sessions(ctx: &Ctx, exclude: &[&str]) -> Vec<String> {
 
 // Fold in a detached process (inline under TE_FOLD_SYNC=1, for tests).
 pub fn spawn_fold(ctx: &Ctx, sessions: &[String]) {
+    spawn_fold_with(ctx, sessions, true);
+}
+
+// At session end: a session left unfolded here is folded at the next start.
+pub fn spawn_fold_direct(ctx: &Ctx, sessions: &[String]) {
+    spawn_fold_with(ctx, sessions, false);
+}
+
+fn spawn_fold_with(ctx: &Ctx, sessions: &[String], wmi: bool) {
     if sessions.is_empty() {
         return;
     }
@@ -133,5 +142,9 @@ pub fn spawn_fold(ctx: &Ctx, sessions: &[String]) {
     for session in sessions {
         words.extend(["--session", session]);
     }
-    crate::session::spawn(ctx, &words, "fold.log");
+    if wmi {
+        crate::session::spawn(ctx, &words, "fold.log");
+    } else {
+        crate::session::spawn_direct(ctx, &words, "fold.log");
+    }
 }

@@ -62,14 +62,16 @@ claude plugin disable ponytail@ponytail
 
 ### Lossless compression: `dam-squeeze`
 
-`Bash` outputs of 6,000 to 29,000 characters are condensed before the model reads them, and no line is dropped:
+`Bash` outputs and `Grep`'s matching lines of 6,000 characters or more are condensed before the model reads them, and no line is dropped:
 
 - runs of lines that differ only by numbers become a template and a table of what varies;
 - identical lines become a count, and repeated blocks a reference;
 - search hits and path listings are grouped under their file or directory;
 - a JSON array of records becomes a table.
 
-Errors, warnings and values that stand out (a 503 among 200s) stay plain lines, and code keeps its shape. Every result is decoded and compared with the source before it is used; only trailing spaces and terminal colours may differ. If anything fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged. The original also stays in `~/.claude/the-dam-outputs/` (the last 20), and the model is told where.
+Errors, warnings and values that stand out (a 503 among 200s) stay plain lines, and code keeps its shape. Every result is decoded and compared with the source before it is used; only trailing spaces and terminal colours may differ. If anything fails, takes over 3 seconds or saves under 200 tokens, the output passes through unchanged. The original also stays in `~/.claude/the-dam-outputs/` (the newest 200, across sessions), and the model is told where.
+
+An output too long for Claude Code to show, which it saves to a file and previews, is condensed from that file. If it then fits, the model gets all of it. If not, the saved file holds the condensed form, and in place of the first 2 KB the model sees the lines that stand out (errors, failures, warnings), the first lines of the condensed form and where both files are.
 
 Compared with [Headroom](https://github.com/headroomlabs-ai/headroom) 0.42 in its token mode, on 43 real outputs of the size this plugin compresses:
 
@@ -84,13 +86,13 @@ Headroom saves more because it drops content past its caps, and it offers a retr
 
 ### A local code graph: `dam-graph`
 
-At each session start, in a git repository with at least 20 tracked code files, it rebuilds who defines, calls, extends and imports what, in Python, JavaScript, TypeScript, Rust, Java, C#, Go, C, C++ and Kotlin. The model is told it can ask:
+At each session start, in a git repository with at least 20 tracked code files, it rebuilds in the background who defines, calls, extends and imports what, in Python, JavaScript, TypeScript, Rust, Java, C#, Go, C, C++ and Kotlin. The model is told it can ask:
 
 ```
 dam-graph query "how does the log compressor keep error lines"
 ```
 
-No model and no network. `.dam-graph/` goes in `.git/info/exclude`, so your `.gitignore` stays as it is.
+The model is told from the first prompt; a query made before the first build ends builds the graph itself. No model and no network. `.dam-graph/` goes in `.git/info/exclude`, so your `.gitignore` stays as it is.
 
 Measured against [graphify](https://graphify.com)'s structural graph as the reference, on four repositories of 18 to 2,112 source files:
 
@@ -126,6 +128,14 @@ Left out: other agents (Codex, Copilot, Pi, OpenCode), the repository map (`dam-
 ### Lazy senior dev rules: Ponytail
 
 The rules of [Ponytail](https://github.com/DietrichGebert/ponytail) by Dietrich Gebert: the smallest change that fully solves the task. `dam-ponytail` rewrites its hooks for Claude Code, with its levels (`/ponytail lite|full|ultra`, `stop ponytail`) and its map of what already exists in the codebase. Its task board, webhook and status badge are left out.
+
+## Several sessions at once
+
+Sessions may run side by side, in one project or several:
+
+- each keeps its own Ponytail level, its own saved originals and its own count of tokens saved;
+- TokenEconomizer's state files are written under the same locks as Microsoft's version, and a session is counted once in its ledger whichever session folds it;
+- a session that ends headless (`claude -p`) is counted at the next session start rather than at its end, as Claude Code allows a session-end hook only a moment.
 
 ## Commands
 

@@ -250,7 +250,7 @@ fn save(graph: &Graph) -> std::io::Result<()> {
     }
     fs::create_dir_all(".dam-graph")?;
     // Written aside then moved, so a query never reads half a graph.
-    let temp = format!("{GRAPH_FILE}.tmp");
+    let temp = format!("{GRAPH_FILE}.{}.tmp", std::process::id());
     fs::write(&temp, out)?;
     fs::rename(temp, GRAPH_FILE)
 }
@@ -421,10 +421,13 @@ pub fn run(args: &[String]) {
                 }
             }
         }
-        Some("query") if args.len() > 1 => match load(GRAPH_FILE) {
+        Some("query") if args.len() > 1 => match load(GRAPH_FILE).or_else(|_| {
+            let graph = build();
+            save(&graph).map(|()| graph)
+        }) {
             Ok(graph) => print!("{}", answer(&graph, &args[1..].join(" "))),
             Err(error) => {
-                eprintln!("no graph here, run `dam-graph update`: {error}");
+                eprintln!("could not build or read {GRAPH_FILE}: {error}");
                 std::process::exit(1);
             }
         },

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { EMPTY, formatCount, gainNote, reportOf, statusOf } from './model'
-import { candidates, graphNodes, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, worthGraphing } from './tools'
+import { candidates, graphNodes, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, savedPreview, standoutLines, worthGraphing } from './tools'
 
 const ALL = { squeezer: true, graphify: true, economizer: true, ponytail: true }
 
@@ -62,9 +62,11 @@ test('only big Bash text gets squeezed, never file bytes or search hits', () => 
   const big = 'x'.repeat(7000)
   expect(squeezableField('Bash', { stdout: big })).toBe('stdout')
   expect(squeezableField('Bash', { stdout: 'short' })).toBe(null)
-  expect(squeezableField('Grep', { content: big, mode: 'content' })).toBe(null)
+  expect(squeezableField('Grep', { content: big, mode: 'content' })).toBe('content')
+  expect(squeezableField('Grep', { content: big, mode: 'count' })).toBe(null)
   expect(squeezableField('Read', { content: big })).toBe(null)
-  expect(squeezableField('Bash', { stdout: big, persistedOutputPath: '/p' })).toBe(null)
+  expect(squeezableField('Bash', { stdout: 'preview', persistedOutputPath: '/p' })).toBe('stdout')
+  expect(squeezableField('Bash', { stdout: big, backgroundTaskId: 't' })).toBe(null)
   expect(squeezableField('Bash', { stdout: 'x'.repeat(30_000) })).toBe(null)
 })
 
@@ -107,4 +109,20 @@ test('a compressor that fails leaves the output untouched', async ($, on) => {
 
   const ran = await $.tool.call({ tool: 'Bash', command: 'ls' })
   expect((ran.result as { stdout: string }).stdout).toBe(BIG)
+})
+
+test('the lines that stand out are kept once, at most ten', () => {
+  const text = ['ok 1', 'ERROR linker failed', 'ok 2', 'ERROR linker failed', 'warning: unused', 'errorless'].join('\n')
+  expect(standoutLines(text)).toEqual(['ERROR linker failed', 'warning: unused'])
+  expect(standoutLines(Array.from({ length: 30 }, (_, n) => `error ${n}`).join('\n')).length).toBe(10)
+})
+
+test('the preview of a saved output names the files, what stands out, and starts on a whole line', () => {
+  const condensed = Array.from({ length: 400 }, (_, n) => `line ${n}`).join('\n')
+  const preview = savedPreview(condensed, 4000, 900, '/saved.txt', '/original.txt', ['ERROR boom'])
+  expect(preview).toContain('/saved.txt')
+  expect(preview).toContain('/original.txt')
+  expect(preview).toContain('ERROR boom')
+  expect(preview.endsWith('\n')).toBe(true)
+  expect(preview.length).toBeLessThan(2600)
 })

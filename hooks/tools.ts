@@ -41,13 +41,48 @@ const MOST_INLINE_CHARS = 29_000
 const WORTH_KEEPING_TOKENS = 200
 type ToolRecord = { stdout?: unknown; content?: unknown; mode?: unknown; isImage?: unknown; backgroundTaskId?: unknown; persistedOutputPath?: unknown }
 
-// Bash output only: Read and Edit need the file's exact bytes, and each Grep hit is an answer.
-export function squeezableField(tool: string, record: ToolRecord): 'stdout' | null {
-  const field = tool === 'Bash' ? 'stdout' : null
-  if (!field || record.isImage || record.backgroundTaskId || record.persistedOutputPath) return null
+// Bash output and Grep's matching lines. Read and Edit need the file's exact bytes.
+// An output Claude Code saved to a file is read back from it (`persistedOutputPath`), whatever its size.
+export function squeezableField(tool: string, record: ToolRecord): 'stdout' | 'content' | null {
+  const field = tool === 'Bash' ? 'stdout' : tool === 'Grep' && record.mode === 'content' ? 'content' : null
+  if (!field || record.isImage || record.backgroundTaskId) return null
+  if (field === 'stdout' && typeof record.persistedOutputPath === 'string') return field
   const text = record[field]
 
   return typeof text === 'string' && text.length >= WORTH_SQUEEZING_CHARS && text.length < MOST_INLINE_CHARS ? field : null
+}
+
+const STANDOUT = /\b(error|errors|failed|failure|fatal|panic|panicked|exception|traceback|warning)\b/i
+const MOST_STANDOUT_LINES = 10
+const MOST_STANDOUT_CHARS = 200
+
+// The lines of a long output a reader must not miss, for the preview Claude Code shows of a saved output.
+export function standoutLines(text: string): string[] {
+  const found: string[] = []
+  for (const line of text.split('\n')) {
+    if (found.length === MOST_STANDOUT_LINES) break
+    const trimmed = line.trim()
+    if (trimmed && STANDOUT.test(trimmed) && !found.includes(trimmed)) found.push(trimmed.slice(0, MOST_STANDOUT_CHARS))
+  }
+
+  return found
+}
+
+const PREVIEW_CHARS = 2000
+
+// What the model sees of an output still too long once condensed, in place of Claude Code's own preview:
+// where the condensed file is, the lines that stand out, and its first lines.
+export function savedPreview(condensed: string, before: number, after: number, saved: string, original: string, standout: string[]): string {
+  const head = condensed.slice(0, PREVIEW_CHARS)
+  const cut = head.length < condensed.length ? head.slice(0, head.lastIndexOf('\n') + 1) || head : head
+  const lines = standout.length ? `\nLines that stand out:\n${standout.join('\n')}\n` : ''
+
+  return `[Output too long to show. The dam condensed it from about ${before} to ${after} tokens without dropping any line, into ${saved}: read that file for the rest. Original: ${original}.]\n${lines}\nFirst lines:\n${cut}`
+}
+
+// Whether a condensed output is small enough for Claude Code to show inline.
+export function fitsInline(text: string): boolean {
+  return text.length < MOST_INLINE_CHARS
 }
 
 // Rough, as no tokenizer is at hand: about four characters per token.

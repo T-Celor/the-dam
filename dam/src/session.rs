@@ -129,6 +129,15 @@ pub fn ensure_launcher() -> Option<PathBuf> {
 
 // This program again, detached from the hook that starts it, its output appended to `<store>/<log_name>`.
 pub fn spawn(ctx: &Ctx, words: &[&str], log_name: &str) -> bool {
+    spawn_with(ctx, words, log_name, true)
+}
+
+// Without the WMI fallback, which costs a second or more: for a session-end hook, which Claude Code cancels when it is not done quickly.
+pub fn spawn_direct(ctx: &Ctx, words: &[&str], log_name: &str) -> bool {
+    spawn_with(ctx, words, log_name, false)
+}
+
+fn spawn_with(ctx: &Ctx, words: &[&str], log_name: &str, wmi: bool) -> bool {
     if env("TE_JUDGE_NO_SPAWN").is_some() {
         return true;
     }
@@ -148,9 +157,12 @@ pub fn spawn(ctx: &Ctx, words: &[&str], log_name: &str) -> bool {
 
     // The agent's Windows job forbids breakaway: a process the WMI service creates is outside it.
     #[cfg(windows)]
-    return wmi_spawn(&program, &args, &ctx.repo.root, &log_path);
+    return wmi && wmi_spawn(&program, &args, &ctx.repo.root, &log_path);
     #[cfg(not(windows))]
-    false
+    {
+        let _ = wmi;
+        false
+    }
 }
 
 #[cfg(windows)]

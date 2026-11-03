@@ -488,7 +488,7 @@ impl Hook {
         doc["ended"] = json!(now());
         doc["end_reason"] = self.field("reason").clone();
         self.save(&mut doc)?;
-        crate::fold::spawn_fold(self, std::slice::from_ref(&self.session));
+        crate::fold::spawn_fold_direct(self, std::slice::from_ref(&self.session));
 
         Ok(json!({}))
     }
