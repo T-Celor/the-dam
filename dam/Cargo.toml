@@ -1,6 +1,6 @@
 [package]
 name = "dam"
-version = "0.20.1"
+version = "0.20.2"
 edition = "2021"
 description = "Lossless output compression, a local code graph and agent hooks for Claude Code."
 license-file = "../LICENSE"

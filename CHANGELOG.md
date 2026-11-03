@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.2
+
+- The README opens on a short animation of the plugin, and gives each part its own section: a loop showing how it works and what it saves, then a few lines of text. The measured gains draw themselves in at the top of the Gains section.
+- The pictures gain a little nature: water, reeds and a beaver on its log dam. The colour band is gone. Every picture is 3840 pixels wide, in a light and a dark theme, with a still for readers who turn motion off.
+- The README is shorter: the overview diagram, the concept table and the two charts it repeated are gone.
+
 ## 0.20.1
 
 - The README's pictures are redrawn as flat infographics, in a light and a dark theme that follow the reader's: the measured gains as one still at the top, the two charts as stills, and one short loop per part of the dam (compression, web pages, map, tool pruning, loop guard, learned facts, Beaver). `assets/draw.py` draws them all; the long animation is gone.
