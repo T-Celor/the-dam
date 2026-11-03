@@ -1,374 +1,331 @@
-# Draws assets/teaser.gif (and teaser.png, its still for reduced motion): the dam's tools, told by beavers.
-# Run: uv run --with pillow python assets/teaser.py
+# Draws assets/teaser.gif and teaser.png (its still, for reduced motion). Run: uv run --with pillow python assets/teaser.py
+#
+# Three acts, crossfaded, in the manner of TokenEconomizer's teaser:
+#   Title    the name, what it does, its six parts and what it builds on.
+#   Method   a sketch, not a measurement: what Claude reads in a session, as one bar of the work itself and five kinds
+#            of waste. Each part of the dam is switched on in turn: its card lights up on the right, with a plain
+#            example, and the next bar shrinks the waste it takes out, under a dashed line at the bar without the dam.
+#   Results  the figures measured for this project, as the README states them.
+# Every frame is drawn at SS times its size and resized down, which is the anti-aliasing.
 import math
 import os
+
 from PIL import Image, ImageDraw, ImageFont
 
-W, H, S = 800, 450, 2
 HERE = os.path.dirname(os.path.abspath(__file__))
-FONTS = 'C:/Windows/Fonts/' if os.name == 'nt' else '/usr/share/fonts/truetype/dejavu/'
-SKY, SKY2 = (250, 243, 230), (236, 224, 204)
-WATER, WATER2, FOAM = (58, 124, 165), (44, 100, 140), (170, 210, 230)
-FUR, FUR_DARK, BELLY, TOOTH = (139, 90, 43), (92, 58, 26), (196, 150, 98), (255, 248, 231)
-INK, PAPER, ACCENT, GREEN, RED, CLAUDE = (43, 43, 43), (255, 253, 247), (224, 122, 47), (46, 125, 50), (198, 40, 40), (217, 119, 87)
+W, H, SS, FPS = 1120, 600, 2, 12
+FONTS = 'C:/Windows/Fonts/'
+
+BG, CARD, LINE, INK, MUTED = '#F2F4F8', '#FFFFFF', '#D5DBE3', '#1F2933', '#6B7785'
+BROWN, BROWN_LIGHT, WORK = '#8A5A34', '#F3E8DC', '#C9D1DA'
+# The six parts, in the order they are switched on, each with the waste it takes out of the bar.
+PARTS = [
+    dict(name='Compression', color='#2F6FB0', light='#E3EDF7', waste='repeated output', before=13, after=9,
+         head='Folds repeated output, every line kept', chips=[('ERROR retry  ×4000', 'mono')], foot='checked against the source before use'),
+    dict(name='Web pages', color='#2A8C80', light='#E0F2EF', waste='page clutter', before=11, after=2,
+         head='Turns fetched pages into Markdown', chips=[('261 KB HTML', 'mono'), ('→', 'arrow'), ('3.7 KB .md', 'solid')], foot='menus, ads and cookie banners left out'),
+    dict(name='Map', color='#6F55A3', light='#ECE7F5', waste='broad searches', before=9, after=4,
+         head='Answers "where is it?" from a local map', chips=[('SmartCrusher', 'mono'), ('→', 'arrow'), ('crusher.rs:118', 'solid')], foot='code, docs and settings, rebuilt each session'),
+    dict(name='Tool pruning', color='#A8741A', light='#F6EEDD', waste='unused tools', before=7, after=3,
+         head='Leaves out tools never used here', chips=[('Read', 'mono'), ('Edit', 'mono'), ('Notebook', 'struck'), ('Cron', 'struck')], foot='one command brings any back'),
+    dict(name='Loop guard', color='#B84843', light='#F8E5E3', waste='stuck in loops', before=8, after=3,
+         head='Spots loops and steps in', chips=[('same error ×3', 'mono'), ('→', 'arrow'), ('try another way', 'solid')], foot='a nudge when the same error repeats'),
+    dict(name='Beaver', color=BROWN, light=BROWN_LIGHT, waste='the work itself', before=52, after=44,
+         head='The smallest change that works', chips=[('50 lines', 'struck'), ('→', 'arrow'), ('1 line', 'solid')], foot='lazy-senior-dev rules, built on Ponytail'),
+]
+STACK = [5, 0, 1, 2, 3, 4]      # bottom to top: the work itself, then the wastes
 
 
-def font(size, bold=False, mono=False):
-    name = 'consola.ttf' if mono else ('segoeuib.ttf' if bold else 'segoeui.ttf')
-    try:
-        return ImageFont.truetype(FONTS + name, size * S)
-    except OSError:
-        return ImageFont.truetype(FONTS + ('DejaVuSansMono.ttf' if mono else 'DejaVuSans-Bold.ttf' if bold else 'DejaVuSans.ttf'), size * S)
+def f(size, style='regular'):
+    name = {'regular': 'segoeui.ttf', 'bold': 'segoeuib.ttf', 'semi': 'seguisb.ttf', 'light': 'segoeuisl.ttf', 'italic': 'segoeuii.ttf', 'mono': 'consola.ttf', 'monob': 'consolab.ttf'}[style]
+    return ImageFont.truetype(FONTS + name, int(size * SS))
 
 
-def ease(p):
-    p = max(0.0, min(1.0, p))
-
-    return p * p * (3 - 2 * p)
+def clamp(x):
+    return max(0.0, min(1.0, x))
 
 
-def seg(p, a, b):
-    return ease((p - a) / (b - a)) if b > a else float(p >= b)
+def ease(x):
+    x = clamp(x)
+
+    return 1 - (1 - x) ** 3
+
+
+def mix(a, b, k):
+    a, b = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) if isinstance(c, str) else c for c in (a, b)]
+
+    return tuple(int(x + (y - x) * clamp(k)) for x, y in zip(a, b))
 
 
 class Pen:
-    """Drawing in 1x coordinates on a 2x canvas, downsampled for smooth edges."""
-
     def __init__(self):
-        self.im = Image.new('RGB', (W * S, H * S), SKY)
+        self.im = Image.new('RGB', (W * SS, H * SS), BG)
         self.d = ImageDraw.Draw(self.im)
 
-    def ell(self, cx, cy, rx, ry, fill, outline=None, width=0):
-        self.d.ellipse([(cx - rx) * S, (cy - ry) * S, (cx + rx) * S, (cy + ry) * S], fill=fill, outline=outline, width=width * S)
+    def rect(self, x0, y0, x1, y1, fill=None, outline=None, width=1, r=0):
+        self.d.rounded_rectangle([x0 * SS, y0 * SS, x1 * SS, y1 * SS], radius=r * SS, fill=fill, outline=outline, width=int(width * SS))
 
-    def rect(self, x0, y0, x1, y1, fill, radius=0, outline=None, width=0):
-        self.d.rounded_rectangle([x0 * S, y0 * S, x1 * S, y1 * S], radius=radius * S, fill=fill, outline=outline, width=width * S)
+    def circle(self, x, y, r, fill):
+        self.d.ellipse([(x - r) * SS, (y - r) * SS, (x + r) * SS, (y + r) * SS], fill=fill)
 
-    def line(self, points, fill, width=2):
-        self.d.line([(x * S, y * S) for x, y in points], fill=fill, width=width * S, joint='curve')
+    def line(self, x0, y0, x1, y1, fill, width=1, dash=0):
+        if not dash:
+            self.d.line([x0 * SS, y0 * SS, x1 * SS, y1 * SS], fill=fill, width=int(width * SS))
+            return
+        length = math.hypot(x1 - x0, y1 - y0)
+        n = int(length // (dash * 2))
+        for k in range(n + 1):
+            a, b = k * dash * 2 / length, min(1, (k * dash * 2 + dash) / length)
+            self.d.line([(x0 + (x1 - x0) * a) * SS, (y0 + (y1 - y0) * a) * SS, (x0 + (x1 - x0) * b) * SS, (y0 + (y1 - y0) * b) * SS], fill=fill, width=int(width * SS))
 
-    def poly(self, points, fill):
-        self.d.polygon([(x * S, y * S) for x, y in points], fill=fill)
+    def text(self, x, y, s, size, fill=INK, style='regular', anchor='la'):
+        self.d.text((x * SS, y * SS), s, font=f(size, style), fill=fill, anchor=anchor)
 
-    def text(self, x, y, text, size=18, fill=INK, bold=False, mono=False, anchor='la'):
-        self.d.text((x * S, y * S), text, font=font(size, bold, mono), fill=fill, anchor=anchor)
+    def tw(self, s, size, style='regular'):
+        return self.d.textlength(s, font=f(size, style)) / SS
 
-    def width_of(self, text, size, bold=False, mono=False):
-        return self.d.textlength(text, font=font(size, bold, mono)) / S
+    def check(self, x, y, r, color):
+        self.circle(x, y, r, color)
+        self.d.line([(x - r * 0.45) * SS, y * SS, (x - r * 0.1) * SS, (y + r * 0.4) * SS, (x + r * 0.5) * SS, (y - r * 0.4) * SS], fill='white', width=int(1.6 * SS), joint='curve')
+
+    def number(self, x, y, n, color):
+        self.circle(x, y, 7.5, color)
+        self.text(x, y + 0.5, str(n), 9.5, 'white', 'bold', 'mm')
+
+    def paste(self, image, x, y, size):
+        self.im.paste(image.resize((int(size * SS), int(size * SS)), Image.LANCZOS), (int(x * SS), int(y * SS)), image.resize((int(size * SS), int(size * SS)), Image.LANCZOS))
 
     def done(self):
         return self.im.resize((W, H), Image.LANCZOS)
 
 
-def scenery(pen, t, water_top=330):
-    for y in range(0, water_top, 6):
-        k = y / water_top
-        pen.rect(0, y, W, y + 6, tuple(int(a + (b - a) * k) for a, b in zip(SKY, SKY2)))
-    pen.rect(0, water_top, W, H, WATER)
-    for row in range(4):
-        y = water_top + 18 + row * 28
-        pts = [(x, y + 4 * math.sin(x / 40 + t * 0.35 + row)) for x in range(0, W + 10, 10)]
-        pen.line(pts, WATER2 if row % 2 else FOAM, 2)
+ICON = Image.open(os.path.join(HERE, 'icon.png')).convert('RGBA')
 
 
-def log(pen, x, y, length=70, r=11, label=None):
-    pen.rect(x, y - r, x + length, y + r, FUR, radius=r)
-    pen.ell(x + length - r, y, r - 1, r - 1, BELLY)
-    pen.ell(x + length - r, y, r - 6, r - 6, FUR)
-    if label:
-        pen.text(x + length / 2 - 6, y, label, 11, PAPER, bold=True, anchor='mm')
+# ---- act 1: the title -----------------------------------------------------------------------------
+
+def title(pen, t):
+    a = ease(t / 0.6)
+    pen.paste(ICON, W / 2 - 34, 62 - 8 * (1 - a), 68)
+    left, right = 'The ', 'dam'
+    size = 58
+    total = pen.tw(left, size, 'semi') + pen.tw(right, size, 'bold')
+    x = W / 2 - total / 2
+    pen.text(x, 178, left, size, mix(BG, INK, a), 'semi', 'ls')
+    pen.text(x + pen.tw(left, size, 'semi'), 178, right, size, mix(BG, BROWN, a), 'bold', 'ls')
+    pen.line(W / 2 - 22, 196, W / 2 + 22, 196, mix(BG, BROWN, a), 2.5)
+    b = ease((t - 0.4) / 0.6)
+    pen.text(W / 2, 228, 'Spend fewer tokens in Claude Code, without losing a line', 19, mix(BG, MUTED, b), 'light', 'mm')
+    widths = [pen.tw(p['name'], 12.5, 'semi') + 40 for p in PARTS]
+    for row in range(2):
+        items = list(range(row * 3, row * 3 + 3))
+        x = W / 2 - (sum(widths[i] for i in items) + 12 * 2) / 2
+        for i in items:
+            c = ease((t - 0.8 - i * 0.12) / 0.4)
+            p, w, y = PARTS[i], widths[i], 268 + row * 38
+            pen.rect(x, y + 6 * (1 - c), x + w, y + 28 + 6 * (1 - c), mix(BG, p['light'], c), mix(BG, p['color'], c), 1.3, 14)
+            pen.circle(x + 15, y + 14 + 6 * (1 - c), 7.5, mix(BG, p['color'], c))
+            pen.text(x + 15, y + 14.5 + 6 * (1 - c), str(i + 1), 9.5, mix(BG, '#FFFFFF', c), 'bold', 'mm')
+            pen.text(x + 28, y + 14 + 6 * (1 - c), p['name'], 12.5, mix(BG, p['color'], c), 'semi', 'lm')
+            x += w + 12
+    d = ease((t - 1.8) / 0.6)
+    line = [('A Claude Code plugin', 'semi'), ('  ·  Rust  ·  ', 'regular'), ('100% local', 'semi')]
+    x = W / 2 - sum(pen.tw(s, 13, st) for s, st in line) / 2
+    for s, st in line:
+        pen.text(x, 380, s, 13, mix(BG, INK if st == 'semi' else MUTED, d), st, 'lm')
+        x += pen.tw(s, 13, st)
+    built = 'Built on TokenEconomizer · Ponytail · Headroom · markdowner · html-to-markdown'
+    pen.text(W / 2, 412, built, 12, mix(BG, MUTED, d), 'regular', 'mm')
 
 
-def beaver(pen, x, y, s=1.0, t=0, flip=False, hat=False, chew=False, wave=False):
-    def p(dx, dy):
-        return x + (-dx if flip else dx) * s, y + dy * s
+# ---- act 2: the method ----------------------------------------------------------------------------
 
-    def e(dx, dy, rx, ry, fill):
-        cx, cy = p(dx, dy)
-        pen.ell(cx, cy, rx * s, ry * s, fill)
-
-    bob = math.sin(t * 0.5) * 2
-    y += bob
-    tail = [p(-30, 8), p(-78, -2 + math.sin(t * 0.6) * 4), p(-86, 14), p(-34, 24)]
-    pen.poly(tail, FUR_DARK)
-    for k in range(3):
-        a, b = p(-44 - k * 12, 4), p(-50 - k * 12, 20)
-        pen.line([a, b], FUR, 2)
-    e(0, 0, 40, 32, FUR)
-    e(8, 8, 22, 20, BELLY)
-    e(-18, 30, 12, 6, FUR_DARK)
-    e(20, 30, 12, 6, FUR_DARK)
-    arm = -14 + (math.sin(t * 0.9) * 10 if wave else 0)
-    e(30, 4 + arm * 0.3, 8, 12, FUR_DARK)
-    e(30, -34, 26, 23, FUR)
-    e(14, -54, 7, 7, FUR_DARK)
-    e(42, -55, 7, 7, FUR_DARK)
-    e(42, -30, 13, 10, BELLY)
-    e(52, -36, 6, 4, INK)
-    blink = (t % 37) in (0, 1)
-    if blink:
-        a, b = p(28, -40), p(38, -40)
-        pen.line([a, b], INK, 2)
-    else:
-        e(33, -40, 4, 5, INK)
-        e(34.5, -42, 1.5, 1.5, PAPER)
-    shift = (math.sin(t * 1.6) * 2 + 2) if chew else 0
-    tx, ty = p(45, -26 + shift * 0.3)
-    pen.rect(tx - 4 * s, ty, tx + 4 * s, ty + (10 + shift) * s, TOOTH, radius=1)
-    pen.line([(tx, ty), (tx, ty + (10 + shift) * s)], (200, 190, 170), 1)
-    if hat:
-        hx, hy = p(30, -56)
-        pen.ell(hx, hy + 2 * s, 30 * s, 6 * s, (230, 180, 30))
-        pen.d.pieslice([(hx - 22 * s) * S, (hy - 22 * s) * S, (hx + 22 * s) * S, (hy + 18 * s) * S], 180, 360, fill=(250, 200, 40))
+CHART_X0, BASE_Y, SCALE = 214, 528, 4.1
+BAR_W, BAR_GAP = 46, 22
+LABELS = ['no dam', 'compress', 'web', 'map', 'prune', 'loops', 'beaver']
+STEP0, STEP = 1.6, 1.9          # when bar 0 is drawn; how long each part takes
 
 
-def claude(pen, x, y, t, dizzy=0.0):
-    pen.ell(x, y, 34, 34, CLAUDE)
-    for k in range(8):
-        a = k * math.pi / 4 + t * 0.05
-        pen.line([(x + 38 * math.cos(a), y + 38 * math.sin(a)), (x + 46 * math.cos(a), y + 46 * math.sin(a))], CLAUDE, 4)
-    for ex in (-11, 11):
-        if dizzy > 0.3:
-            pts = [(x + ex + (r / 2) * math.cos(r + t), y - 4 + (r / 2) * math.sin(r + t)) for r in [i * 0.4 for i in range(16)]]
-            pen.line(pts, INK, 2)
-        else:
-            pen.ell(x + ex, y - 4, 4, 5, INK)
-    if dizzy > 0.3:
-        pen.ell(x, y + 14, 6, 4, INK)
-    else:
-        pen.d.arc([(x - 10) * S, (y + 2) * S, (x + 10) * S, (y + 16) * S], 20, 160, fill=INK, width=2 * S)
+def bar_x(k):
+    return CHART_X0 + k * (BAR_W + BAR_GAP)
 
 
-def card(pen, x, y, text, color=PAPER, ink=INK, size=11):
-    w = pen.width_of(text, size, mono=True) + 12
-    pen.rect(x, y, x + w, y + 20, color, radius=5, outline=(200, 190, 175), width=1)
-    pen.text(x + 6, y + 10, text, size, ink, mono=True, anchor='lm')
-
-    return w
+def sizes(on):
+    return [p['after'] if i < on else p['before'] for i, p in enumerate(PARTS)]
 
 
-def captions(pen, title, line, tag=None):
-    pen.rect(16, 14, 16 + pen.width_of(title, 26, bold=True) + 28, 58, PAPER, radius=12, outline=(220, 205, 180), width=1)
-    pen.text(30, 36, title, 26, INK, bold=True, anchor='lm')
-    if tag:
-        tw = pen.width_of(tag, 13, mono=True) + 16
-        pen.rect(W - tw - 16, 22, W - 16, 48, INK, radius=8)
-        pen.text(W - tw / 2 - 16, 35, tag, 13, PAPER, mono=True, anchor='mm')
-    words, lines, cur = line.split(), [], ''
-    for word in words:
-        if pen.width_of(cur + ' ' + word, 17) > W - 80:
-            lines.append(cur)
-            cur = word
-        else:
-            cur = (cur + ' ' + word).strip()
-    lines.append(cur)
-    top = H - 22 - 26 * len(lines)
-    pen.rect(24, top - 10, W - 24, H - 16, PAPER, radius=12, outline=(220, 205, 180), width=1)
-    for n, text in enumerate(lines):
-        pen.text(W / 2, top + 13 + 26 * n, text, 17, INK, anchor='mm')
+def draw_bar(pen, k, grow, highlight=-1, glow=0.0):
+    x = bar_x(k)
+    vals = sizes(k)
+    y = BASE_Y
+    total = sum(vals) * grow
+    used = 0
+    for i in STACK:
+        h = min(vals[i], max(0, total - used)) * SCALE
+        used += vals[i]
+        if h <= 0:
+            continue
+        color = WORK if i == 5 else PARTS[i]['color']
+        if i == highlight and glow:
+            color = mix(color, '#FFFFFF', 0.35 * glow)
+        pen.rect(x, y - h, x + BAR_W, y, color)
+        y -= h
 
 
-# ---- scenes: each draws frame i of n -------------------------------------------------------------
-
-def title(pen, i, n):
-    p = i / n
-    scenery(pen, i)
-    for k in range(6):
-        log(pen, 250 + k * 50, 330 - (k % 2) * 6, 64)
-    beaver(pen, 400, 278 - 20 * abs(math.sin(i * 0.25)) * (1 - p), 1.15, i, wave=True)
-    pen.text(W / 2, 70, 'The dam', 54, INK, bold=True, anchor='mm')
-    pen.text(W / 2, 118, 'Spend fewer tokens in Claude Code, without losing a line.', 19, INK, anchor='mm')
-    pen.text(W / 2, 148, 'A plugin, told by beavers.', 15, (120, 100, 80), anchor='mm')
-
-
-def flood(pen, i, n):
-    p = i / n
-    scenery(pen, i)
-    claude(pen, 690, 250, i, dizzy=p)
-    for k in range(int(4 + 30 * p)):
-        x = (k * 97 + i * 9) % 640 - 40
-        card(pen, x, 300 - (k % 4) * 26, f'ERROR retry {k + 1}' if k % 3 else 'npm WARN deprecated')
-    pen.text(690, 190, '...4,000 lines?' if p > 0.4 else '', 15, INK, bold=True, anchor='mm')
-    captions(pen, 'The problem', 'Coding agents drink a river of tool output. Most of it is the same log line, again and again. Claude gets dizzy. Your bill does not.')
-
-
-def compression(pen, i, n):
-    p = i / n
-    scenery(pen, i)
-    for k in range(5):
-        log(pen, 330, 336 - k * 22, 60)
-    beaver(pen, 300, 222, 0.9, i, chew=True)
-    claude(pen, 700, 250, i)
-    for k in range(8):
-        x = ((k * 45 + i * 12) % 300) - 20
-        card(pen, x, 300 - (k % 3) * 24, 'ERROR retry')
-    count = int(4000 * ease(p))
-    log(pen, 440 + 150 * ((i * 0.08) % 1), 300, 120, 13, label=f'ERROR retry ×{count}')
-    pen.text(560, 190, f'{100 * ease(p) * 0.241:.0f}% fewer tokens, 100% of the lines', 15, GREEN, bold=True, anchor='mm')
-    captions(pen, 'Compression', 'Identical lines become one log and a count; numbers that vary become a table. Every result is decoded and checked. Not one line lost (we checked. Twice.)', 'dam-squeeze')
-
-
-def web(pen, i, n):
-    p = i / n
-    scenery(pen, i)
-    junk = [('COOKIES? ACCEPT ALL!!', RED), ('MENU · MENU · MENU', (90, 90, 90)), ('AD: BUY MORE LOGS', ACCENT), ('Share · Like · Subscribe', (60, 90, 160)), ('Footer © 1998–2026', (120, 120, 120))]
-    pen.rect(90, 80, 330, 300, PAPER, radius=8, outline=(180, 170, 150), width=2)
-    for k, (text, color) in enumerate(junk):
-        go = seg(p, 0.1 + k * 0.12, 0.25 + k * 0.12)
-        if go < 1:
-            pen.rect(100 + go * 40, 92 + k * 36 + go * 220, 320 + go * 40, 120 + k * 36 + go * 220, color, radius=4)
-            pen.text(210 + go * 40, 106 + k * 36 + go * 220, text, 12, PAPER, bold=True, anchor='mm')
-    pen.rect(100, 272, 320, 292, (230, 240, 230), radius=4)
-    pen.text(210, 282, 'the actual content', 11, INK, anchor='mm')
-    beaver(pen, 395, 250, 0.9, i, chew=True)
-    show = seg(p, 0.55, 0.85)
-    if show:
-        pen.rect(500, 120, 500 + 210 * show, 290, PAPER, radius=8, outline=(180, 170, 150), width=2)
-        if show > 0.9:
-            for k, line in enumerate(['# The actual content', '', 'Readable text, kept.', '| a table | kept |', '```code, kept```', '[links](made absolute)']):
-                pen.text(514, 140 + k * 22, line, 12, INK, mono=True)
-    size = 261 - (261 - 3.7) * seg(p, 0.1, 0.8)
-    pen.text(210, 64, f'HTML {size:.1f} KB', 16, INK, bold=True, anchor='mm')
-    captions(pen, 'Web pages', 'A page fetched with curl becomes clean Markdown: 261 KB of GitHub turns into 3.7 KB. The beaver eats the cookie banners, so Claude does not have to.', 'dam-squeeze --web')
-
-
-def mapping(pen, i, n):
-    p = i / n
-    scenery(pen, i)
-    open_w = 420 * seg(p, 0, 0.3)
-    pen.rect(190, 90, 190 + max(open_w, 10), 300, (245, 230, 195), radius=6, outline=(170, 140, 90), width=2)
-    nodes = [(220 + (k * 53) % 380, 120 + (k * 37) % 160) for k in range(22)]
-    shown = int(len(nodes) * seg(p, 0.25, 0.55))
-    for k in range(1, shown):
-        a, b = nodes[k], nodes[(k * 7) % k]
-        pen.line([a, b], (180, 150, 100), 1)
-    for x, y in nodes[:shown]:
-        pen.ell(x, y, 4, 4, FUR_DARK)
-    beaver(pen, 120, 250, 0.85, i)
-    if p > 0.55:
-        pen.rect(40, 120, 175, 150, PAPER, radius=10, outline=(200, 190, 170), width=1)
-        pen.text(108, 135, 'where is SmartCrusher?', 11, INK, anchor='mm')
-    drop = seg(p, 0.65, 0.8)
-    if drop:
-        x, y = nodes[9]
-        py = y - 60 * (1 - drop)
-        pen.poly([(x, py), (x - 9, py - 16), (x + 9, py - 16)], RED)
-        pen.ell(x, py - 20, 10, 10, RED)
-        if drop >= 1:
-            card(pen, x + 14, y - 30, 'crusher.rs:118 · called by 4', PAPER, INK)
-    captions(pen, 'The map', 'Who defines, calls and imports what, plus your docs and settings. 2,551 files charted in 1.5 s, so Claude stops grepping the whole riverbed.', 'dam-graph')
-
-
-def loop_guard(pen, i, n):
-    p = i / n
-    scenery(pen, i)
-    cx, cy = 400, 360
-    for r in range(5, 60, 9):
-        pts = [(cx + (r + a * 3) * math.cos(a + i * 0.3) * 1.6, cy + (r + a * 3) * math.sin(a + i * 0.3) * 0.5) for a in [k * 0.3 for k in range(22)]]
-        pen.line(pts, FOAM, 2)
-    escape = seg(p, 0.6, 1)
-    if escape:
-        bx, by = cx + 260 * escape, cy - 20
-    else:
-        a = i * 0.6
-        bx, by = cx + 50 * math.cos(a), cy - 10 + 14 * math.sin(a)
-    claude(pen, bx, by - 30, i, dizzy=1 - escape)
-    pen.text(bx, by - 90, 'oh. another way!' if escape else 'retry… retry… retry…', 14, INK, bold=True, anchor='mm')
-    if p > 0.4:
-        beaver(pen, 150, 270, 0.85, i)
-        pen.line([(195, 250), (330 if escape == 0 else 300, 320)], FUR_DARK, 5)
-    captions(pen, 'Loop guard', 'When a turn spins on the same error, a judge checks it is really stuck, then nudges Claude out of the whirlpool. Once. Politely. Beavers are polite.', 'TokenEconomizer')
-
-
-def pruning(pen, i, n):
-    p = i / n
-    scenery(pen, i)
-    pen.rect(250, 250, 560, 320, FUR, radius=6)
-    for k in range(5):
-        pen.line([(250 + k * 62, 250), (250 + k * 62, 320)], FUR_DARK, 2)
-    kept = ['Read', 'Edit', 'Bash', 'Grep']
-    tossed = ['NotebookEdit', 'CronCreate', 'LSP', 'RemoteTrigger', 'DesignSync']
-    x = 262
-    for name in kept:
-        x += card(pen, x, 220, name, (220, 240, 220)) + 6
-    for k, name in enumerate(tossed):
-        go = seg(p, 0.1 + k * 0.14, 0.3 + k * 0.14)
-        sx, ex, ey = 300 + k * 40, 20 + (k % 3) * 105, 286 + (k // 3) * 26
-        tx = sx + go * (ex - sx)
-        ty = 190 - math.sin(go * math.pi) * 90 + go * (ey - 190)
-        card(pen, tx, ty, name, (245, 225, 215))
-    beaver(pen, 650, 260, 0.85, i, flip=True, wave=True)
-    gone = int(27 * seg(p, 0.1, 0.85))
-    pen.text(140, 200, f'{gone} tools left on the shore', 15, INK, bold=True, anchor='mm')
-    captions(pen, 'Tool pruning', 'Tools nobody used in five sessions stay on the shore, so every request carries a lighter raft. One command brings any of them back.', 'TokenEconomizer')
-
-
-def facts(pen, i, n):
-    p = i / n
-    scenery(pen, i)
-    pen.rect(340, 100, 640, 300, PAPER, radius=6, outline=(180, 170, 150), width=2)
+def method(pen, t):
+    a = ease(t / 0.5)
+    pen.text(40, 44, 'Each part of the dam takes one kind of waste out of what Claude reads', 18, mix(BG, INK, a), 'semi', 'lm')
+    # The panel of parts.
+    pen.rect(748, 26, 1092, 576, mix(BG, CARD, a), mix(BG, LINE, a), 1.2, 10)
+    pen.text(766, 50, 'The dam', 15, mix(BG, INK, a), 'semi', 'lm')
+    pen.text(766, 69, 'switches its parts on, one by one', 11, mix(BG, MUTED, a), 'regular', 'lm')
+    pen.line(766, 82, 1074, 82, mix(BG, LINE, a), 1)
+    for i, p in enumerate(PARTS):
+        y0, y1 = 92 + i * 80, 92 + i * 80 + 72
+        on = ease((t - (STEP0 + 0.6 + i * STEP)) / 0.45)
+        pen.rect(766, y0, 1074, y1, mix(CARD, p['light'], on * 0.55), mix(mix(CARD, LINE, a), p['color'], on), 1 + on * 0.6, 7)
+        if on <= 0:
+            pen.line(772, y0 + 6, 1068, y0 + 6, CARD, 1)
+            continue
+        c = lambda col: mix(CARD, col, on)
+        pen.number(780, y0 + 15, i + 1, c(p['color']))
+        pen.text(793, y0 + 15, p['name'], 11, c(p['color']), 'semi', 'lm')
+        pen.check(1058, y0 + 15, 7.5, c(p['color']))
+        pen.text(776, y0 + 33, p['head'], 12.5, c(INK), 'semi', 'lm')
+        x = 776
+        for s, kind in p['chips']:
+            if kind == 'arrow':
+                pen.text(x + 2, y0 + 52, s, 12, c(p['color']), 'bold', 'lm')
+                x += 18
+                continue
+            w = pen.tw(s, 10.5, 'mono') + 12
+            fill = c(p['color']) if kind == 'solid' else c('#FFFFFF')
+            pen.rect(x, y0 + 44, x + w, y0 + 60, fill, c(p['color'] if kind != 'struck' else LINE), 1, 3)
+            pen.text(x + 6, y0 + 52.5, s, 10.5, 'white' if kind == 'solid' else c(MUTED if kind == 'struck' else INK), 'mono', 'lm')
+            if kind == 'struck':
+                pen.line(x + 4, y0 + 52.5, x + w - 4, y0 + 52.5, c(MUTED), 1)
+            x += w + 5
+        pen.text(1044, y0 + 15, p['foot'], 9.5, c(MUTED), 'italic', 'rm')
+    # The chart.
+    pen.line(CHART_X0 - 10, BASE_Y, bar_x(6) + BAR_W + 10, BASE_Y, mix(BG, '#AAB4C0', a), 1)
     for k in range(7):
-        pen.line([(352, 140 + k * 22), (628, 140 + k * 22)], (225, 215, 200), 1)
-    pen.text(490, 118, 'what this repo taught me', 14, INK, bold=True, anchor='mm')
-    notes = ['tests: python -m pytest', 'not pytest (not installed)', 'run npm run gen first', 'API_URL must be set']
-    for k, note in enumerate(notes):
-        shown = int(len(note) * seg(p, 0.1 + k * 0.15, 0.25 + k * 0.15))
-        pen.text(360, 132 + k * 22 + 22, note[:shown], 13, INK, mono=True)
-    if p > 0.8:
-        pen.rect(470, 248, 630, 288, (230, 245, 230), radius=8, outline=GREEN, width=2)
-        pen.text(550, 268, 'confirmed in 3 sessions', 12, GREEN, bold=True, anchor='mm')
-    beaver(pen, 230, 250, 0.9, i, chew=True)
-    captions(pen, 'Learned facts', 'The beaver remembers how your repository works, and tells Claude at the start of each session, instead of letting it rediscover pytest every morning.', 'TokenEconomizer')
+        grow = ease((t - (STEP0 if k == 0 else STEP0 + 0.6 + (k - 1) * STEP + 0.35)) / 0.7)
+        lit = k > 0 and grow > 0
+        pen.text(bar_x(k) + BAR_W / 2, BASE_Y + 14, LABELS[k], 10.5, mix(BG, INK if lit or (k == 0 and grow) else '#AAB4C0', a), 'regular', 'mm')
+        if grow > 0:
+            glow = 1 - clamp((t - (STEP0 + 0.6 + (k - 1) * STEP + 1.1)) / 0.6) if k else 0
+            draw_bar(pen, k, grow, k - 1, glow)
+    # The names of the waste, beside the first bar.
+    names = ease((t - STEP0 - 0.5) / 0.5)
+    y = BASE_Y
+    for i in STACK:
+        h = PARTS[i]['before'] * SCALE
+        color = MUTED if i == 5 else PARTS[i]['color']
+        pen.text(CHART_X0 - 22, y - h / 2, PARTS[i]['waste'], 11.5, mix(BG, color, names), 'semi' if i != 5 else 'regular', 'rm')
+        pen.line(CHART_X0 - 18, y - h / 2, CHART_X0 - 6, y - h / 2, mix(BG, color, names), 1)
+        y -= h
+    # What a session costs without the dam, and what is saved at the end.
+    top = BASE_Y - sum(sizes(0)) * SCALE
+    dash = ease((t - STEP0 - 1.0) / 0.6)
+    if dash:
+        pen.line(bar_x(0), top, bar_x(0) + (bar_x(6) + BAR_W - bar_x(0)) * dash, top, '#97A3B1', 1, 4)
+        pen.text(bar_x(6) + BAR_W, top - 9, 'without the dam', 10, mix(BG, MUTED, dash), 'italic', 'rm')
+    saved = ease((t - (STEP0 + 0.6 + 6 * STEP)) / 0.6)
+    if saved:
+        low = BASE_Y - sum(sizes(6)) * SCALE
+        x = bar_x(6) + BAR_W + 18
+        pen.line(x, top + 3, x, low - 3, mix(BG, INK, saved), 1.2)
+        pen.line(x - 4, top + 3, x + 4, top + 3, mix(BG, INK, saved), 1.2)
+        pen.line(x - 4, low - 3, x + 4, low - 3, mix(BG, INK, saved), 1.2)
+        pen.text(x + 6, (top + low) / 2, 'saved', 11, mix(BG, INK, saved), 'semi', 'lm')
+    pen.text(40, 572, 'An illustration, not a measurement: the measured figures follow.', 10.5, mix(BG, MUTED, a), 'italic', 'lm')
 
 
-def lazy(pen, i, n):
-    p = i / n
-    scenery(pen, i)
-    pen.rect(380, 90, 640, 300, (40, 44, 52), radius=8)
-    lines = int(50 - 49 * seg(p, 0.25, 0.75))
-    for k in range(min(lines, 16)):
-        pen.rect(396, 104 + k * 12, 396 + 60 + (k * 37) % 160, 110 + k * 12, (120, 160, 200) if k % 3 else (200, 160, 120), radius=2)
-    pen.text(510, 286, f'{lines} line{"s" if lines > 1 else ""}', 14, PAPER, bold=True, anchor='mm')
-    if p > 0.75:
-        pen.text(510, 70, '−49 lines, same feature', 16, GREEN, bold=True, anchor='mm')
-    beaver(pen, 230, 250, 0.95, i, hat=True)
-    captions(pen, 'Beaver mode', 'Built on Ponytail: the smallest change that fully solves the task. The best code is the code never written. He is very lazy. Professionally.', '/beaver full')
+METHOD_LEN = STEP0 + 0.6 + 6 * STEP + 2.2
 
 
-def ending(pen, i, n):
-    p = i / n
-    scenery(pen, i)
-    for k in range(8):
-        log(pen, 170 + k * 58, 330 - (k % 2) * 6, 64)
-    beaver(pen, 150, 270, 0.8, i, wave=True)
-    beaver(pen, 650, 270, 0.8, i + 9, flip=True, wave=True)
-    status = 'full · 3.1k 25% · 27 · 1 · 5 · 2.2k · 31%'
-    shown = int(len(status) * seg(p, 0.05, 0.5))
-    pen.rect(150, 110, 650, 160, (30, 30, 30), radius=10)
-    pen.text(170, 135, status[:shown] + ('▌' if i % 6 < 3 else ''), 18, (230, 230, 230), mono=True, anchor='lm')
-    pen.text(W / 2, 90, 'your status line, one figure per beaver job', 13, (110, 90, 70), anchor='mm')
-    if p > 0.55:
-        pen.rect(190, 190, 610, 236, PAPER, radius=10, outline=(200, 190, 170), width=1)
-        pen.text(W / 2, 213, '/plugin install the-dam@the-dam', 18, INK, mono=True, anchor='mm')
-    captions(pen, 'The dam', 'All local, all Rust, no line lost. Now go build something. The beavers have it from here.')
+# ---- act 3: the results ---------------------------------------------------------------------------
+
+TILES = [
+    ('100', '%', 'of lines recoverable after compression', 'Headroom: 69.9%'),
+    ('99', '%', 'smaller: a GitHub page read as Markdown', '261 KB of HTML → 3.7 KB'),
+    ('1.5', ' s', 'to map 2,112 source files', 'graphify: 816 s'),
+    ('18.4–30.9', '%', 'lower cost in TokenEconomizer\'s paper', 'rewritten here in Rust'),
+]
+BARS = [('GitHub repository page', 'web', 99), ('Wikipedia, "Beaver"', 'web', 84), ('The Rust book, installation', 'web', 81), ('Hacker News front page', 'web', 73),
+        ('Tool output, 43 real cases', 'compression', 24.1), ('Ponytail benchmark: output tokens', 'beaver', 45)]
+KIND = {'web': PARTS[1], 'compression': PARTS[0], 'beaver': PARTS[5]}
 
 
-SCENES = [(title, 26), (flood, 34), (compression, 40), (web, 44), (mapping, 42), (loop_guard, 40), (pruning, 40), (facts, 40), (lazy, 38), (ending, 50)]
+def results(pen, t):
+    a = ease(t / 0.5)
+    pen.text(40, 44, 'Measured on real outputs, pages and repositories', 18, mix(BG, INK, a), 'semi', 'lm')
+    tile_w = (W - 80 - 3 * 14) / 4
+    for i, (big, unit, what, note) in enumerate(TILES):
+        c = ease((t - 0.2 - i * 0.15) / 0.5)
+        x = 40 + i * (tile_w + 14)
+        pen.rect(x, 70, x + tile_w, 168, mix(BG, CARD, c), mix(BG, LINE, c), 1.2, 8)
+        shown = big
+        if big.replace('.', '').isdigit():
+            value = float(big) * ease((t - 0.3 - i * 0.15) / 0.9)
+            shown = f'{value:.1f}' if '.' in big else f'{value:.0f}'
+        pen.text(x + 16, 112, shown, 30, mix(BG, '#2A5EA0', c), 'semi', 'ls')
+        pen.text(x + 18 + pen.tw(shown, 30, 'semi'), 112, unit, 16, mix(BG, MUTED, c), 'regular', 'ls')
+        pen.text(x + 16, 134, what, 11.5, mix(BG, INK, c), 'regular', 'lm')
+        pen.text(x + 16, 152, note, 10.5, mix(BG, MUTED, c), 'italic', 'lm')
+    b = ease((t - 0.8) / 0.5)
+    pen.rect(40, 186, W - 40, 548, mix(BG, CARD, b), mix(BG, LINE, b), 1.2, 8)
+    pen.text(58, 210, 'Share of what Claude no longer reads', 13, mix(BG, INK, b), 'semi', 'lm')
+    pen.text(W - 58, 210, 'saved', 11, mix(BG, MUTED, b), 'regular', 'rm')
+    for i, (label, kind, value) in enumerate(BARS):
+        y = 250 + i * 48
+        c = ease((t - 1.0 - i * 0.12) / 0.5)
+        p = KIND[kind]
+        pen.text(58, y, label, 12, mix(BG, INK, c), 'semi', 'lm')
+        pen.text(58, y + 17, p['name'], 10, mix(BG, p['color'], c), 'regular', 'lm')
+        x0, x1 = 330, W - 140
+        pen.rect(x0, y - 7, x1, y + 7, mix(BG, '#EEF1F5', c), None, 0, 3)
+        g = ease((t - 1.2 - i * 0.12) / 0.9)
+        if g:
+            pen.rect(x0, y - 7, x0 + (x1 - x0) * value / 100 * g, y + 7, p['color'], None, 0, 3)
+            pen.text(x1 + 70, y, f'{value * g:.0f}%' if value == int(value) else f'{value * g:.1f}%', 13, mix(BG, INK, g), 'semi', 'rm')
+    pen.text(W / 2, 572, 'Built by beavers, measured by people  ·  github.com/T-Celor/the-dam', 11, mix(BG, MUTED, b), 'regular', 'mm')
+
+
+ACTS = [(title, 3.6), (method, METHOD_LEN), (results, 6.0)]
+FADE = 0.5
+
+
+def frame(t):
+    start = 0.0
+    for n, (act, length) in enumerate(ACTS):
+        if t < start + length:
+            pen = Pen()
+            act(pen, t - start)
+            image = pen.done()
+            into = t - start - (length - FADE)
+            if into > 0:
+                nxt, _ = ACTS[(n + 1) % len(ACTS)]
+                other = Pen()
+                nxt(other, 0 if n + 1 < len(ACTS) else 99)
+                image = Image.blend(image, other.done(), into / FADE)
+            return image
+        start += length
 
 
 def main():
-    frames, durations = [], []
-    for scene, n in SCENES:
-        for i in range(n):
-            pen = Pen()
-            scene(pen, i, n - 1)
-            frames.append(pen.done().quantize(colors=96, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE))
-            durations.append(100)
-        durations[-1] = 1800
-    durations[-1] = 4000
-    frames[0].save(os.path.join(HERE, 'teaser.gif'), save_all=True, append_images=frames[1:], duration=durations, loop=0, optimize=True, disposal=1)
+    total = sum(length for _, length in ACTS)
+    frames = []
+    for k in range(int(total * FPS)):
+        frames.append(frame(k / FPS).quantize(colors=64, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE))
+    durations = [1000 // FPS] * len(frames)
+    # Hold the full method chart and the results.
+    hold_method = int((ACTS[0][1] + METHOD_LEN - FADE - 0.05) * FPS)
+    durations[hold_method] = 2500
+    durations[int((total - FADE - 0.05) * FPS)] = 3000
+    frames[0].save(os.path.join(HERE, 'teaser.gif'), save_all=True, append_images=frames[1:], duration=durations, loop=0, optimize=True)
     still = Pen()
-    ending(still, 49, 49)
+    method(still, METHOD_LEN - FADE - 0.05)
     still.done().save(os.path.join(HERE, 'teaser.png'), optimize=True)
     print(len(frames), 'frames', os.path.getsize(os.path.join(HERE, 'teaser.gif')) // 1024, 'KB')
 

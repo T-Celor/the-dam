@@ -3,7 +3,7 @@
 ## 0.19.1
 
 - The scripts are executable again on Linux and macOS: 0.19.0 lost their executable bit, so its hooks could not start there.
-- The README opens with an animation of what each part does, told by beavers (`assets/teaser.py` draws it).
+- The README opens with an animation of what each part does and what it saves (`assets/teaser.py` draws it).
 
 ## 0.19.0
 
