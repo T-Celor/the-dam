@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.3
+
+- A hook's program ends by itself once Claude Code has given up on it: `dam-beaver` after 25 s, `dam-economizer hook` after 70 s. One `dam-beaver track` had stayed alive for hours, which kept its `.exe` locked and the plugin from updating.
+
 ## 0.20.2
 
 - The README opens on a short animation of the plugin, and gives each part its own section: a loop showing how it works and what it saves, then a few lines of text. The measured gains draw themselves in at the top of the Gains section.

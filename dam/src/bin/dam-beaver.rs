@@ -5,5 +5,7 @@ fn main() {
         return;
     }
 
+    // Its hooks get 20 s at most.
+    dam::watchdog(25);
     dam::beaver::run(&args);
 }

@@ -4,7 +4,11 @@ fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--version") => println!("dam-economizer {}", env!("CARGO_PKG_VERSION")),
-        Some("hook") => dam::economizer::hook(),
+        Some("hook") => {
+            // Its hooks get 60 s at most, for the judge model.
+            dam::watchdog(70);
+            dam::economizer::hook()
+        }
         Some("replay") => {
             let mut out = std::io::stdout().lock();
             for line in std::io::stdin().lock().lines() {

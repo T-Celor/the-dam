@@ -34,3 +34,11 @@ pub fn plugin_root() -> Option<std::path::PathBuf> {
 
     program.ancestors().find(|dir| dir.join("scripts").join("te_bootstrap.py").is_file()).map(std::path::Path::to_path_buf)
 }
+
+// A hook's program ends by itself once Claude Code has given up on it: a stuck one would keep its .exe locked and the plugin from updating.
+pub fn watchdog(seconds: u64) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+        std::process::exit(0);
+    });
+}
