@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, economizerEntries, projectFlow, formatCount, gainNote, journalLine, journalView, reportOf, sessionFigures, statusOf, totalLines } from './model'
+import { EMPTY, economizerEntries, projectFlow, savedOfSpent, formatCount, gainNote, journalLine, journalView, reportOf, sessionFigures, statusOf, totalLines } from './model'
 import { candidates, codeNames, looksLikeWebPage, pageUrl, exactEntries, graphNodes, graphQuestion, grepName, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, savedPreview, standoutLines, worthGraphing } from './tools'
 
 const ALL = { squeezer: true, graphify: true, economizer: true, beaver: true }
@@ -19,14 +19,14 @@ test('a check announces only what is new', () => {
 
 test('the status line and the report state the real figures', () => {
   const context = { percent: 31, total: 310_000, max: 1_000_000 }
-  const session = { saved: 5_000, seen: 20_000 }
-  const s = { ...EMPTY, tools: ALL, context, saved: 90_000, session, project: { saved: 12_000, seen: 30_000 }, pruned: 2, pending: 4, facts: 3, loops: 1, overhead: 10_500, nodes: 400, hasGraph: true }
-  expect(statusOf({ ...s, level: 'full' })).toBe('🦫 full · 💧 5k 25% · 🪵 2+4 · 🌀 1 · 🧠 3 · 🗺️ 400 · 🌊 31%')
+  const session = { saved: 5_000, seen: 20_000, spent: 95_000 }
+  const s = { ...EMPTY, tools: ALL, context, saved: 90_000, session, project: { saved: 12_000, seen: 30_000, spent: 228_000 }, pruned: 2, pending: 4, facts: 3, loops: 1, overhead: 10_500, nodes: 400, hasGraph: true }
+  expect(statusOf({ ...s, level: 'full' })).toBe('🦫 full · 💧 5k/95k (5.0%) · 🪵 2+4 · 🌀 1 · 🧠 3 · 🗺️ 400 · 🌊 31%')
   expect(statusOf(EMPTY)).toBe('🦫 off · 💧 0 · 🪵 0 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
-  expect(statusOf({ ...EMPTY, session: { saved: 1_500, seen: 0 }, pruned: 2 })).toBe('🦫 off · 💧 1.5k · 🪵 2 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
-  expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Compression: 5k (25%) tokens saved in this session, 12k (40%) in this project, 90k in all\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ Map: 400 places\n  ✓ Beaver: active')
+  expect(statusOf({ ...EMPTY, session: { saved: 1_500, seen: 0, spent: 0 }, pruned: 2 })).toBe('🦫 off · 💧 1.5k · 🪵 2 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
+  expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Compression: 5k/95k (5.0%) tokens saved in this session, 12k/228k (5.0%) in this project, 90k in all\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ Map: 400 places\n  ✓ Beaver: active')
   expect(reportOf({ ...s, hasGraph: false })).toContain('… Map: not for this folder')
-  expect(reportOf({ ...s, isCompressing: false })).toContain('✗ Compression: 5k (25%) tokens saved in this session')
+  expect(reportOf({ ...s, isCompressing: false })).toContain('✗ Compression: 5k/95k (5.0%) tokens saved in this session')
   expect(reportOf(EMPTY).split('not installed').length - 1).toBe(4)
 })
 
@@ -153,11 +153,11 @@ test('the totals are this session\'s, counted from its journal', () => {
   ]
   const here = sessionFigures(entries)
   expect(here).toEqual({ loops: 1, facts: 3, mapAnswers: 1 })
-  const s = { ...EMPTY, saved: 133_000, session: { saved: 3_100, seen: 12_400 }, project: { saved: 45_200, seen: 90_400 }, pending: 2, level: 'ultra', hasGraph: true, nodes: 400 }
+  const s = { ...EMPTY, saved: 133_000, session: { saved: 3_100, seen: 12_400, spent: 3_096_900 }, project: { saved: 45_200, seen: 90_400, spent: 0 }, pending: 2, level: 'ultra', hasGraph: true, nodes: 400 }
   const lines = totalLines(s, here)
-  expect(lines[0]).toBe('💧 3.1k tokens saved by compression, 25% of what the tools printed (12.4k)')
-  expect(lines[1]).toBe('   this project 45.2k (50%), every project 133k')
-  expect(projectFlow([{ project: 'C:/a', saved: 10, seen: 40 }, { project: 'C:/b', saved: 5, seen: 5 }, null, { project: 'C:/a', saved: 2, seen: 20 }], 'C:/a')).toEqual({ saved: 12, seen: 60 })
+  expect(lines[0]).toBe("💧 3.1k/3.1M (0.10%) tokens saved of this session's total, 25% of what the tools printed")
+  expect(lines[1]).toBe('   this project 45.2k, every project 133k')
+  expect(projectFlow([{ project: 'C:/a', saved: 10, seen: 40 }, { project: 'C:/b', saved: 5, seen: 5 }, null, { project: 'C:/a', saved: 2, seen: 20 }], 'C:/a')).toEqual({ saved: 12, seen: 60, spent: 0 })
   expect(lines).toContain('🪵 0 tools left out of this session, 2 more waiting')
   expect(lines).toContain('🌀 1 loops stopped')
   expect(lines).toContain('🗺️ 1 answers from the map (400 places)')
@@ -210,4 +210,10 @@ test('a fetched web page is recognised, with or without its headers, and other o
   expect(pageUrl('(Invoke-WebRequest https://x.org/p).Content')).toBe('https://x.org/p')
   expect(pageUrl('ls')).toBe(null)
   expect(squeezableField('PowerShell', { stdout: 'x'.repeat(20_000) })).toBe('stdout')
+})
+
+test('token counts reach G and T, and savings read against the session total', () => {
+  expect(formatCount(2_500_000_000)).toBe('2.5G')
+  expect(formatCount(3_000_000_000_000)).toBe('3T')
+  expect(savedOfSpent({ saved: 40_000, seen: 0, spent: 360_000 })).toBe('40k/360k (10%)')
 })

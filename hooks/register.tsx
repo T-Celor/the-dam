@@ -172,15 +172,15 @@ const SAVED = 'saved'
 const savedHereKey = async ($: Dollar) => `saved:${await $.session.id()}`
 
 // What the tools printed and what compression took out, as one record per session with its project, written in turn.
-type FlowRecord = { project: string; saved: number; seen: number }
+type FlowRecord = { project: string; saved: number; seen: number; spent?: number }
 let flowing: Promise<unknown> = Promise.resolve()
 
-function addFlow($: Dollar, seen: number, saved: number) {
+function addFlow($: Dollar, seen: number, saved: number, spent = 0) {
   flowing = flowing.then(async () => {
     const key = `flow:${await $.session.id()}`
     const was = ((await $.store.get(key)) ?? null) as FlowRecord | null
     const project = was?.project ?? (await $.session.root())
-    await $.store.set(key, { project, saved: (was?.saved ?? 0) + saved, seen: (was?.seen ?? 0) + seen })
+    await $.store.set(key, { project, saved: (was?.saved ?? 0) + saved, seen: (was?.seen ?? 0) + seen, spent: (was?.spent ?? 0) + spent })
   }).catch(() => undefined)
 
   return flowing
@@ -191,7 +191,7 @@ async function flows($: Dollar) {
   const [records, session, root] = await Promise.all([Promise.all(keys.map(key => $.store.get(key) as Promise<FlowRecord | null | undefined>)), $.session.id(), $.session.root()])
   const here = records[keys.indexOf(`flow:${session}`)]
 
-  return { session: { saved: Number(here?.saved ?? 0), seen: Number(here?.seen ?? 0) }, project: projectFlow(records, root) }
+  return { session: { saved: Number(here?.saved ?? 0), seen: Number(here?.seen ?? 0), spent: Number(here?.spent ?? 0) }, project: projectFlow(records, root) }
 }
 
 async function savedTotal($: Dollar) {
@@ -459,6 +459,16 @@ export const register: Register = on => {
 
     return next({ ...e, context: [...(e.context ?? []), facts] })
   }).catch(($, e, next) => next(e))
+
+  // Every model request of the session, subagents' included, counted as the API bills it: what the 💧 measures against.
+  on('turn.step', async function* ($, e, next) {
+    const step = yield* next(e)
+    const u = step?.usage
+    const spent = (u?.input_tokens ?? 0) + (u?.output_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0)
+    if (spent > 0) void addFlow($, 0, 0, spent).then(() => checkSoon($))
+
+    return step
+  })
 
   on('tool.call', async ($, e, next) => {
     if (e.tool === 'Edit' || e.tool === 'Write') hasEditedCode = true

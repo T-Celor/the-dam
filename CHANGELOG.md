@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.19.2
+
+- 💧 reads `saved/total (%)`: what compression saved against every token this session's model requests counted (input, cache and output, subagents included), so it moves from the first answer even when nothing could be condensed.
+- Token counts go up to G and T.
+
 ## 0.19.1
 
 - The scripts are executable again on Linux and macOS: 0.19.0 lost their executable bit, so its hooks could not start there.

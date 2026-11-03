@@ -24,7 +24,7 @@
 </p>
 
 ```
-🦫 full · 💧 3.1k 25% · 🪵 27 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
+🦫 full · 💧 3.1k/12.4M (0.02%) · 🪵 27 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
 ```
 
 ## Contents
@@ -78,7 +78,7 @@ One icon per tool, always in the same order. `0`, `off` or `–` (nothing to mea
 | Icon | Tool | Figure |
 |---|---|---|
 | 🦫 | Beaver | its level in this session |
-| 💧 | Compression | tokens saved in this session, and their share of everything the tools printed |
+| 💧 | Compression | tokens saved / every token this session counted (share saved) |
 | 🪵 | Tool pruning | tools left out, `+n` waiting to be |
 | 🌀 | Loop guard | loops stopped |
 | 🧠 | Learned facts | facts given to the model |

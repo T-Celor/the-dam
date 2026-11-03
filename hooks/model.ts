@@ -14,8 +14,8 @@ export const EMPTY: Stats = {
   isCompressing: true,
   hasGraph: false,
   level: null,
-  session: { saved: 0, seen: 0 },
-  project: { saved: 0, seen: 0 },
+  session: { saved: 0, seen: 0, spent: 0 },
+  project: { saved: 0, seen: 0, spent: 0 },
 }
 
 // One element of the dam per tool, shown with its figure.
@@ -23,6 +23,8 @@ export const ICON = { beaver: '🦫', water: '💧', logs: '🪵', whirl: '🌀'
 
 export function formatCount(n: number): string {
   const short = (value: number) => value.toFixed(1).replace(/\.0$/, '')
+  if (n >= 1e12) return `${short(n / 1e12)}T`
+  if (n >= 1e9) return `${short(n / 1e9)}G`
   if (n >= 1_000_000) return `${short(n / 1_000_000)}M`
   if (n >= 1_000) return `${short(n / 1_000)}k`
 
@@ -34,14 +36,22 @@ export function percentOf(flow: Flow): string | null {
   return flow.seen > 0 ? `${Math.round((Math.min(flow.saved, flow.seen) / flow.seen) * 100)}%` : null
 }
 
-type FlowRecord = { project?: unknown; saved?: unknown; seen?: unknown } | null | undefined
+// What compression saved against every token the session's requests counted (input, cache and output), as `saved/total (%)`.
+export function savedOfSpent(flow: Flow): string {
+  if (flow.spent <= 0) return formatCount(flow.saved)
+  const share = (flow.saved / (flow.saved + flow.spent)) * 100
+
+  return `${formatCount(flow.saved)}/${formatCount(flow.spent)} (${share < 1 ? share.toFixed(2) : share < 10 ? share.toFixed(1) : Math.round(share)}%)`
+}
+
+type FlowRecord = { project?: unknown; saved?: unknown; seen?: unknown; spent?: unknown } | null | undefined
 
 // One project's compression, from every session's record.
 export function projectFlow(records: FlowRecord[], project: string): Flow {
-  return records.reduce<Flow>((sum, record) => (record?.project === project ? { saved: sum.saved + Number(record.saved ?? 0), seen: sum.seen + Number(record.seen ?? 0) } : sum), { saved: 0, seen: 0 })
+  return records.reduce<Flow>((sum, record) => (record?.project === project ? { saved: sum.saved + Number(record.saved ?? 0), seen: sum.seen + Number(record.seen ?? 0), spent: sum.spent + Number(record.spent ?? 0) } : sum), { saved: 0, seen: 0, spent: 0 })
 }
 
-const withShare = (flow: Flow) => `${formatCount(flow.saved)}${percentOf(flow) ? ` (${percentOf(flow)})` : ''}`
+const withShare = savedOfSpent
 
 // What a check found since the last one, or null when nothing is new.
 export function gainNote(before: Gains, after: Gains): string | null {
@@ -85,7 +95,7 @@ export function statusOf(s: Stats): string {
   // Every tool keeps its place, so the line reads the same in every session; `–` where there is nothing to measure.
   const parts: Array<[string, string]> = [
     [ICON.beaver, s.level ?? 'off'],
-    [ICON.water, `${formatCount(s.session.saved)}${percentOf(s.session) ? ` ${percentOf(s.session)}` : ''}`],
+    [ICON.water, savedOfSpent(s.session)],
     [ICON.logs, `${s.pruned}${s.pending > 0 ? `+${s.pending}` : ''}`],
     [ICON.whirl, String(s.loops)],
     [ICON.memory, String(s.facts)],
@@ -159,7 +169,7 @@ export function totalLines(s: Stats, here: SessionFigures): string[] {
   const context = s.context ? `${Math.round(s.context.percent)}% of the context used (${formatCount(s.context.total)} of ${formatCount(s.context.max)} tokens)` : 'context not measured yet'
 
   return [
-    `${ICON.water} ${formatCount(s.session.saved)} tokens saved by compression${percentOf(s.session) ? `, ${percentOf(s.session)} of what the tools printed (${formatCount(s.session.seen)})` : ''}`,
+    `${ICON.water} ${savedOfSpent(s.session)} tokens saved of this session's total${percentOf(s.session) ? `, ${percentOf(s.session)} of what the tools printed` : ''}`,
     `   this project ${withShare(s.project)}, every project ${formatCount(s.saved)}`,
     `${ICON.logs} ${s.pruned} tools left out of this session${s.pending > 0 ? `, ${s.pending} more waiting` : ''}`,
     `${ICON.whirl} ${here.loops} loops stopped`,

@@ -1,8 +1,8 @@
 export type ToolsPresent = { squeezer: boolean; graphify: boolean; economizer: boolean; beaver: boolean }
 export type ContextStats = { percent: number; total: number; max: number }
 export type Gains = { saved: number; pruned: number; facts: number; loops: number; nodes: number }
-// What the tools printed, in tokens, and what compression took out of it.
-export type Flow = { saved: number; seen: number }
+// What the tools printed, in tokens, what compression took out of it, and every token the model's requests counted.
+export type Flow = { saved: number; seen: number; spent: number }
 
 export type Stats = Gains & {
   // Tools TokenEconomizer will prune once idle, and what its own work cost in tokens.
