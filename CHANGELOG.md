@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.1
+
+- The README's pictures are redrawn as flat infographics, in a light and a dark theme that follow the reader's: the measured gains as one still at the top, the two charts as stills, and one short loop per part of the dam (compression, web pages, map, tool pruning, loop guard, learned facts, Beaver). `assets/draw.py` draws them all; the long animation is gone.
+
 ## 0.20.0
 
 - 💧 counts what each request did not carry: a token taken out of a tool output stays out of every later request, so it counts once per request until a compaction empties the context. A pruned MCP tool's schema counts once per request, with its size measured while it was loaded. 0.19.2 counted a saved token once against a total that counts the context at every request, which read as 0.1%.

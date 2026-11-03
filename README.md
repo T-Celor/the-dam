@@ -17,12 +17,7 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: reduce)" srcset="assets/teaser-dark.png">
-    <source media="(prefers-reduced-motion: reduce)" srcset="assets/teaser.png">
-    <source media="(prefers-color-scheme: dark)" srcset="assets/teaser-dark.gif">
-    <img src="assets/teaser.gif" width="100%" alt="An animation in three parts. A title card: the beaver icon, The dam, spend fewer tokens in Claude Code without losing a line, its six parts (compression, web pages, map, tool pruning, loop guard, Beaver), a Claude Code plugin in Rust that runs locally, built on TokenEconomizer, Ponytail, Headroom, markdowner and html-to-markdown. Then an illustration, not a measurement: what Claude reads in a session drawn as a bar of the work itself plus five kinds of waste (repeated output, page clutter, broad searches, unused tools, loops). The parts switch on one by one, each card lighting up with an example (ERROR retry ×4000; 261 KB of HTML to 3.7 KB of Markdown; SmartCrusher found at crusher.rs:118; Read and Edit kept, Notebook and Cron left out; the same error three times met with try another way; 50 lines down to 1), and each new bar shrinks its waste below a dashed line at the cost without the dam. It ends on measured figures: 100% of lines recoverable after compression against Headroom's 69.9%, a GitHub page 99% smaller as Markdown, 2,112 files mapped in 1.5 s against graphify's 816 s, TokenEconomizer's 18.4 to 30.9% lower cost, and bars of the share Claude no longer reads: 99% for a GitHub page, 84% for Wikipedia, 81% for the Rust book, 73% for Hacker News, 24.1% for tool output and 45% fewer output tokens in Ponytail's benchmark.">
-  </picture>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="assets/gains-dark.png"><img src="assets/gains.png" width="100%" alt="The measured gains. Web pages: 99% of a GitHub page, 84% of Wikipedia, 81% of the Rust book, 73% of Hacker News and 58% of the Rust blog no longer read. Compression: 100% of lines kept against Headroom 69.9%. Beaver rules, Ponytail benchmark: 53% fewer lines, 45% fewer output tokens, 26% lower cost, 41% less time. Map: 2,112 files in 1.5 s against graphify 816 s, the right place named for 15 of 15 questions against 12. TokenEconomizer: 18.4 to 30.9% lower cost."></picture>
 </p>
 
 ```
@@ -104,6 +99,13 @@ flowchart LR
     SS[Session start] --> F[learned facts] & B[Beaver rules] & G[map rebuilt] & TP[unused tools left out]
 ```
 
+<table>
+<tr><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-compression-dark.gif"><img src="assets/part-compression.gif" alt="Compression: five retry lines fold into one template with a table of values, 24% fewer tokens"></picture></td><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-web-dark.gif"><img src="assets/part-web.gif" alt="Web pages: menus, ads and scripts drop out of a fetched page, the rest becomes Markdown, 99% smaller"></picture></td></tr>
+<tr><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-map-dark.gif"><img src="assets/part-map.gif" alt="Map: a question walks the local map to the place a name is defined, crusher.rs line 118"></picture></td><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-pruning-dark.gif"><img src="assets/part-pruning.gif" alt="Tool pruning: twelve tools, the six never used here left out"></picture></td></tr>
+<tr><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-loops-dark.gif"><img src="assets/part-loops.gif" alt="Loop guard: the same error three times, then one nudge to try another way"></picture></td><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-facts-dark.gif"><img src="assets/part-facts.gif" alt="Learned facts: a failure seen in three sessions becomes a fact given at the next start"></picture></td></tr>
+<tr><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-beaver-dark.gif"><img src="assets/part-beaver.gif" alt="Beaver: fifty lines of change become one"></picture></td></tr>
+</table>
+
 | Part | Concept | What the model gets |
 |---|---|---|
 | **Compression** `dam-squeeze` | Bash, PowerShell, Grep and MCP outputs of 2,000 characters or more. Lines that differ only by numbers become a template and a table of values; identical lines a count; search hits and paths grouped by file; JSON records a table. Errors and outliers stay plain lines. Every result is decoded and checked against the source before use. | The same information in fewer tokens, the original in `~/.claude/the-dam-outputs/` |
@@ -143,13 +145,7 @@ Five real pages, HTML as fetched against the Markdown the model reads:
 | Hacker News front page | 34 KB | 9.4 KB | **73%** | 0.13 s |
 | The Rust blog | 99 KB | 42 KB | **58%** | 0.14 s |
 
-```mermaid
-xychart-beta
-    title "Share of a fetched page the model no longer reads"
-    x-axis ["GitHub", "Wikipedia", "Rust book", "Hacker News", "Rust blog"]
-    y-axis "saved %" 0 --> 100
-    bar [99, 84, 81, 73, 58]
-```
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/web-dark.png"><img src="assets/web.png" alt="Share of a fetched page the model no longer reads: GitHub 99%, Wikipedia 84%, Rust book 81%, Hacker News 73%, Rust blog 58%"></picture>
 
 The conversion alone (no main-content choice) matches 75% of the lines of html-to-markdown's own test files, once HTML comments, which the dam leaves out on purpose, and column padding are set aside.
 
@@ -173,13 +169,7 @@ With documents and settings, the map of a 2,551-file repository holds 44,672 pla
 | TokenEconomizer | 18.4–30.9% lower mean cost on SWE-Bench tasks, across five agent–model pairs ([paper](https://arxiv.org/abs/2610.22732)) |
 | Ponytail (Beaver's rules) | 53% fewer lines of code, 45% fewer output tokens, 26% lower cost, 41% less time, on 39 tasks × 5 runs |
 
-```mermaid
-xychart-beta
-    title "Ponytail's benchmark: share of the no-rules baseline"
-    x-axis ["Lines of code", "Output tokens", "Cost", "Time"]
-    y-axis "% of baseline" 0 --> 100
-    bar [47, 55, 74, 59]
-```
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/beaver-dark.png"><img src="assets/beaver.png" alt="What is left of the no-rules baseline in Ponytail's benchmark: lines of code 47%, output tokens 55%, cost 74%, time 59%"></picture>
 
 ### Rewrite faithfulness
 
