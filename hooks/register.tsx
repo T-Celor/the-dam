@@ -1,13 +1,18 @@
 import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
-import type { Gains, Stats } from '../types'
-import { EMPTY, gainNote, reportOf, signed, statusOf } from './model'
+import type { Gains, JournalEntry, Stats } from '../types'
+import { EMPTY, ICON, economizerEntries, formatCount, gainNote, journalLine, reportOf, signed, statusOf, totalLines } from './model'
 import type { Located } from './tools'
 import {
   candidates,
   graphNudge,
   graphNodes,
+  codeNames,
+  exactEntries,
+  graphFacts,
+  graphQuestion,
+  grepName,
   missingNames,
   parseEconomizer,
   setupSteps,
@@ -22,7 +27,11 @@ import {
 
 const GRAPH = '.dam-graph/graph.tsv'
 // Change the tag when Stats changes: it declines what an earlier version stored.
-const stats = atom({ plugin: 'the-dam', key: 'stats' } as const, EMPTY, { shape: 'stats-15' })
+const stats = atom({ plugin: 'the-dam', key: 'stats' } as const, EMPTY, { shape: 'stats-16' })
+// What each tool did in this session, newest last.
+const journal = atom({ plugin: 'the-dam', key: 'journal' } as const, [] as JournalEntry[], { shape: 'journal-1' })
+const MOST_JOURNAL = 300
+const PANE = 'the-dam'
 const CONTEXT_EVERY_MS = 15_000
 
 async function change($: Parameters<Hook<'session.start'>>[0], edit: (current: Stats) => Stats) {
@@ -39,6 +48,10 @@ async function attempt<T>(reading: () => Promise<T>): Promise<T | null> {
 }
 
 type Dollar = Parameters<Hook<'session.start'>>[0]
+
+async function note($: Dollar, icon: string, text: string) {
+  await update($, journal, list => [...list, { at: Date.now(), icon, text }].slice(-MOST_JOURNAL))
+}
 
 async function homeOf($: Dollar) {
   return ((await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')))?.replace(/\\/g, '/')
@@ -180,6 +193,8 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>)
     await $.fs.write(path, original)
   }
   const gain = Math.max(0, result.before - result.after)
+  const kept = persisted && !isInline ? ', too long to show: its saved file was condensed' : ''
+  void attempt(() => note($, ICON.water, `${tool} output condensed from ${formatCount(result.before)} to ${formatCount(result.after)} tokens${kept}`))
   // A count that fails must not throw away the compression itself.
   await attempt(async () => {
     await $.store.set(SAVED_HERE, Number((await $.store.get(SAVED_HERE)) ?? 0) + gain)
@@ -228,7 +243,21 @@ async function buildGraph($: Dollar) {
   const path = excludePath.stdout.trim()
   const excluded = (await attempt(() => $.fs.read(path))) ?? ''
   if (!excluded.includes('.dam-graph')) await $.fs.write(path, `${excluded.trimEnd()}\n.dam-graph/\n`.trimStart())
-  await attempt(() => $.process.run([graph, 'update'], { timeoutMs: GRAPH_TIMEOUT_MS }))
+  const started = Date.now()
+  const built = await attempt(() => $.process.run([graph, 'update'], { timeoutMs: GRAPH_TIMEOUT_MS }))
+  if (built?.exitCode === 0) await note($, ICON.map, `code graph built: ${built.stdout.trim()} in ${((Date.now() - started) / 1000).toFixed(1)} s`)
+}
+
+const GRAPH_QUERY_TIMEOUT_MS = 5_000
+
+// What the graph says of each of `names`, exact matches only; null when there is no graph or it knows none of them.
+async function askGraph($: Dollar, names: string[]) {
+  const { graph } = await locate($)
+  if (!graph || names.length === 0 || !(await attempt(() => $.fs.stat(GRAPH)))) return null
+  const answers = await Promise.all(names.map(name => attempt(() => $.process.run([graph, 'query', name], { timeoutMs: GRAPH_QUERY_TIMEOUT_MS }))))
+  const entries = answers.flatMap((run, n) => (run?.exitCode === 0 ? exactEntries(run.stdout, names[n] as string) : []))
+
+  return entries.length > 0 ? graphFacts(entries, graph) : null
 }
 
 // Whether this project gets a graph, known a moment after the session starts: the first prompt waits for that, not for the graph.
@@ -249,12 +278,41 @@ async function refreshContext($: Dollar) {
   if (context) await change($, now => ({ ...now, context }))
 }
 
+// What changed since the last reading, in the journal: the first reading says where the session starts from.
+let seen: { tools: string; level: string | null } | null = null
+
+async function noteChanges($: Dollar, gains: { pruned: number; pending: number }, level: string | null) {
+  const tools = `${gains.pruned}+${gains.pending}`
+  if (seen?.tools !== tools && (seen || gains.pruned + gains.pending > 0)) {
+    await note($, ICON.logs, `${gains.pruned} tools pruned in this repository${gains.pending > 0 ? `, ${gains.pending} waiting for it to be quiet` : ''}`)
+  }
+  if (seen?.level !== level && (seen || level)) await note($, ICON.ponytail, `Ponytail ${level ?? 'off'}`)
+  seen = { tools, level }
+}
+
 // Each tool's own figures. A tool that cannot answer simply adds nothing.
+// Where TokenEconomizer keeps this repository's state, from its status: its events are the journal's other half.
+let economizerState: string | null = null
+
+async function readEconomizer($: Dollar, program: string) {
+  const out = (await $.process.run([program, 'status', '--json'])).stdout
+  economizerState = (JSON.parse(out) as { state?: string }).state ?? null
+
+  return parseEconomizer(out)
+}
+
+// Ponytail writes this session's level to a file named after it.
+async function readLevel($: Dollar) {
+  const dir = (await $.env.get('CLAUDE_CONFIG_DIR'))?.replace(/\\/g, '/') ?? `${await homeOf($)}/.claude`
+  const session = (await $.session.id()).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 200)
+  const level = (await attempt(() => $.fs.read(`${dir}/ponytail-modes/session-${session}`)))?.trim()
+
+  return level && level !== 'off' ? level : null
+}
+
 async function readSources($: Dollar, tools: Located, saved: number) {
   const [economizer, graph] = await Promise.all([
-    attempt(async () =>
-      tools.economizer ? parseEconomizer((await $.process.run([tools.economizer, 'status', '--json'])).stdout) : null,
-    ),
+    attempt(async () => (tools.economizer ? readEconomizer($, tools.economizer) : null)),
     attempt(async () => graphNodes(await $.fs.read(GRAPH))),
   ])
 
@@ -265,6 +323,8 @@ async function refresh($: Dollar) {
   const tools = await locate($)
   const [context, isOff, graph, storedSaved] = await Promise.all([readContext($), $.store.get(COMPRESS_OFF), attempt(() => $.fs.stat(GRAPH)), savedTotal($)])
   const gains = await readSources($, tools, Number(storedSaved ?? 0))
+  const level = tools.ponytail ? await readLevel($) : null
+  await noteChanges($, gains, level)
   await change($, current => ({
     ...current,
     ...gains,
@@ -272,6 +332,7 @@ async function refresh($: Dollar) {
     tools: { squeezer: !!tools.squeezer, graphify: !!tools.graph, ponytail: !!tools.ponytail, economizer: !!tools.economizer },
     isCompressing: !isOff,
     hasGraph: graph !== null,
+    level,
   }))
 }
 
@@ -298,8 +359,33 @@ export const register: Register = on => {
 
   on('command.run', { command: 'the-dam' }, async $ => {
     await refresh($)
+    const opened = await attempt(() => $.ui.open({ id: PANE, title: 'The dam' }))
+    const now = await read($, stats)
 
-    return { text: reportOf(await read($, stats)) }
+    // Where no pane can be drawn (`claude -p`, a surface without panes), the report is the answer.
+    return { text: opened?.isPlaced ? `${statusOf(now)}\nThe session's journal and the totals are open beside the chat.` : reportOf(now) }
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const [now, own, session, savedHere] = await Promise.all([read($, stats), read($, journal), $.session.id(), $.store.get(SAVED_HERE)])
+    const events = economizerState ? ((await attempt(() => $.fs.read(`${economizerState}/events.jsonl`))) ?? '') : ''
+    const entries = [...own, ...economizerEntries(events, session)].sort((a, b) => a.at - b.at)
+
+    return (
+      <Box flexDirection="column">
+        <Text>This session</Text>
+        {entries.length === 0 && <Text dimColor>Nothing yet: each tool writes here when it acts.</Text>}
+        {entries.map(entry => (
+          <Text>{journalLine(entry)}</Text>
+        ))}
+        <Text> </Text>
+        <Text>Totals</Text>
+        {totalLines(now, Number(savedHere ?? 0)).map(line => (
+          <Text dimColor={line.startsWith('TokenEconomizer')}>{line}</Text>
+        ))}
+      </Box>
+    )
   })
 
   on('command.run', { command: 'the-dam-compress' }, async $ => ({ text: await toggleCompression($) }))
@@ -316,16 +402,34 @@ export const register: Register = on => {
     }
   })
 
+  // A prompt that names code gets what the graph knows of those names, without anyone asking for it.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.command || e.isMeta) return next(e)
+    const names = codeNames(e.text)
+    const facts = await attempt(() => askGraph($, names))
+    if (!facts) return next(e)
+    void attempt(() => note($, ICON.map, `code graph answered for ${names.join(', ')} in your prompt`))
+
+    return next({ ...e, context: [...(e.context ?? []), facts] })
+  }).catch(($, e, next) => next(e))
+
   on('tool.call', async ($, e, next) => {
     if (e.tool === 'Edit' || e.tool === 'Write') hasEditedCode = true
+    const asked = e.tool === 'Bash' ? graphQuestion(e.command) : null
+    if (asked) void attempt(() => note($, ICON.map, `code graph asked: ${asked}`))
 
     const ran = await next(e)
     if (ran.deny !== undefined || ran.isError) return ran
     // A big output is condensed before the model reads it.
-    const record = await attempt(() => squeeze($, e.tool, ran.result as Record<string, unknown>))
+    const record = (await attempt(() => squeeze($, e.tool, ran.result as Record<string, unknown>))) ?? (ran.result as Record<string, unknown>)
     checkSoon($)
+    // A search for one name also gets where the graph says it is defined and who calls it.
+    const name = e.tool === 'Grep' ? grepName(e.pattern) : null
+    const facts = name && record?.mode === 'content' && typeof record.content === 'string' ? await attempt(() => askGraph($, [name])) : null
+    if (facts) void attempt(() => note($, ICON.map, `code graph answered for ${name} beside a Grep`))
+    const result = facts ? { ...record, content: `${record.content}\n\n${facts}` } : record
 
-    return record ? ({ ...ran, result: record } as typeof ran) : ran
+    return result === ran.result ? ran : ({ ...ran, result } as typeof ran)
   }).catch(($, e, next) => next(e)) // None of this may ever block a tool.
 
   on('turn.complete', async ($, e, next) => {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.0
+
+- The status line shows one icon and figure per tool, and leaves out a tool with nothing to show.
+- `/the-dam` opens the session's journal beside the chat, with the totals.
+- The code graph answers on its own for the code names in a prompt and for a `Grep` on one name.
+
 ## 0.17.0
 
 - Outputs Claude Code saves to a file because they are too long are condensed too, with errors and warnings put in front.

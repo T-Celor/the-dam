@@ -32,7 +32,7 @@ export function setupSteps(found: Located, root: string): Step[] {
 }
 
 export function graphNudge(program: string): string {
-  return `A code graph of this project is ready. For questions about architecture or how code connects, run \`"${program}" query "<question>"\` before broad Grep or Read sweeps; it costs far fewer tokens.`
+  return `A code graph of this project is ready. To find where something is defined, what it calls or what calls it, or how parts connect, run \`"${program}" query "<name or question>"\` first, before Grep, Glob or Read sweeps: it answers in a few hundred tokens. When a prompt or a Grep names code, its answer for those names is added for you.`
 }
 
 const WORTH_SQUEEZING_CHARS = 6000
@@ -117,6 +117,51 @@ const WORTH_GRAPHING_FILES = 20
 // A graph only pays for itself in a real project: `listing` is the output of `git ls-files`.
 export function worthGraphing(listing: string): boolean {
   return listing.split('\n').filter(path => CODE_FILE.test(path.trim())).length >= WORTH_GRAPHING_FILES
+}
+
+const GRAPH_QUERY = /dam-graph(?:\.exe)?"?\s+query\s+(.+)/
+
+// The question a Bash command asks the code graph, or null for any other command.
+export function graphQuestion(command: string): string | null {
+  return command.match(GRAPH_QUERY)?.[1]?.trim().slice(0, 160) ?? null
+}
+
+const WORD = /[A-Za-z_][A-Za-z0-9_]*(?:\(\))?/g
+const MOST_NAMES = 3
+
+// The names in a prompt that look like code rather than words: snake_case, camelCase, PascalCase with two capitals, or a call.
+// Only these get the graph's answer, which is exact for a name and noisy for a sentence.
+export function codeNames(text: string): string[] {
+  const names: string[] = []
+  for (const found of text.match(WORD) ?? []) {
+    const name = found.replace(/\(\)$/, '')
+    const isCode = found.endsWith('()') || /[a-z0-9]_[a-z0-9]/i.test(name) || /[a-z][A-Z]/.test(name) || /^[A-Z][a-z0-9]+[A-Z]/.test(name)
+    if (isCode && name.length >= 4 && !names.includes(name)) names.push(name)
+    if (names.length === MOST_NAMES) break
+  }
+
+  return names
+}
+
+// The name a Grep looks for, when its pattern is one identifier (`\bname\b`, `name(`, `def name`), else null.
+export function grepName(pattern: string): string | null {
+  const name = pattern.replace(/\\b|\\\(|\(|\^|\$/g, '').replace(/^(def|fn|function|class|struct|interface|type|const|let|var)\s+/, '').trim()
+
+  return /^[A-Za-z_][A-Za-z0-9_]{3,}$/.test(name) ? name : null
+}
+
+// The entries of a graph answer about exactly `name`: where it is defined, what it calls and what calls it.
+export function exactEntries(answer: string, name: string): string[] {
+  return answer.split(/\n\s*\n/).filter(entry => {
+    const head = entry.trimStart()
+
+    return head.startsWith(`${name}(`) || head.startsWith(`${name} `)
+  })
+}
+
+// What the model reads about the names a prompt or a search named, in place of finding them itself.
+export function graphFacts(entries: string[], program: string): string {
+  return `The project's code graph on these names (\`"${program}" query "<question>"\` asks it more):\n\n${entries.join('\n\n')}`
 }
 
 // The number of nodes in dam-graph's table.

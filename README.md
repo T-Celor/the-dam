@@ -18,22 +18,23 @@
 
 ---
 
-Coding agents burn context on repeated log lines, broad searches and failing loops. The dam sits between the tools and the model and cuts that waste, then tells you what it did in one status line:
+Coding agents burn context on repeated log lines, broad searches and failing loops. The dam sits between the tools and the model and cuts that waste, then shows what each tool did in one status line, one icon per tool:
 
 ```
-🦫 12.3k saved · context 31%
+🦫 full · 💧 45.2k · 🪵 3+2 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
 ```
 
-Type `/the-dam` for the detail:
+| Icon | Tool | Figure |
+|---|---|---|
+| 🦫 | Ponytail | its level in this session |
+| 💧 | Compression | tokens saved, every session together |
+| 🪵 | Tool pruning | tools removed, plus those waiting |
+| 🌀 | Loop guard | loops stopped |
+| 🧠 | Learned facts | facts in use |
+| 🗺️ | Code graph | nodes |
+| 🌊 | Context | share of the window used |
 
-```
-🦫 The dam
-  Context 31% (310k of 1M tokens)
-  ✓ Compression: 12.3k tokens saved
-  ✓ TokenEconomizer: 2 tools pruned (4 pending), 5 facts learned, 1 loops stopped, 10.5k tokens spent
-  ✓ Code graph: 2.2k nodes
-  ✓ Ponytail: active
-```
+A tool with nothing to show yet stays out of the line. Type `/the-dam` to open the session's journal beside the chat: what each tool did and when, then the totals. Where no pane can be drawn (`claude -p`), it answers with the totals.
 
 ## Install
 
@@ -92,7 +93,7 @@ At each session start, in a git repository with at least 20 tracked code files, 
 dam-graph query "how does the log compressor keep error lines"
 ```
 
-The model is told from the first prompt; a query made before the first build ends builds the graph itself. No model and no network. `.dam-graph/` goes in `.git/info/exclude`, so your `.gitignore` stays as it is.
+The model is told from the first prompt; a query made before the first build ends builds the graph itself. It does not have to ask: when a prompt names code (`parseConfig`, `crush_rows()`, `SmartCrusher`), or a `Grep` looks for one name, what the graph knows of that name (where it is defined, what it calls, what calls it) is added for the model. A sentence with no such name gets nothing added, as the graph's answer to plain words is too loose to be worth its tokens. No model and no network. `.dam-graph/` goes in `.git/info/exclude`, so your `.gitignore` stays as it is.
 
 Measured against [graphify](https://graphify.com)'s structural graph as the reference, on four repositories of 18 to 2,112 source files:
 
@@ -141,7 +142,7 @@ Sessions may run side by side, in one project or several:
 
 | Command | Does |
 |---|---|
-| `/the-dam` | Shows what each tool did |
+| `/the-dam` | Opens the session's journal and the totals beside the chat |
 | `/the-dam-compress` | Turns compression on or off |
 | `/the-dam:status`, `:toolprune`, `:config`, `:microskills`, `:repos` | TokenEconomizer's own |
 | `/the-dam:ponytail`, `:ponytail-review`, `:ponytail-audit`, `:ponytail-debt` | Ponytail's own |

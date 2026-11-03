@@ -84,6 +84,10 @@ fn levels_dir() -> PathBuf {
 }
 
 fn project_state() -> Option<PathBuf> {
+    if let Some(session) = SESSION.get().filter(|session| !session.is_empty()) {
+        let name: String = session.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '_' }).take(200).collect();
+        return Some(levels_dir().join(format!("session-{name}")));
+    }
     let project = env("CLAUDE_PROJECT_DIR")?;
     let mut hasher = DefaultHasher::new();
     project.trim().hash(&mut hasher);

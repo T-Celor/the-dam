@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, formatCount, gainNote, reportOf, statusOf } from './model'
-import { candidates, graphNodes, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, savedPreview, standoutLines, worthGraphing } from './tools'
+import { EMPTY, economizerEntries, formatCount, gainNote, journalLine, reportOf, statusOf, totalLines } from './model'
+import { candidates, codeNames, exactEntries, graphNodes, graphQuestion, grepName, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, savedPreview, standoutLines, worthGraphing } from './tools'
 
 const ALL = { squeezer: true, graphify: true, economizer: true, ponytail: true }
 
@@ -20,8 +20,9 @@ test('a check announces only what is new', () => {
 test('the status line and the report state the real figures', () => {
   const context = { percent: 31, total: 310_000, max: 1_000_000 }
   const s = { ...EMPTY, tools: ALL, context, saved: 5_000, pruned: 2, pending: 4, facts: 3, loops: 1, overhead: 10_500, nodes: 400, hasGraph: true }
-  expect(statusOf(s)).toBe('🦫 5k saved · context 31%')
-  expect(statusOf(EMPTY)).toBe('🦫 0 saved')
+  expect(statusOf({ ...s, level: 'full' })).toBe('🦫 full · 💧 5k · 🪵 2+4 · 🌀 1 · 🧠 3 · 🗺️ 400 · 🌊 31%')
+  expect(statusOf(EMPTY)).toBe('🦫')
+  expect(statusOf({ ...EMPTY, saved: 1_500, pruned: 2 })).toBe('🦫 · 💧 1.5k · 🪵 2')
   expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Compression: 5k tokens saved\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ Code graph: 400 nodes\n  ✓ Ponytail: active')
   expect(reportOf({ ...s, hasGraph: false })).toContain('… Code graph: not for this folder')
   expect(reportOf({ ...s, isCompressing: false })).toContain('✗ Compression: 5k tokens saved, turned off')
@@ -125,4 +126,51 @@ test('the preview of a saved output names the files, what stands out, and starts
   expect(preview).toContain('ERROR boom')
   expect(preview.endsWith('\n')).toBe(true)
   expect(preview.length).toBeLessThan(2600)
+})
+
+test('the journal reads the events TokenEconomizer wrote for this session only', () => {
+  const events = [
+    '{"kind":"inject","facts":3,"at":1700000000,"session_id":"s1"}',
+    '{"kind":"nudge","reason":"error_outputs: 5 failures","tool_calls":12,"at":1700000060,"session_id":"s1"}',
+    '{"kind":"nudge","reason":"x","at":1700000061,"session_id":"other"}',
+    '{"kind":"turn","at":1700000070,"session_id":"s1"}',
+    'not json',
+  ].join('\n')
+  const entries = economizerEntries(events, 's1')
+  expect(entries.map(entry => entry.text)).toEqual(['3 learned facts added to the context', 'loop redirected (error_outputs), after 12 tool calls'])
+  expect(journalLine({ at: new Date(2026, 0, 1, 9, 5).getTime(), icon: '💧', text: 'x' })).toBe('09:05  💧 x')
+})
+
+test('the totals give this session share and every tool figure', () => {
+  const lines = totalLines({ ...EMPTY, saved: 45_200, pending: 2, level: 'ultra' }, 3_100)
+  expect(lines[0]).toBe('💧 45.2k tokens saved by compression, 3.1k in this session')
+  expect(lines).toContain('🪵 0 tools pruned, 2 waiting')
+  expect(lines).toContain('🦫 Ponytail ultra')
+  expect(lines).toContain('🗺️ no code graph here')
+})
+
+test('a graph question is read from the command that asks it', () => {
+  expect(graphQuestion('"C:/p/bin/windows-x64/dam-graph.exe" query "how is the log condensed"')).toBe('"how is the log condensed"')
+  expect(graphQuestion('dam-graph update')).toBe(null)
+  expect(graphQuestion('ls')).toBe(null)
+})
+
+test('only names that look like code are sent to the graph', () => {
+  expect(codeNames('why does SmartCrusherPlanner drop rows in crush_rows() and parseConfig?')).toEqual(['SmartCrusherPlanner', 'crush_rows', 'parseConfig'])
+  expect(codeNames('fix the typo in README and merci beaucoup')).toEqual([])
+  expect(codeNames('call run() then Foo')).toEqual([])
+})
+
+test('a Grep for one name is recognised, a broader pattern is not', () => {
+  expect(grepName('\\bSmartCrusher\\b')).toBe('SmartCrusher')
+  expect(grepName('def compress_tool_results')).toBe('compress_tool_results')
+  expect(grepName('parse\\(')).toBe('parse')
+  expect(grepName('TODO|FIXME')).toBe(null)
+  expect(grepName('foo.*bar')).toBe(null)
+})
+
+test('only the entries about exactly that name are kept', () => {
+  const answer = '3 nodes. Best matches of 3:\n\nSmartCrusherPlanner a.rs:49\n\nSmartCrusher b.py:269\n  called by: main()\n\ncrusher() c.py:1'
+  expect(exactEntries(answer, 'SmartCrusher')).toEqual(['SmartCrusher b.py:269\n  called by: main()'])
+  expect(exactEntries(answer, 'crusher')).toEqual(['crusher() c.py:1'])
 })
