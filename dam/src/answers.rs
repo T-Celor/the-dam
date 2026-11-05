@@ -325,6 +325,8 @@ pub struct Condensed {
     pub after: usize,
     pub url: Option<String>,
     pub is_web: bool,
+    // Lines were left out (long shell output only): the footer says so.
+    pub elided: bool,
 }
 
 // The one decision for every host, the mod included: None where it would not pay.
@@ -335,9 +337,31 @@ pub fn condensed(original: &str, command: Option<&str>) -> Option<Condensed> {
     let url = command.and_then(page_url);
     let page = if looks_like_web_page(original) { web::convert(original, url.as_deref()).map(|page| web::render(&page, url.as_deref())) } else { None };
     let is_web = page.is_some();
-    let (text, before, after) = squeezed(original, page.unwrap_or_else(|| squeeze::squeeze(original)))?;
+    let lossless = squeezed(original, page.unwrap_or_else(|| squeeze::squeeze(original)));
+    // Only what a shell printed, and only when it is long: the model can open the original for the middle.
+    let shortened = if command.is_some() && !is_web && squeeze::elide_enabled() && original.chars().count() >= squeeze::ELIDE_FROM_CHARS { squeeze::elide(original).and_then(|(short, _)| squeezed(original, short)) } else { None };
+    let (text, before, after, elided) = match (lossless, shortened) {
+        (Some(kept), Some(short)) if short.2 < kept.2 => (short.0, short.1, short.2, true),
+        (Some(kept), _) => (kept.0, kept.1, kept.2, false),
+        (None, Some(short)) => (short.0, short.1, short.2, true),
+        (None, None) => return None,
+    };
 
-    Some(Condensed { text, before, after, url, is_web })
+    Some(Condensed { text, before, after, url, is_web, elided })
+}
+
+pub fn elide_note(before: usize, after: usize, path: &str) -> String {
+    format!("\n\n[The dam shortened this output from about {before} to {after} tokens: the first and last lines and every line mentioning an error or warning are kept, the lines between are left out (the gaps say how many). The whole output: {path}.]")
+}
+
+fn note_of(done: &Condensed, path: &str) -> String {
+    if done.is_web {
+        web_note(done.before, done.after, path)
+    } else if done.elided {
+        elide_note(done.before, done.after, path)
+    } else {
+        squeeze_note(done.before, done.after, path)
+    }
 }
 
 // `dam squeeze condense [COMMAND]`, the mod's call: the output on stdin, its condensed form as JSON, or nothing.
@@ -348,7 +372,7 @@ pub fn condense_command(command: Option<&str>) -> bool {
     }
     let Some(done) = condensed(&original, command) else { return false };
     // The footer's words stay here: the mod only puts in the path where it keeps the original.
-    let note = if done.is_web { web_note(done.before, done.after, "{path}") } else { squeeze_note(done.before, done.after, "{path}") };
+    let note = note_of(&done, "{path}");
     println!("{}", json!({"text": done.text, "note": note, "before": done.before, "after": done.after, "url": done.url, "web": done.is_web}));
 
     true
@@ -366,15 +390,15 @@ pub fn facts_command(args: &[String]) -> bool {
 
 // The condensed output with its footer (the original is saved under `dir`), or None where it would not pay.
 pub fn condense(original: &str, command: Option<&str>, dir: &Path) -> Option<(String, usize, usize)> {
-    let Condensed { text, before, after, is_web, .. } = condensed(original, command)?;
+    let done = condensed(original, command)?;
     std::fs::create_dir_all(dir).ok()?;
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
     let path = dir.join(format!("hook-{}-{stamp}.txt", std::process::id()));
     std::fs::write(&path, original).ok()?;
     let path = path.to_string_lossy().replace('\\', "/");
-    let footer = if is_web { web_note(before, after, &path) } else { squeeze_note(before, after, &path) };
+    let footer = note_of(&done, &path);
 
-    Some((format!("{text}{footer}"), before, after))
+    Some((format!("{}{footer}", done.text), done.before, done.after))
 }
 
 // ---- the hook ----
@@ -467,6 +491,21 @@ pub fn hook() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn build_log(n: usize) -> String {
+        (0..n).map(|i| format!("compiling crate{i} v{}.{}.{} ({:x})\n", i % 7, i % 11, i % 13, i * 2654435761usize % 0xfffff)).collect()
+    }
+
+    #[test]
+    fn only_a_long_shell_output_is_shortened_and_the_footer_says_so() {
+        let mut log = build_log(900);
+        log = log.replacen("crate450 ", "FAILED crate450 ", 1);
+        let shell = condensed(&log, Some("cargo build")).unwrap();
+        assert!(shell.elided && shell.text.contains("FAILED crate450"));
+        assert!(elide_note(1, 1, "/p").contains("lines between are left out"));
+        // A file read or a search keeps every line.
+        assert!(!condensed(&log, None).is_some_and(|done| done.elided));
+    }
 
     fn temp(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("dam-answers-{tag}-{}", std::process::id()));

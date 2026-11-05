@@ -388,6 +388,58 @@ fn squeeze_from(text: &str, floor: usize) -> String {
     best.filter(|result| result.len() < text.len()).unwrap_or_else(|| text.to_string())
 }
 
+// Shell output this long is shortened, not only folded: from about 4,000 tokens.
+pub const ELIDE_FROM_CHARS: usize = 8000;
+const KEEP_HEAD: usize = 30;
+const KEEP_TAIL: usize = 50;
+// The lines that sound like trouble are kept (with the line before and after), up to this many.
+const KEEP_ALARMS: usize = 80;
+
+// Whether shortening is on: `DAM_ELIDE=off` keeps every line, as before 0.22.
+pub fn elide_enabled() -> bool {
+    !matches!(std::env::var("DAM_ELIDE").as_deref(), Ok("off" | "0" | "false"))
+}
+
+// A long shell output without its middle: the first lines (what was run, the setup), the last (the result), every
+// line that mentions an error or a warning with its neighbours, and one line per gap saying how many were left out.
+// Returns the shortened text and the number of lines omitted, or None where that would not pay. The caller keeps the
+// original where the model can open it.
+pub fn elide(text: &str) -> Option<(String, usize)> {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() < KEEP_HEAD + KEEP_TAIL + 20 {
+        return None;
+    }
+    let n = lines.len();
+    let mut keep = vec![false; n];
+    keep[..KEEP_HEAD].fill(true);
+    keep[n - KEEP_TAIL..].fill(true);
+    let mut alarms = 0;
+    for (i, line) in lines.iter().enumerate().take(n - KEEP_TAIL).skip(KEEP_HEAD) {
+        if alarms < KEEP_ALARMS && is_alarm(line) {
+            alarms += 1;
+            keep[i.saturating_sub(1)..=(i + 1).min(n - 1)].fill(true);
+        }
+    }
+    let mut out = String::new();
+    let mut omitted = 0;
+    let mut gap = 0;
+    for (line, kept) in lines.iter().zip(&keep) {
+        if *kept {
+            if gap > 0 {
+                out.push_str(&format!("[... {gap} lines omitted ...]\n"));
+                omitted += gap;
+                gap = 0;
+            }
+            out.push_str(line);
+            out.push('\n');
+        } else {
+            gap += 1;
+        }
+    }
+    // Only a clear saving is worth the model's missing lines.
+    (omitted > 0 && out.len() * 10 < text.len() * 7).then_some((out, omitted))
+}
+
 // Keeps the `keep` newest files of `dir`: the originals every session saves there.
 pub fn prune(dir: &std::path::Path, keep: usize) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -399,16 +451,23 @@ pub fn prune(dir: &std::path::Path, keep: usize) {
 }
 
 // The tool results of Claude Code transcripts (`~/.claude/projects/*/*.jsonl`).
-fn tool_results(path: &std::path::Path) -> Vec<String> {
+// Each as (whether a shell tool printed it, the text).
+fn tool_results(path: &std::path::Path) -> Vec<(bool, String)> {
     let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    let mut shell_calls = std::collections::HashSet::new();
     let mut found = Vec::new();
-    for line in text.lines().filter(|line| line.contains("tool_result")) {
+    for line in text.lines().filter(|line| line.contains("tool_use") || line.contains("tool_result")) {
         let Ok(doc) = serde_json::from_str::<serde_json::Value>(line) else { continue };
-        for part in doc["message"]["content"].as_array().into_iter().flatten().filter(|p| p["type"] == "tool_result") {
-            match &part["content"] {
-                serde_json::Value::String(s) => found.push(s.clone()),
-                serde_json::Value::Array(items) => found.push(items.iter().filter_map(|i| i["text"].as_str()).collect::<Vec<_>>().join("\n")),
-                _ => {}
+        for part in doc["message"]["content"].as_array().into_iter().flatten() {
+            if part["type"] == "tool_use" && matches!(part["name"].as_str(), Some("Bash" | "PowerShell")) {
+                shell_calls.insert(part["id"].as_str().unwrap_or_default().to_string());
+            } else if part["type"] == "tool_result" {
+                let shell = shell_calls.contains(part["tool_use_id"].as_str().unwrap_or_default());
+                match &part["content"] {
+                    serde_json::Value::String(s) => found.push((shell, s.clone())),
+                    serde_json::Value::Array(items) => found.push((shell, items.iter().filter_map(|i| i["text"].as_str()).collect::<Vec<_>>().join("\n"))),
+                    _ => {}
+                }
             }
         }
     }
@@ -419,10 +478,24 @@ fn tool_results(path: &std::path::Path) -> Vec<String> {
 // `dam squeeze bench FILE...`: what the compression would save on real tool results, by output size, at today's floor and lower ones.
 pub fn bench(paths: &[String]) {
     const BUCKETS: [(usize, &str); 6] = [(500, "<500"), (2000, "500-2k"), (6000, "2k-6k"), (20000, "6k-20k"), (100_000, "20k-100k"), (usize::MAX, ">100k")];
-    let outputs: Vec<String> = paths.iter().flat_map(|p| tool_results(std::path::Path::new(p))).collect();
+    let all: Vec<(bool, String)> = paths.iter().flat_map(|p| tool_results(std::path::Path::new(p))).collect();
+    let outputs: Vec<String> = all.iter().map(|(_, text)| text.clone()).collect();
     let tokens = |text: &str| text.chars().count().div_ceil(4);
     let total: usize = outputs.iter().map(|o| tokens(o)).sum();
     println!("{} tool results, about {total} tokens", outputs.len());
+    // As the hooks decide today, the shortening of long shell outputs included.
+    let (mut lossless, mut shortened, mut shell_tokens) = (0usize, 0usize, 0usize);
+    for (shell, output) in &all {
+        if *shell {
+            shell_tokens += tokens(output);
+        }
+        if let Some(done) = crate::answers::condensed(output, shell.then_some("cmd")) {
+            let gain = done.before - done.after;
+            if done.elided { shortened += gain } else { lossless += gain }
+        }
+    }
+    let share = |n: usize| n as f64 * 100.0 / total.max(1) as f64;
+    println!("\nas the hooks decide now: {:.2}% of all tool output saved = {:.2}% lossless folding + {:.2}% shortened shell output (shell tools printed {:.1}% of all tokens)", share(lossless + shortened), share(lossless), share(shortened), share(shell_tokens));
     for floor in [WORTH_SQUEEZING_CHARS, 2000, 800] {
         let mut rows = [(0usize, 0usize, 0usize); 6];
         for output in &outputs {
@@ -483,6 +556,33 @@ mod tests {
         let out = round_trips(&text);
         assert!(out.contains("\nERROR database refused the connection\n"));
         assert!(out.len() * 3 < text.len(), "{} of {}", out.len(), text.len());
+    }
+
+    fn build_output(n: usize) -> String {
+        (0..n).map(|i| format!("compiling crate{i} v{}.{}.{} ({:x})\n", i % 7, i % 11, i % 13, i * 2654435761usize % 0xfffff)).collect()
+    }
+
+    #[test]
+    fn a_long_output_keeps_its_ends_and_every_error_line() {
+        let mut lines: Vec<String> = build_output(600).lines().map(String::from).collect();
+        lines[300] = "error[E0425]: cannot find value `x` in this scope".into();
+        let text = lines.join("\n") + "\n";
+        let (short, omitted) = elide(&text).unwrap();
+        assert!(short.starts_with("compiling crate0 "));
+        assert!(short.ends_with(&format!("{}\n", lines[599])));
+        // The error with the line before and after it.
+        assert!(short.contains(&format!("{}\n{}\n{}\n", lines[299], lines[300], lines[301])));
+        assert!(short.contains(&format!("[... {} lines omitted ...]", 270 - 1)) || short.contains("lines omitted"));
+        assert_eq!(omitted + short.lines().filter(|l| !l.starts_with("[... ")).count(), 600);
+        assert!(short.len() * 3 < text.len());
+    }
+
+    #[test]
+    fn a_short_output_or_one_with_no_clear_saving_is_not_shortened() {
+        assert!(elide(&build_output(100)).is_none());
+        // Every line in the middle is trouble: nothing to leave out.
+        let all: String = (0..130).map(|i| format!("error {i}\n")).collect();
+        assert!(elide(&all).is_none());
     }
 
     // Between 2,000 and 6,000 characters was never condensed while the hooks' own floor said it should be.

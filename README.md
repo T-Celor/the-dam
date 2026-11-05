@@ -170,7 +170,7 @@ Several sessions can run at once. Each keeps its own level, originals and counts
 
 Headroom saves a little more because it drops what goes past its caps.
 
-That corpus is outputs chosen for their repeated lines. On every tool result of a long working session (11,000 results, 4.2M tokens, from Claude Code transcripts) the lossless folding saves about **2%**: most results are file reads, diffs and test output with few repeated lines, and nothing is dropped. Measure your own sessions with `dam squeeze bench ~/.claude/projects/*/*.jsonl`.
+That corpus is outputs chosen for their repeated lines. On every tool result of a long working session (11,000 results, 4.2M tokens, from Claude Code transcripts) the lossless folding saves about **2%**: most results are file reads, diffs and test output with few repeated lines. Long shell output (from about 2,000 tokens) is also shortened: its first and last lines and every error or warning line stay, the middle is left out with its path, and with that the total is **8%** (`DAM_ELIDE=off` keeps every line). Measure your own sessions with `dam squeeze bench ~/.claude/projects/*/*.jsonl`.
 
 **Web pages**, the HTML as fetched against the Markdown the model reads:
 
