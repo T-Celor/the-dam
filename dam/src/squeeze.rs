@@ -388,10 +388,10 @@ fn squeeze_from(text: &str, floor: usize) -> String {
     best.filter(|result| result.len() < text.len()).unwrap_or_else(|| text.to_string())
 }
 
-// Shell output this long is shortened, not only folded: from about 4,000 tokens.
-pub const ELIDE_FROM_CHARS: usize = 8000;
-const KEEP_HEAD: usize = 30;
-const KEEP_TAIL: usize = 50;
+// Shell output this long is shortened, not only folded: from about 1,000 tokens.
+pub const ELIDE_FROM_CHARS: usize = 4000;
+const KEEP_HEAD: usize = 15;
+const KEEP_TAIL: usize = 30;
 // The lines that sound like trouble are kept (with the line before and after), up to this many.
 const KEEP_ALARMS: usize = 80;
 
@@ -453,6 +453,7 @@ pub fn prune(dir: &std::path::Path, keep: usize) {
 // The tool results of Claude Code transcripts (`~/.claude/projects/*/*.jsonl`).
 // Each as (whether a shell tool printed it, the text).
 fn tool_results(path: &std::path::Path) -> Vec<(bool, String)> {
+    let mut counted = std::collections::HashSet::new();
     let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
     let mut shell_calls = std::collections::HashSet::new();
     let mut found = Vec::new();
@@ -462,6 +463,10 @@ fn tool_results(path: &std::path::Path) -> Vec<(bool, String)> {
             if part["type"] == "tool_use" && matches!(part["name"].as_str(), Some("Bash" | "PowerShell")) {
                 shell_calls.insert(part["id"].as_str().unwrap_or_default().to_string());
             } else if part["type"] == "tool_result" {
+                // A transcript can hold the same call twice (resumed or copied history): once.
+                if !counted.insert(part["tool_use_id"].as_str().unwrap_or_default().to_string()) {
+                    continue;
+                }
                 let shell = shell_calls.contains(part["tool_use_id"].as_str().unwrap_or_default());
                 match &part["content"] {
                     serde_json::Value::String(s) => found.push((shell, s.clone())),
@@ -579,9 +584,9 @@ mod tests {
 
     #[test]
     fn a_short_output_or_one_with_no_clear_saving_is_not_shortened() {
-        assert!(elide(&build_output(100)).is_none());
+        assert!(elide(&build_output(50)).is_none());
         // Every line in the middle is trouble: nothing to leave out.
-        let all: String = (0..130).map(|i| format!("error {i}\n")).collect();
+        let all: String = (0..100).map(|i| format!("error {i}\n")).collect();
         assert!(elide(&all).is_none());
     }
 
@@ -684,4 +689,54 @@ mod tests {
         round_trips(&"\n".repeat(7000));
         round_trips(&"é".repeat(9000));
     }
+}
+
+// `dam squeeze profile FILE...`: which tools print the tokens, and how many are a result printed again in the same session.
+pub fn profile(paths: &[String]) {
+    use std::collections::{HashMap, HashSet};
+    let tokens = |text: &str| text.chars().count().div_ceil(4);
+    let mut by_tool: HashMap<String, (usize, usize)> = HashMap::new();
+    let (mut total, mut repeated, mut repeated_big) = (0usize, 0usize, 0usize);
+    for path in paths {
+        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let (mut names, mut seen): (HashMap<String, String>, HashSet<u64>) = (HashMap::new(), HashSet::new());
+        let mut ids: HashSet<String> = HashSet::new();
+        for line in text.lines().filter(|l| l.contains("tool_use") || l.contains("tool_result")) {
+            let Ok(doc) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+            for part in doc["message"]["content"].as_array().into_iter().flatten() {
+                if part["type"] == "tool_use" {
+                    names.insert(part["id"].as_str().unwrap_or_default().into(), part["name"].as_str().unwrap_or("?").into());
+                } else if part["type"] == "tool_result" {
+                    let body = match &part["content"] {
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Array(items) => items.iter().filter_map(|i| i["text"].as_str()).collect::<Vec<_>>().join("\n"),
+                        _ => continue,
+                    };
+                    if !ids.insert(part["tool_use_id"].as_str().unwrap_or_default().to_string()) {
+                        continue;
+                    }
+                    let size = tokens(&body);
+                    let name = names.get(part["tool_use_id"].as_str().unwrap_or_default()).cloned().unwrap_or_else(|| "?".into());
+                    let entry = by_tool.entry(name).or_default();
+                    entry.0 += 1;
+                    entry.1 += size;
+                    total += size;
+                    let hash = body.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
+                    if !seen.insert(hash) {
+                        repeated += size;
+                        if size >= 500 {
+                            repeated_big += size;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut rows: Vec<_> = by_tool.into_iter().collect();
+    rows.sort_by_key(|(_, (_, size))| std::cmp::Reverse(*size));
+    println!("{total} tokens");
+    for (name, (n, size)) in rows.iter().take(12) {
+        println!("  {name:<14} {n:>6} results {size:>9} tokens {:>5.1}%", *size as f64 * 100.0 / total.max(1) as f64);
+    }
+    println!("a result identical to an earlier one in its session: {repeated} tokens = {:.1}% ({repeated_big} tokens = {:.1}% in results of 500+ tokens)", repeated as f64 * 100.0 / total.max(1) as f64, repeated_big as f64 * 100.0 / total.max(1) as f64);
 }

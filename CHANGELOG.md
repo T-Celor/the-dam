@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.22.0
+## 0.22.1
 
-- **Long shell output is shortened, not only folded.** The lossless folding saves about 2% of all tool output in real sessions, because most output has few repeated lines. Shell tools printed 48% of the tokens in 11,000 results from real transcripts, so from about 2,000 tokens (8,000 characters) a command's output now keeps its first 30 lines, its last 50 and every line that mentions an error, a failure or a warning (with the lines around it, up to 80 such places); the lines between become `[... N lines omitted ...]`, and the footer says so and gives the path of the whole output. Measured on those results: **8.0%** of all tool output saved, against 2.0% with the lossless folding alone. Only what a shell printed is shortened (never a file read or a search), and only when that saves at least 30%. `DAM_ELIDE=off` brings back "every line kept". `dam squeeze bench FILE.jsonl...` prints the figures for your own sessions.
+- **Long shell output is shortened, not only folded.** The lossless folding saves about 2% of all tool output in real sessions, because most output has few repeated lines. Shell tools printed 48% of the tokens in 11,000 results from real transcripts, so from about 1,000 tokens (4,000 characters) a command's output now keeps its first 15 lines, its last 30 and every line that mentions an error, a failure or a warning (with the lines around it, up to 80 such places); the lines between become `[... N lines omitted ...]`, and the footer says so and gives the path of the whole output. Measured on those results (8,392 calls, 3.0M tokens, each counted once): **13.9%** of all tool output saved, against 1.6% with the lossless folding alone. Results that repeat an earlier one exactly are only 2.6%, so they are left as they are. Only what a shell printed is shortened (never a file read or a search), and only when that saves at least 30%. `DAM_ELIDE=off` brings back "every line kept". `dam squeeze bench FILE.jsonl...` prints the figures for your own sessions.
 
 ## 0.21.0
 

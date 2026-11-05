@@ -71,6 +71,10 @@ fn squeeze(args: &[String]) -> std::io::Result<()> {
             let Some(page) = dam::web::convert(&stdin_text()?, base) else { std::process::exit(3) };
             std::io::stdout().write_all(dam::web::render(&page, base).as_bytes())
         }
+        Some("profile") => {
+            dam::squeeze::profile(&args[1..]);
+            Ok(())
+        }
         Some("bench") => {
             dam::squeeze::bench(&args[1..]);
             Ok(())
