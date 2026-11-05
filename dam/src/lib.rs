@@ -26,6 +26,7 @@ pub mod web;
 pub mod cli;
 pub mod channels;
 pub mod hosts;
+pub mod hostgen;
 pub mod answers;
 pub mod journal;
 

@@ -26,8 +26,7 @@ jobs:
       - name: Build
         working-directory: dam
         run: cargo build --release --locked
-      - name: Run the programs end to end
-        shell: bash
-        run: sh scripts/smoke.sh
-      - name: Codex and Copilot packaging
-        run: node --test scripts/hosts.test.mjs
+      # `cargo test` also runs dam/tests: the programs end to end, and the Codex and Copilot packaging.
+      - name: Codex and Copilot files are current
+        working-directory: dam
+        run: ./target/release/dam hosts --check

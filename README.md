@@ -170,6 +170,8 @@ Several sessions can run at once. Each keeps its own level, originals and counts
 
 Headroom saves a little more because it drops what goes past its caps.
 
+That corpus is outputs chosen for their repeated lines. On every tool result of a long working session (11,000 results, 4.2M tokens, from Claude Code transcripts) the lossless folding saves about **2%**: most results are file reads, diffs and test output with few repeated lines, and nothing is dropped. Measure your own sessions with `dam squeeze bench ~/.claude/projects/*/*.jsonl`.
+
 **Web pages**, the HTML as fetched against the Markdown the model reads:
 
 | Page | HTML | Markdown | Saved | Time |
@@ -220,12 +222,12 @@ On html-to-markdown's own test files, the conversion matches 75% of lines, setti
 
 | What | How |
 |---|---|
-| Upstream | [`UPSTREAM`](UPSTREAM) records the version followed for each project. `scripts/upstream.sh` lists what changed since, and `scripts/upstream.sh <tool>` shows the diff. Changes are ported by hand. |
-| Tests | `cd dam && cargo test`, `claude plugin test .`, `claude plugin validate .`, `node --test scripts/hosts.test.mjs` |
-| Hosts | `.claude-plugin/plugin.json` and `hooks/hooks.json` are the one declaration. `node scripts/hosts.mjs` writes the Codex and Copilot manifests, marketplaces and hook files from them, and the tests fail when those are out of date. |
+| Upstream | [`UPSTREAM`](UPSTREAM) records the version followed for each project. Changes are compared and ported by hand (`git log` of each project from that point). |
+| Tests | `cd dam && cargo test` (unit tests, the programs end to end, the Codex and Copilot packaging), `claude plugin test .`, `claude plugin validate .` |
+| Hosts | `.claude-plugin/plugin.json` and `hooks/hooks.json` are the one declaration. `dam hosts` writes the Codex and Copilot manifests, marketplaces and hook files from them, and the tests fail when those are out of date. |
 | Benchmarks | `benchmarks/` holds the scripts behind the figures above |
-| CI | On every push: tests on Windows, Linux and macOS, then each program run end to end without a model (`scripts/smoke.sh`). CI then builds the programs for five platforms and commits them. |
-| Pictures | `uv run --with pillow python assets/draw.py` draws every picture in this README |
+| CI | On every push: tests on Windows, Linux and macOS, including each program run end to end without a model (`dam/tests/smoke.rs`). CI then builds the programs for five platforms and commits them. |
+| Pictures | `assets/` holds the finished pictures; the script that drew them (Python) was removed in 0.21, and stays in the Git history |
 | Changes | [CHANGELOG.md](CHANGELOG.md) |
 
 ```
@@ -233,7 +235,7 @@ hooks/register.tsx    Claude Code's side: status line, /the-dam pane, accounting
 dam/src/bin/dam.rs    the one program: dam squeeze, dam graph, dam beaver, dam te
 dam/src/              the library they share
 skills/               every command, for Claude Code, Codex and Copilot alike
-scripts/              dam-run (finds dam for this system), te, hosts.mjs (Codex and Copilot files), smoke.sh, upstream.sh
+scripts/              dam-run (finds dam for this system), te
 ```
 
 ## Managed setups

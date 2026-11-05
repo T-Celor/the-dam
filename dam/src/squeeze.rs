@@ -6,7 +6,7 @@ use crate::{folds, json};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 
-const WORTH_SQUEEZING_CHARS: usize = 6000;
+const WORTH_SQUEEZING_CHARS: usize = 2000;
 const SHORTEST_RUN: usize = 4;
 const SHORTEST_PREFIX: usize = 10;
 const SHORTEST_PREFIX_GROUP: usize = 4;
@@ -356,7 +356,11 @@ fn note_for(heading: &str, body: &[String]) -> String {
 }
 
 pub fn squeeze(text: &str) -> String {
-    if text.chars().count() < WORTH_SQUEEZING_CHARS {
+    squeeze_from(text, WORTH_SQUEEZING_CHARS)
+}
+
+fn squeeze_from(text: &str, floor: usize) -> String {
+    if text.chars().count() < floor {
         return text.to_string();
     }
     // Whole JSON: as a table when it is an array of records and reads back identically, else as it came.
@@ -391,6 +395,50 @@ pub fn prune(dir: &std::path::Path, keep: usize) {
     files.sort_by(|a, b| b.0.cmp(&a.0));
     for (_, path) in files.into_iter().skip(keep) {
         let _ = std::fs::remove_file(path);
+    }
+}
+
+// The tool results of Claude Code transcripts (`~/.claude/projects/*/*.jsonl`).
+fn tool_results(path: &std::path::Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    let mut found = Vec::new();
+    for line in text.lines().filter(|line| line.contains("tool_result")) {
+        let Ok(doc) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        for part in doc["message"]["content"].as_array().into_iter().flatten().filter(|p| p["type"] == "tool_result") {
+            match &part["content"] {
+                serde_json::Value::String(s) => found.push(s.clone()),
+                serde_json::Value::Array(items) => found.push(items.iter().filter_map(|i| i["text"].as_str()).collect::<Vec<_>>().join("\n")),
+                _ => {}
+            }
+        }
+    }
+
+    found
+}
+
+// `dam squeeze bench FILE...`: what the compression would save on real tool results, by output size, at today's floor and lower ones.
+pub fn bench(paths: &[String]) {
+    const BUCKETS: [(usize, &str); 6] = [(500, "<500"), (2000, "500-2k"), (6000, "2k-6k"), (20000, "6k-20k"), (100_000, "20k-100k"), (usize::MAX, ">100k")];
+    let outputs: Vec<String> = paths.iter().flat_map(|p| tool_results(std::path::Path::new(p))).collect();
+    let tokens = |text: &str| text.chars().count().div_ceil(4);
+    let total: usize = outputs.iter().map(|o| tokens(o)).sum();
+    println!("{} tool results, about {total} tokens", outputs.len());
+    for floor in [WORTH_SQUEEZING_CHARS, 2000, 800] {
+        let mut rows = [(0usize, 0usize, 0usize); 6];
+        for output in &outputs {
+            let chars = output.chars().count();
+            let at = BUCKETS.iter().position(|(top, _)| chars < *top).unwrap_or(5);
+            let (before, after) = (tokens(output), tokens(&squeeze_from(output, floor)));
+            rows[at].0 += 1;
+            rows[at].1 += before;
+            // As the hooks do: only a saving worth the note counts.
+            rows[at].2 += if before >= after + 100 { before - after } else { 0 };
+        }
+        let saved: usize = rows.iter().map(|r| r.2).sum();
+        println!("\nfloor {floor} chars: {saved} tokens saved = {:.2}% of all tool output", saved as f64 * 100.0 / total.max(1) as f64);
+        for ((_, name), (n, size, gain)) in BUCKETS.iter().zip(rows) {
+            println!("  {name:>9}: {n:>6} outputs {size:>9} tokens ({:>4.1}% of all) saved {gain:>8} ({:>4.1}% of its size)", size as f64 * 100.0 / total.max(1) as f64, gain as f64 * 100.0 / size.max(1) as f64);
+        }
     }
 }
 
@@ -435,6 +483,14 @@ mod tests {
         let out = round_trips(&text);
         assert!(out.contains("\nERROR database refused the connection\n"));
         assert!(out.len() * 3 < text.len(), "{} of {}", out.len(), text.len());
+    }
+
+    // Between 2,000 and 6,000 characters was never condensed while the hooks' own floor said it should be.
+    #[test]
+    fn a_short_log_above_the_floor_is_condensed_too() {
+        let text = log(60);
+        assert!((2000..6000).contains(&text.len()), "{}", text.len());
+        assert!(round_trips(&text).len() < text.len());
     }
 
     #[test]

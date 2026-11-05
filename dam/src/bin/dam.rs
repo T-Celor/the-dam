@@ -23,6 +23,8 @@ fn main() -> std::io::Result<()> {
             dam::beaver::run(rest);
         }
         Some("te" | "economizer" | "dam-economizer") => economizer(rest)?,
+        // The Codex and Copilot files, written from the one declaration (or checked against it).
+        Some("hosts") => std::process::exit(dam::hostgen::run(rest.first().map(String::as_str) == Some("--check"))),
         _ => {
             eprintln!("{USAGE}");
             std::process::exit(2);
@@ -68,6 +70,10 @@ fn squeeze(args: &[String]) -> std::io::Result<()> {
             let base = args.get(1).map(String::as_str).filter(|url| url.starts_with("http://") || url.starts_with("https://"));
             let Some(page) = dam::web::convert(&stdin_text()?, base) else { std::process::exit(3) };
             std::io::stdout().write_all(dam::web::render(&page, base).as_bytes())
+        }
+        Some("bench") => {
+            dam::squeeze::bench(&args[1..]);
+            Ok(())
         }
         _ => dam::squeeze::run(arg),
     }

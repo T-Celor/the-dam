@@ -18,7 +18,7 @@ claude plugin test .
 - **Hooks never fail the agent.** On any error a hook answers `{}` and the session goes on.
 - **Nothing leaves the machine.** No telemetry and no network calls in the Rust programs. The one model call, TokenEconomizer's judge, goes through the user's own Claude Code.
 - **Numbers come from a run.** A figure in the README needs a script in `benchmarks/`, and estimates say so.
-- **Same behaviour when porting.** A Rust port of TokenEconomizer must match the Python on the same inputs: see `benchmarks/hookdiff.py` and `benchmarks/lgdiff.py`.
+- **Same behaviour when porting.** A Rust port of TokenEconomizer must match the Python on the same inputs: the comparison scripts (Python) are in the Git history before 0.21.
 - **Keep third-party credit.** Update `NOTICE` when you take from another project.
 
 ## Report a bug

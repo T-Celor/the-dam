@@ -1,11 +1,9 @@
 # Benchmarks
 
-The scripts behind the README's numbers. They run on this machine and send nothing anywhere. Several read your own Claude Code session logs under `~/.claude/projects`, and Headroom's need its proxy on port 8787. They need local clones of the repositories they compare, passed as arguments.
+The comparison scripts of earlier versions (Python, against Headroom, graphify and the Python TokenEconomizer) were removed in 0.21, which is Rust only; they stay in the Git history. They need those projects checked out and, for Headroom, its proxy.
 
-| Script | Compares |
+What remains runs on this machine and sends nothing anywhere:
+
+| Command | Measures |
 |---|---|
-| `midcmp.py`, `rules.py` | `dam-squeeze` and Headroom |
-| `gaps.py`, `questions.py` | `dam-graph` and graphify |
-| `lgdiff.py`, `hookdiff.py`, `statdiff.py`, `wholediff.py` | The Rust and Python TokenEconomizer, on the same inputs |
-
-They were written to answer one question each, and are kept for that rather than polished.
+| `dam squeeze bench ~/.claude/projects/*/*.jsonl` | What the compression saves on the tool results of your own Claude Code sessions, by output size |
