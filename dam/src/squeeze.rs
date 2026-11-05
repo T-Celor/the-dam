@@ -355,7 +355,7 @@ fn note_for(heading: &str, body: &[String]) -> String {
     note
 }
 
-fn squeeze(text: &str) -> String {
+pub fn squeeze(text: &str) -> String {
     if text.chars().count() < WORTH_SQUEEZING_CHARS {
         return text.to_string();
     }

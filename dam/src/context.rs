@@ -1,10 +1,8 @@
-// Everything one hook call or command needs about where it runs (plugin/context.py), for Claude Code.
+// Everything one hook call or command needs about where it runs (plugin/context.py), for the host this process works for.
 use crate::config::Config;
 use crate::economizer::{state_root, Store};
 use crate::paths::{abspath, repo_identity, RepoId};
 use std::path::{Path, PathBuf};
-
-pub const HOST: &str = "claude";
 
 pub struct Ctx {
     pub root: PathBuf,
@@ -18,7 +16,7 @@ impl Ctx {
         let repo_dir = root.join("repos").join(&repo.key);
         let config = Config::load(&root, &repo_dir);
 
-        Ctx { store: Store { base: repo_dir.join(HOST) }, root, repo, config }
+        Ctx { store: Store { base: repo_dir.join(crate::hosts::name()) }, root, repo, config }
     }
 
     pub fn for_cwd(cwd: &Path) -> Self {

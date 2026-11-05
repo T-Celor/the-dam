@@ -44,17 +44,48 @@ claude plugin disable tokeneconomizer@tokeneconomizer
 claude plugin disable ponytail@ponytail
 ```
 
+### Codex and GitHub Copilot CLI
+
+```bash
+codex plugin marketplace add T-Celor/the-dam
+codex plugin add the-dam@the-dam
+```
+
+```bash
+copilot plugin marketplace add T-Celor/the-dam
+copilot plugin install the-dam@the-dam
+```
+
+In Codex, trust the plugin's hooks with `/hooks` before they run.
+
+| | Claude Code | Codex | Copilot |
+|---|---|---|---|
+| Compression and web pages | ✅ | ✅ | ✅ |
+| Map, at start and after a search | ✅ | ✅ | ✅ |
+| Map answers for code a prompt names | ✅ | ✅ | ✅ |
+| Loop guard, learned facts | ✅ | ✅ | ✅ |
+| Beaver, skills, `doctor`, `fallback` | ✅ | ✅ | ✅ |
+| Tool pruning | ✅ deny list | ✅ capabilities in `.codex/config.toml` | ✅ MCP servers in `.github/copilot/settings.local.json` |
+| 💧 counter: status line | ✅ | ❌ built-in items only | ✅ `/the-dam:statusline install` |
+| 💧 counter: on demand | `/the-dam` pane | `/the-dam:journal` | `/the-dam:journal` |
+
+Codex cannot rewrite a tool's output, so the condensed one comes back as the hook's feedback, which Codex gives the model in its place. Copilot drops what its prompt hook prints, so the map's answer for a prompt goes into the prompt the model receives (`userPromptTransformed`). The loop guard's judge runs through the host's own CLI (`claude -p`, `codex exec` in a read-only sandbox, `copilot -p` with every tool denied).
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `/the-dam` | The session's journal beside the chat, newest first, with its totals |
 | `/the-dam-compress` | Compression on or off |
+| `/the-dam:journal` | What the dam saved this session and since it was installed, in any host |
+| `/the-dam:statusline install` | The 💧 counter in Copilot's status line (`uninstall` takes it out) |
 | `/the-dam:status` | What TokenEconomizer learned for this repository |
 | `/the-dam:toolprune` | The tools left out here; give one back or apply a waiting list |
 | `/the-dam:config` | Each TokenEconomizer mechanism on, off or tuned |
 | `/the-dam:microskills` | The learned facts given at session start |
 | `/the-dam:repos` | Every repository with learned state |
+| `/the-dam:doctor` | Whether the dam's context reaches the model here, and what blocks it |
+| `/the-dam:fallback on\|off` | Where hooks are blocked, the model fetches that context itself |
 | `/beaver lite\|full\|ultra\|off` | Beaver's level for this session (`full` by default) |
 | `/the-dam:beaver-review`, `:beaver-audit` | Review of a change, or of the whole repository |
 | `/the-dam:beaver-debt` | Every `shortcut:` comment, as a ledger |
@@ -84,19 +115,19 @@ A `0`, `off` or `–` means the tool has had nothing to do yet.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-compression-dark.gif"><img src="assets/part-compression.gif" width="600" alt="Five retry lines fold into one template with a table of values: 24% fewer tokens"></picture>
 
-`dam-squeeze` takes Bash, PowerShell, Grep and MCP outputs of 2,000 characters or more. Lines that differ only by numbers become a template and a table of values, repeated lines a count, search hits a list per file, JSON records a table. Errors and outliers stay as they are, and each result is decoded and checked against the source before the model sees it. The original stays in `~/.claude/the-dam-outputs/`.
+`dam squeeze` takes Bash, PowerShell, Grep and MCP outputs of 2,000 characters or more. Lines that differ only by numbers become a template and a table of values, repeated lines a count, search hits a list per file, JSON records a table. Errors and outliers stay as they are, and each result is decoded and checked against the source before the model sees it. The original stays in `~/.claude/the-dam-outputs/`.
 
 ### Web pages
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-web-dark.gif"><img src="assets/part-web.gif" width="600" alt="Menus, ads and scripts drop out of a fetched page and the rest becomes Markdown: 99% smaller"></picture>
 
-When a command fetches a page (`curl`, `wget`, `Invoke-WebRequest`), `dam-squeeze --web` keeps its main content, as Readability picks it, and writes it as Markdown with html-to-markdown's rules for escaping, tables, code and links. The full HTML is kept in a file.
+When a command fetches a page (`curl`, `wget`, `Invoke-WebRequest`), `dam squeeze --web` keeps its main content, as Readability picks it, and writes it as Markdown with html-to-markdown's rules for escaping, tables, code and links. The full HTML is kept in a file.
 
 ### Map
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-map-dark.gif"><img src="assets/part-map.gif" width="600" alt="A question walks the local map to where a name is defined: crusher.rs line 118"></picture>
 
-`dam-graph` records who defines, calls, extends and imports what in 10 languages, plus document headings and links and the keys of YAML, TOML and JSON. It is rebuilt at each session start. When a prompt or a `Grep` names something, where it is defined and what calls it are added for the model.
+`dam graph` records who defines, calls, extends and imports what in 10 languages, plus document headings and links and the keys of YAML, TOML and JSON. It is rebuilt at each session start. When a prompt or a `Grep` names something, where it is defined and what calls it are added for the model.
 
 ### Tool pruning
 
@@ -190,19 +221,26 @@ On html-to-markdown's own test files, the conversion matches 75% of lines, setti
 | What | How |
 |---|---|
 | Upstream | [`UPSTREAM`](UPSTREAM) records the version followed for each project. `scripts/upstream.sh` lists what changed since, and `scripts/upstream.sh <tool>` shows the diff. Changes are ported by hand. |
-| Tests | `cd dam && cargo test`, `claude plugin test .`, `claude plugin validate .` |
+| Tests | `cd dam && cargo test`, `claude plugin test .`, `claude plugin validate .`, `node --test scripts/hosts.test.mjs` |
+| Hosts | `.claude-plugin/plugin.json` and `hooks/hooks.json` are the one declaration. `node scripts/hosts.mjs` writes the Codex and Copilot manifests, marketplaces and hook files from them, and the tests fail when those are out of date. |
 | Benchmarks | `benchmarks/` holds the scripts behind the figures above |
 | CI | On every push: tests on Windows, Linux and macOS, then each program run end to end without a model (`scripts/smoke.sh`). CI then builds the programs for five platforms and commits them. |
 | Pictures | `uv run --with pillow python assets/draw.py` draws every picture in this README |
 | Changes | [CHANGELOG.md](CHANGELOG.md) |
 
 ```
-hooks/register.tsx    status line, /the-dam pane, compression and map calls
-dam/src/bin/          dam-squeeze, dam-graph, dam-beaver, dam-economizer
+hooks/register.tsx    Claude Code's side: status line, /the-dam pane, accounting; each decision comes from dam
+dam/src/bin/dam.rs    the one program: dam squeeze, dam graph, dam beaver, dam te
 dam/src/              the library they share
-skills/, commands/    Beaver's and TokenEconomizer's
-scripts/              dam-run (picks the right program), te, upstream.sh, smoke.sh
+skills/               every command, for Claude Code, Codex and Copilot alike
+scripts/              dam-run (finds dam for this system), te, hosts.mjs (Codex and Copilot files), smoke.sh, upstream.sh
 ```
+
+## Managed setups
+
+Some company setups block plugin hooks or modules (`disableAllHooks`, `allowManagedHooksOnly`). The dam keeps working there, but nothing it adds reaches the model: no map, no learned facts, no Beaver rules. `/the-dam:doctor` shows which parts ran and names the policy when it can read it.
+
+`/the-dam:fallback on` adds one marked instruction to your user instructions file, never to the project: `~/.claude/CLAUDE.md`, or with Codex `~/.codex/AGENTS.md`, or with Copilot `~/.copilot/copilot-instructions.md` (the `fallback` and `doctor` skills work in all three). In each project the model runs `te context` once, which prints what the hooks would have added. It also learns to pipe long outputs through `dam squeeze`. Nothing changes where hooks work, and `/the-dam:fallback off` removes the instruction. Tool pruning, the loop guard and automatic compression still need hooks or the module.
 
 ## Limits
 
@@ -211,7 +249,7 @@ scripts/              dam-run (picks the right program), te, upstream.sh, smoke.
 - The Windows programs are not signed, so Windows may warn about them.
 - The map is a scanner, not a parser, so unusual syntax can be missed. Documents are read for headings, links and quoted names only.
 - Web conversion drops `data:` images, HTML comments, and empty or in-page links.
-- The TokenEconomizer rewrite works with Claude Code only.
+- The Codex and Copilot packaging is tested against each host's documented hook payloads (`node --test scripts/hosts.test.mjs`), not in real Codex or Copilot sessions. How Codex shows a hook's feedback in place of an output is not verified.
 
 ## Licence
 

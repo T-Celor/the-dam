@@ -1,10 +1,8 @@
 #!/bin/sh
-# Runs one of the plugin's programs for this machine: the build it ships, else one built here
+# Runs the dam's one program, `dam`, for this machine: the build it ships, else one built here
 # with `cargo install`. A hook must never fail the agent, so with none it answers "no change".
 # On Windows it starts nothing but the program: each process costs tens of milliseconds under Git
 # Bash, and Claude Code cancels a session-end hook that is not done quickly.
-name=$1
-shift
 self=$0
 case $self in *\*) self=$(printf '%s' "$self" | tr '\' '/') ;; esac
 case $self in */*) dir=${self%/*} ;; *) dir=. ;; esac
@@ -19,10 +17,10 @@ else
     *) folder=unknown ext= ;;
   esac
 fi
-for program in "$dir/../bin/$folder/$name$ext" "$HOME/.cargo/bin/$name$ext"; do
+for program in "$dir/../bin/$folder/dam$ext" "$HOME/.cargo/bin/dam$ext"; do
   [ -x "$program" ] && exec "$program" "$@"
 done
-command -v "$name" >/dev/null 2>&1 && exec "$name" "$@"
+command -v dam >/dev/null 2>&1 && exec dam "$@"
 [ -n "${DAM_RUN_OR_FAIL:-}" ] && exit 127
 while IFS= read -r _line; do :; done
 echo '{}'

@@ -17,7 +17,7 @@ case "$(uname -s)-$(uname -m)" in
   *) echo "unknown system" >&2; exit 1 ;;
 esac
 mkdir -p "$root/bin/$folder"
-for name in dam-squeeze dam-graph dam-beaver dam-economizer; do
+for name in dam; do
   cp "$root/dam/target/release/$name$ext" "$root/bin/$folder/$name$ext"
 done
 run="$root/scripts/dam-run"
@@ -35,8 +35,8 @@ while [ "$i" -lt 400 ]; do
   echo "2026-01-01 12:00:$i INFO worker $i finished job $i in $i ms"
   i=$((i + 1))
 done >"$work/log.txt"
-"$run" dam-squeeze <"$work/log.txt" >"$work/small.txt"
-"$run" dam-squeeze --decode <"$work/small.txt" >"$work/back.txt"
+"$run" squeeze <"$work/log.txt" >"$work/small.txt"
+"$run" squeeze --decode <"$work/small.txt" >"$work/back.txt"
 cmp "$work/log.txt" "$work/back.txt"
 [ "$(wc -c <"$work/small.txt")" -lt "$(wc -c <"$work/log.txt")" ]
 echo "ok: compression round trip"
@@ -47,18 +47,18 @@ mkdir -p "$repo"
 cp -R "$root/dam/src" "$repo/src"
 git -C "$repo" init -q
 git -C "$repo" add -A
-(cd "$repo" && "$run" dam-graph update >/dev/null)
-check "graph query" "$(cd "$repo" && "$run" dam-graph query "where is the lossless decode")" "squeeze"
+(cd "$repo" && "$run" graph update >/dev/null)
+check "graph query" "$(cd "$repo" && "$run" graph query "where is the lossless decode")" "squeeze"
 
 # Status, then a whole turn of hooks on it.
-check "status" "$("$run" dam-economizer --cwd "$repo" status)" "TokenEconomizer -- repo"
-check "status as json" "$("$run" dam-economizer --cwd "$repo" status --json)" '"identified_by": "path"'
+check "status" "$("$run" te --cwd "$repo" status)" "TokenEconomizer -- repo"
+check "status as json" "$("$run" te --cwd "$repo" status --json)" '"identified_by": "path"'
 
-key=$("$run" dam-economizer --cwd "$repo" status --json | sed -n 's/.*"repo_key": "\(.*\)",/\1/p')
+key=$("$run" te --cwd "$repo" status --json | sed -n 's/.*"repo_key": "\(.*\)",/\1/p')
 mkdir -p "$TOKENECONOMIZER_HOME/sessions/claude" "$TOKENECONOMIZER_HOME/repos/$key/claude"
 printf '{"key":"%s","root":"%s","label":"repo","remote":"","how":"path","at":1}' "$key" "$repo" >"$TOKENECONOMIZER_HOME/sessions/claude/smoke.json"
 hook() {
-  printf '{"session_id":"smoke","cwd":"%s","hook_event_name":%s}' "$repo" "$1" | TE_JUDGE_NO_SPAWN=1 "$run" dam-economizer hook
+  printf '{"session_id":"smoke","cwd":"%s","hook_event_name":%s}' "$repo" "$1" | TE_JUDGE_NO_SPAWN=1 "$run" te hook
 }
 hook '"UserPromptSubmit","prompt_id":"p1","prompt":"go"' >/dev/null
 hook '"PostToolUse","prompt_id":"p1","tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"stdout":"a"}' >/dev/null
@@ -66,6 +66,7 @@ hook '"Stop","prompt_id":"p1"' >/dev/null
 hook '"SessionEnd","reason":"exit"' >/dev/null
 check "session recorded" "$(cat "$TOKENECONOMIZER_HOME/repos/$key/claude/sessions/smoke.json")" '"end_reason": "exit"'
 
-check "beaver" "$(printf '{"session_id":"smoke","cwd":"%s"}' "$repo" | "$run" dam-beaver activate)" "BEAVER"
+check "beaver" "$(printf '{"session_id":"smoke","cwd":"%s"}' "$repo" | "$run" beaver activate)" "BEAVER"
+check "a hook loaded before 0.21" "$(printf '{"session_id":"smoke","cwd":"%s"}' "$repo" | "$run" dam-beaver activate)" "BEAVER"
 check "te command" "$("$root/scripts/te" --cwd "$repo" config show)" "loopguard"
 echo "all good on $folder"

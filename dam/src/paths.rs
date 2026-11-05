@@ -62,6 +62,29 @@ fn plain_verbatim(path: PathBuf) -> PathBuf {
 }
 
 // As os.path.realpath: what exists is resolved, what does not is kept as written.
+// Replaces `path` whole or not at all. The temporary file beside it is created new (O_EXCL, which follows no link):
+// a repository could have planted a link at that name, to send the write to the person's own settings.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+        fs::create_dir_all(dir)?;
+    }
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |at| at.subsec_nanos());
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".dam-{}-{nanos:x}.tmp", std::process::id()));
+    let temp = path.with_file_name(name);
+    // Only the link goes, never what it points to.
+    let _ = fs::remove_file(&temp);
+    let written = fs::OpenOptions::new().write(true).create_new(true).open(&temp).and_then(|mut file| file.write_all(bytes).and_then(|()| file.sync_all()));
+    match written.and_then(|()| fs::rename(&temp, path)) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = fs::remove_file(&temp);
+            Err(error)
+        }
+    }
+}
+
 pub fn realpath(path: &Path) -> PathBuf {
     let whole = abspath(path);
     let mut existing = whole.as_path();
@@ -234,6 +257,16 @@ mod tests {
 #[cfg(test)]
 mod tests_upstream {
     use super::*;
+
+    #[test]
+    fn an_atomic_write_replaces_the_whole_file_and_leaves_no_temporary_one() {
+        let dir = crate::session::TempDir::new("dam-paths-").unwrap();
+        let path = dir.0.join("sub").join("settings.json");
+        write_atomic(&path, b"one").unwrap();
+        write_atomic(&path, b"two").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"two");
+        assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+    }
 
     // The values upstream's paths.normalize_remote and names.repo_filename give.
     #[test]

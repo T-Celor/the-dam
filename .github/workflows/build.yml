@@ -31,7 +31,7 @@ jobs:
           if [ -n "${{ matrix.target }}" ]; then
             rustup target add "${{ matrix.target }}"
             cargo build --release --locked --target "${{ matrix.target }}"
-            cp target/${{ matrix.target }}/release/dam-* target/release/ 2>/dev/null || { mkdir -p target/release; cp target/${{ matrix.target }}/release/dam-* target/release/; }
+            mkdir -p target/release && cp target/${{ matrix.target }}/release/dam target/release/
           else
             cargo build --release --locked
           fi
@@ -39,9 +39,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p out
-          for name in dam-squeeze dam-graph dam-beaver dam-economizer; do
-            cp "dam/target/release/$name${{ matrix.ext }}" out/
-          done
+          cp "dam/target/release/dam${{ matrix.ext }}" out/
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.folder }}
@@ -57,6 +55,8 @@ jobs:
           path: built
       - name: Commit what changed
         run: |
+          # One program since 0.21: the four it replaces go.
+          rm -f bin/*/dam-squeeze* bin/*/dam-graph* bin/*/dam-beaver* bin/*/dam-economizer* bin/*/dam-ponytail*
           for folder in built/*; do
             mkdir -p "bin/$(basename "$folder")"
             cp "$folder"/* "bin/$(basename "$folder")/"
@@ -64,6 +64,6 @@ jobs:
           chmod +x bin/*/*
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add bin
+          git add -A bin
           git diff --cached --quiet || git commit -m "Build programs [skip ci]"
           git push

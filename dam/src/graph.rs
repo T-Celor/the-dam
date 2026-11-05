@@ -469,6 +469,11 @@ fn answer(graph: &Graph, question: &str) -> String {
     out
 }
 
+// The graph's answer about `name`, from the graph file at `path`; None where there is no readable graph.
+pub fn answer_from(path: &str, name: &str) -> Option<String> {
+    load(path).ok().map(|graph| answer(&graph, name))
+}
+
 pub fn run(args: &[String]) {
     match args.first().map(String::as_str) {
         Some("update") => {
@@ -492,7 +497,7 @@ pub fn run(args: &[String]) {
             }
         },
         _ => {
-            eprintln!("usage: dam-graph update | dam-graph query \"question\"");
+            eprintln!("usage: dam graph update | dam graph query \"question\"");
             std::process::exit(2);
         }
     }

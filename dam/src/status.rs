@@ -104,7 +104,7 @@ fn fmt_tokens(number: f64) -> String {
 
 // The repository a running session was pinned to, following any merge made since the pin.
 pub(crate) fn pinned(root: &Path, session: &str) -> Option<RepoId> {
-    let doc: Value = serde_json::from_slice(&fs::read(root.join("sessions").join("claude").join(pin_name(session))).ok()?).ok()?;
+    let doc: Value = serde_json::from_slice(&fs::read(root.join("sessions").join(crate::hosts::name()).join(pin_name(session))).ok()?).ok()?;
     let field = |name: &str| doc.get(name).and_then(Value::as_str).unwrap_or("").to_string();
     let mut repo = RepoId { root: field("root"), key: field("key"), label: field("label"), remote: field("remote"), how: field("how") };
     if repo.key.is_empty() || repo.root.is_empty() {
@@ -149,7 +149,7 @@ fn describe(repo: &RepoId) -> String {
 
 pub(crate) fn gather(repo: &RepoId, root: &Path) -> Value {
     let repo_dir = root.join("repos").join(&repo.key);
-    let store = Store { base: repo_dir.join("claude") };
+    let store = Store { base: repo_dir.join(crate::hosts::name()) };
     let config = Config::load(root, &repo_dir);
     let injection = store.read("injection.json").unwrap_or(Value::Null);
     let untool = store.read("untool.json").unwrap_or(Value::Null);
@@ -163,7 +163,7 @@ pub(crate) fn gather(repo: &RepoId, root: &Path) -> Value {
         "repo_root": repo.root,
         "repo_key": repo.key,
         "identified_by": repo.how,
-        "host": "claude",
+        "host": crate::hosts::name(),
         "state": store.base.to_string_lossy(),
         "config": config.as_dict(),
         "warnings": config.warnings,
@@ -175,7 +175,7 @@ pub(crate) fn gather(repo: &RepoId, root: &Path) -> Value {
             "prompts": untool.get("prompts").cloned().unwrap_or(json!(0)),
             "catalog_source": untool.get("catalog_source").cloned().unwrap_or(Value::Null),
             "proposal": untool.get("proposal").cloned().unwrap_or(json!([])),
-            "applied": crate::denylist::applied_for(&store, &repo.root),
+            "applied": crate::denylist::applied_for(&store, &repo.root, crate::hosts::current()),
         },
         "loopguard": {"mode": config.loopguard, "envelope": tracker.envelope(), "ended_green_turns": tracker.resolved_turns.len()},
         "ledger": summarize(&records),
@@ -185,7 +185,7 @@ pub(crate) fn gather(repo: &RepoId, root: &Path) -> Value {
 // `te status --explain`: the saved state described in words, never a guess at why a past turn did not act.
 fn explanations(root: &Path, repo: &RepoId) -> Value {
     let repo_dir = root.join("repos").join(&repo.key);
-    let store = Store { base: repo_dir.join("claude") };
+    let store = Store { base: repo_dir.join(crate::hosts::name()) };
     let config = Config::load(root, &repo_dir);
     if !config.enabled {
         return json!({"plugin": "plugin is disabled; hooks record nothing"});
@@ -249,7 +249,7 @@ fn explanations(root: &Path, repo: &RepoId) -> Value {
             } else {
                 "unapplied proposal recorded"
             }
-        } else if !crate::denylist::applied_for(&store, &repo.root).is_empty() {
+        } else if !crate::denylist::applied_for(&store, &repo.root, crate::hosts::current()).is_empty() {
             "deny rules recorded as applied for this checkout"
         } else if untool.as_object().is_some_and(serde_json::Map::is_empty) {
             "no tool-usage snapshot recorded for this agent/repository yet"

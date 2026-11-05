@@ -43,15 +43,17 @@ pub fn fold_session(ctx: &Ctx, session: &str, transcript_path: Option<&str>) -> 
     let sess_name = format!("sessions/{session}.json");
     let mut sess = ctx.store.read(&sess_name).filter(Value::is_object).unwrap_or_else(|| json!({}));
     let transcript = transcript_path.map(str::to_string).filter(|path| !path.is_empty()).or_else(|| sess.get("transcript").and_then(Value::as_str).filter(|path| !path.is_empty()).map(str::to_string));
-    let mut record = json!({"kind": "session", "session_id": session, "host": "claude", "repo": ctx.repo.label, "folded_at": now(), "started": sess.get("started"), "ended": sess.get("ended"), "shadow": ctx.config.shadow});
+    let mut record = json!({"kind": "session", "session_id": session, "host": crate::hosts::name(), "repo": ctx.repo.label, "folded_at": now(), "started": sess.get("started"), "ended": sess.get("ended"), "shadow": ctx.config.shadow});
     let workdir = TempDir::new("te-fold-")?;
-    let trace_path = transcript.as_deref().map(Path::new).filter(|path| path.exists());
-    let prompts = transcript.as_deref().map(|path| crate::trace::claude_prompt_count(Path::new(path)));
+    // Another host's log is read as the Claude Code transcript it converts to.
+    let host = crate::hosts::current();
+    let trace_path = transcript.as_deref().and_then(|path| crate::hosts::claude_log(host, Path::new(path), &workdir.0));
+    let prompts = transcript.as_deref().map(|path| crate::trace::claude_prompt_count(trace_path.as_deref().unwrap_or(Path::new(path))));
     record["prompts"] = json!(prompts);
     match trace_path {
         None => record["error"] = json!("transcript unreadable"),
         Some(trace_path) => {
-            let run = run_dir(&workdir.0, trace_path)?;
+            let run = run_dir(&workdir.0, &trace_path)?;
             let _mechanisms = ctx.store.locked("mechanisms");
             let profile = ctx.config.text("microskills");
             // The proposer's paid calls, unless this agent's model calls are paused: then none answers.
@@ -66,7 +68,7 @@ pub fn fold_session(ctx: &Ctx, session: &str, transcript_path: Option<&str>) -> 
                 crate::toolprune::schedule_pending(ctx);
             }
             record["untool"] = untool;
-            let usage = crate::trace::claude_session_usage(Path::new(transcript.as_deref().unwrap_or("")));
+            let usage = crate::hosts::session_usage(host, Path::new(transcript.as_deref().unwrap_or("")));
             let (effective, priced_by) = crate::pricing::effective(&usage);
             for key in ["model", "requests", "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"] {
                 record[key] = usage.get(key).cloned().unwrap_or(Value::Null);
@@ -81,7 +83,7 @@ pub fn fold_session(ctx: &Ctx, session: &str, transcript_path: Option<&str>) -> 
     record["nudges"] = json!(whole(sess.get("nudges")));
     record["aborts"] = json!(whole(sess.get("aborts")));
     record["injected_chars"] = json!(whole(sess.get("injected_chars")));
-    record["untool_applied"] = json!(crate::denylist::applied_for(&ctx.store, &ctx.repo.root));
+    record["untool_applied"] = json!(crate::denylist::applied_for(&ctx.store, &ctx.repo.root, host));
     record["overhead"] = json!({"optimizer_tokens": optimizer, "spiral_judge_tokens": float("judge_tokens"), "spiral_nudge_writer_tokens": float("writer_tokens")});
     ctx.store.append("ledger.jsonl", &record)?;
     folded[session] = json!({"at": now(), "transcript": transcript});

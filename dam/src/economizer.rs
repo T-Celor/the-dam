@@ -2,6 +2,7 @@
 // controller.py, store.py, config.py, hosts.py and judge.py. Every Claude Code event is answered here, on
 // the same state files; another agent's payload is answered `{}`.
 use crate::config::plain_text;
+use crate::channels::Host;
 use crate::context::Ctx;
 use std::process::Command;
 use crate::loopguard::{BackgroundJudge, EnvelopeTracker, Judge, Thresholds, TurnGuard};
@@ -396,7 +397,7 @@ impl Hook {
     fn session_doc(&self) -> Value {
         match self.store.read(&format!("sessions/{}.json", self.session)) {
             Some(doc @ Value::Object(_)) => doc,
-            _ => json!({"session_id": self.session, "host": "claude", "started": now(), "cwd": self.cwd(), "turns": [], "nudges": 0, "aborts": 0, "judge_tokens": 0.0, "writer_tokens": 0.0}),
+            _ => json!({"session_id": self.session, "host": crate::hosts::name(), "started": now(), "cwd": self.cwd(), "turns": [], "nudges": 0, "aborts": 0, "judge_tokens": 0.0, "writer_tokens": 0.0}),
         }
     }
 
@@ -496,21 +497,23 @@ impl Hook {
     // The deny list's lines at session start, each said once: what `auto` removed from this checkout's sessions,
     // and a proposal still waiting (under `propose`, or when `auto` could not write the settings file).
     fn toolprune_notices(&self, seen: &mut Map<String, Value>) -> Vec<Value> {
-        let (command, unit) = ("/tokeneconomizer:toolprune", "tool");
+        let host = crate::hosts::current();
+        // controller._cmd: Codex runs the plugin's commands as skills.
+        let (command, unit) = (crate::hosts::skill("toolprune"), crate::denylist::unit(host));
         let waiting = self.store.read("untool.json").unwrap_or(Value::Null);
-        let mut mine = crate::denylist::applied_for(&self.store, &self.repo.root);
+        let mut mine = crate::denylist::applied_for(&self.store, &self.repo.root, host);
         mine.sort();
         let few = |items: &[String]| format!("{}{}", items.iter().take(4).cloned().collect::<Vec<_>>().join(", "), if items.len() > 4 { "..." } else { "" });
         let auto = self.config.text("toolprune") == "auto";
         let mut out = Vec::new();
         if auto && seen.get("untool_applied").and_then(Value::as_str).unwrap_or("") != mine.join(",") {
             if !mine.is_empty() {
-                out.push(json!({"systemMessage": format!("TokenEconomizer removed {} {unit}(s) this repository's sessions never used ({}), from this session on. Review with `{command}`; `{command} restore` gives them back.", mine.len(), few(&mine))}));
+                out.push(json!({"systemMessage": format!("TokenEconomizer removed {} {unit}(s) this repository's sessions never used ({}), from this session on. Review with `{command}`; `{command} restore` gives them back.{}", mine.len(), few(&mine), if crate::denylist::trusted(host, &self.repo.root) == Some(false) { " (The agent reads that setting only in a trusted folder: trust this one.)" } else { "" })}));
             }
             seen.insert("untool_applied".to_string(), json!(mine.join(",")));
         }
         // What this checkout already applied, or gave back, is no news here.
-        let kept = crate::denylist::kept_for(&self.store, &self.repo.root);
+        let kept = crate::denylist::kept_for(&self.store, &self.repo.root, host);
         let refused = waiting.get("auto_apply_refused").filter(|why| auto && python_truthy(why));
         let proposal: Vec<String> = if auto && refused.is_none() {
             Vec::new()
@@ -546,10 +549,16 @@ impl Hook {
 
         if self.config.text("microskills") != "off" {
             let injection = self.store.read("injection.json").unwrap_or(Value::Null);
-            let text = injection.get("rendered").and_then(Value::as_str).unwrap_or("");
+            let mut text = injection.get("rendered").and_then(Value::as_str).unwrap_or("").to_string();
             // A resumed conversation replays what the first start added; a cleared or compacted one has lost it.
             let fresh = matches!(source.as_str(), "startup" | "new" | "clear" | "compact");
-            if !text.is_empty() && fresh {
+            // Copilot rebuilds a resumed conversation without it: the same text again puts it back as its prompt cache has it.
+            let rebuilt = !fresh && crate::hosts::current() == Host::Copilot;
+            if rebuilt {
+                text = doc.get("injected_text").and_then(Value::as_str).filter(|_| doc.get("injected_chars").is_some_and(python_truthy)).unwrap_or("").to_string();
+            }
+            let text = text.as_str();
+            if !text.is_empty() && (fresh || rebuilt) {
                 let facts = text.lines().filter(|line| line.starts_with("- ")).count();
                 self.log("inject", json!({"chars": text.chars().count(), "facts": facts, "source": source}))?;
                 if !self.config.shadow {
@@ -561,7 +570,7 @@ impl Hook {
                     }
                     let digest = sha1_smol::Sha1::from(text).digest().to_string();
                     if seen.get("injection").and_then(Value::as_str) != Some(&digest) {
-                        outputs.push(merge_context("", None, Some(&format!("TokenEconomizer: added {facts} learned fact(s) about {} to this session's context (review with `/tokeneconomizer:microskills`).", self.repo.label))));
+                        outputs.push(merge_context("", None, Some(&format!("TokenEconomizer: added {facts} learned fact(s) about {} to this session's context (review with `{}`).", self.repo.label, crate::hosts::skill("microskills")))));
                         seen.insert("injection".to_string(), json!(digest));
                     }
                 }
@@ -575,7 +584,7 @@ impl Hook {
         let calls_a_model = self.config.text("microskills").contains("distiller") || self.config.loopguard != "off";
         if let Some(pause) = crate::sidecall::paused(&self.root).filter(|_| calls_a_model && !self.config.shadow) {
             if seen.get("sidecall_paused") != pause.get("at") {
-                outputs.push(merge_context("", None, Some("TokenEconomizer: the plugin's own model calls go through `claude -p`, which answered that it is not signed in, so they are paused; facts that need no model call are still learned, and the loop guard redirects only at its backstop. `/tokeneconomizer:config set microskills=on` (or `loopguard=on`) tries again.")));
+                outputs.push(merge_context("", None, Some(&format!("TokenEconomizer: the plugin's own model calls go through `{}`, which answered that it is not signed in, so they are paused; facts that need no model call are still learned, and the loop guard redirects only at its backstop. `{} set microskills=on` (or `loopguard=on`) tries again.", crate::hosts::call_name(crate::hosts::current()), crate::hosts::skill("config")))));
                 seen.insert("sidecall_paused".to_string(), pause["at"].clone());
             }
         }
@@ -606,6 +615,9 @@ impl Hook {
         match self.config.mode.as_str() {
             "headless" => true,
             "interactive" => false,
+            _ if crate::hosts::current() == Host::Codex => crate::hosts::codex_headless(&self.text("transcript_path")),
+            // shortcut: Copilot's `-p` is told apart only by its process's ancestors, which are not read; its notice keeps the interactive hint.
+            _ if crate::hosts::current() == Host::Copilot => false,
             _ => match std::env::var("CLAUDE_CODE_SESSION_ATTENDED").unwrap_or_default().trim() {
                 "0" => true,
                 "1" => false,
@@ -665,9 +677,11 @@ impl Hook {
                 doc["aborts"] = json!(doc.get("aborts").and_then(Value::as_i64).unwrap_or(0) + 1);
                 self.log("abort", json!({"reason": reason, "tool_calls": guard.cum_turns, "envelope": envelope, "delivered": "notice"}))?;
                 if !self.config.shadow {
-                    let hint = if self.is_headless() { "Press Ctrl+C to end the run." } else { "Press Esc to interrupt it." };
+                    let hint = crate::hosts::stop_hint(crate::hosts::current(), self.is_headless());
                     let text = format!("TokenEconomizer: this turn still looks stuck after a redirect ({short}, {} tool calls). {hint}", guard.cum_turns);
-                    out = merge_context(&event, Some(&relay(&text)), Some(&text));
+                    // Codex shows the notice where the person looks; elsewhere the model passes it on.
+                    let relayed = (crate::hosts::current() != Host::Codex).then(|| relay(&text));
+                    out = merge_context(&event, relayed.as_deref(), Some(&text));
                 }
             }
         }
@@ -696,9 +710,9 @@ fn cwd_of(payload: &Value) -> String {
     own.or_else(|| env("CLAUDE_PROJECT_DIR")).or_else(|| std::env::current_dir().ok().map(|dir| dir.display().to_string())).unwrap_or_default()
 }
 
-// The hook for a Claude Code payload that names a session; the session is pinned to its repository by the first one.
+// The hook for a payload, Claude-shaped (`hosts::normalize`), that names a session; the session is pinned to its repository by the first one.
 fn native_hook(payload: &Value) -> Option<Hook> {
-    if !is_claude(payload) {
+    if crate::hosts::current() == Host::Claude && !is_claude(payload) {
         return None;
     }
     let session = plain_text(payload.get("session_id").filter(|id| python_truthy(id))?);
@@ -722,17 +736,26 @@ pub fn hook() {
     // The release build aborts on a panic: answer first, so that a bug never fails the agent.
     std::panic::set_hook(Box::new(|info| {
         record_error(&info.to_string());
-        println!("{{}}");
+        // Not println!: on a closed stdout it would panic again, and abort with a failure.
+        let _ = writeln!(std::io::stdout(), "{{}}");
         std::process::exit(0);
     }));
     let mut raw = Vec::new();
     let _ = std::io::stdin().read_to_end(&mut raw);
     let mut out = std::io::stdout().lock();
     let payload: Value = serde_json::from_slice(&raw).unwrap_or(Value::Null);
+    // Codex's and Copilot's hook entries name their host (`--host`), and Copilot's its event (`--event`), which its payload does not.
+    let host = crate::hosts::current();
+    let payload = if host == Host::Claude || !payload.is_object() { payload } else { crate::hosts::normalize(host, crate::hosts::arg("--event").as_deref(), &payload) };
     let answer = if truthy(env("TE_SIDECALL")) || truthy(env("TE_DISABLE")) || !payload.is_object() {
         json!({})
     } else {
-        match native_hook(&payload) {
+        let hook = native_hook(&payload);
+        // Only this host's payload gets a hook: the heartbeat must not count another host's call.
+        if hook.is_some() {
+            crate::channels::beat(&crate::channels::hooks_channel(host));
+        }
+        match hook {
             Some(hook) if !hook.config.enabled => json!({}),
             Some(hook) => hook.handle().unwrap_or_else(|error| {
                 record_error(&error.to_string());
@@ -741,6 +764,8 @@ pub fn hook() {
             None => json!({}),
         }
     };
+    let event = payload.get("hook_event_name").map(plain_text).unwrap_or_default();
+    let answer = crate::hosts::render(host, &event, &answer, relay);
     let _ = writeln!(out, "{}", dumps(&answer, None));
 }
 

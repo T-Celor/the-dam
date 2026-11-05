@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" te hook --host copilot --event sessionStart || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe te hook --host copilot --event sessionStart }",
+        "timeoutSec": 15
+      },
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" beaver activate --host copilot --event sessionStart || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe beaver activate --host copilot --event sessionStart }",
+        "timeoutSec": 15
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" te hook --host copilot --event userPromptSubmitted || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe te hook --host copilot --event userPromptSubmitted }",
+        "timeoutSec": 20
+      },
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" beaver track --host copilot --event userPromptSubmitted || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe beaver track --host copilot --event userPromptSubmitted }",
+        "timeoutSec": 15
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" te hook --host copilot --event postToolUse || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe te hook --host copilot --event postToolUse }",
+        "timeoutSec": 60
+      },
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" squeeze hook --host copilot --event postToolUse || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe squeeze hook --host copilot --event postToolUse }",
+        "timeoutSec": 30
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" te hook --host copilot --event postToolUseFailure || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe te hook --host copilot --event postToolUseFailure }",
+        "timeoutSec": 60
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" te hook --host copilot --event agentStop || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe te hook --host copilot --event agentStop }",
+        "timeoutSec": 10
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" te hook --host copilot --event sessionEnd || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe te hook --host copilot --event sessionEnd }",
+        "timeoutSec": 10
+      }
+    ],
+    "subagentStart": [
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" beaver subagent --host copilot --event subagentStart || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe beaver subagent --host copilot --event subagentStart }",
+        "timeoutSec": 15
+      }
+    ],
+    "userPromptTransformed": [
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" squeeze hook --host copilot --event userPromptTransformed || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe squeeze hook --host copilot --event userPromptTransformed }",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}

@@ -5,7 +5,7 @@ if [ "${OS:-}" = Windows_NT ]; then
   case $self in *\*) self=$(printf '%s' "$self" | tr '\' '/') ;; esac
 fi
 dir=$(CDPATH= cd -- "${self%/*}" && pwd)
-DAM_RUN_OR_FAIL=1 "$dir/dam-run" dam-economizer "$@"
+DAM_RUN_OR_FAIL=1 "$dir/dam-run" te "$@"
 code=$?
-[ "$code" -eq 127 ] && echo "te: no dam-economizer for this system; run: cargo install --path dam" >&2
+[ "$code" -eq 127 ] && echo "te: no dam program for this system; run: cargo install --path dam" >&2
 exit "$code"

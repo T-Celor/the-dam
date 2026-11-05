@@ -43,7 +43,7 @@ pub fn pin(ctx: &Ctx, session: &str, cwd: &str) -> std::io::Result<()> {
     let repo = &ctx.repo;
     let doc = json!({"root": repo.root, "key": repo.key, "label": repo.label, "remote": repo.remote, "how": repo.how, "cwd": cwd, "at": now()});
 
-    Store { base: ctx.root.join("sessions").join("claude") }.write(&pin_name(session), &doc)
+    Store { base: ctx.root.join("sessions").join(crate::hosts::name()) }.write(&pin_name(session), &doc)
 }
 
 fn age(path: &Path) -> Option<Duration> {
@@ -52,7 +52,7 @@ fn age(path: &Path) -> Option<Duration> {
 
 // A pin older than thirty days is a finished session; at most once a day.
 pub fn prune_pins(ctx: &Ctx) {
-    let dir = ctx.root.join("sessions").join("claude");
+    let dir = ctx.root.join("sessions").join(crate::hosts::name());
     let marker = dir.join(".pruned");
     if age(&marker).is_some_and(|age| age.as_secs() < 86400) {
         return;
@@ -142,8 +142,9 @@ fn spawn_with(ctx: &Ctx, words: &[&str], log_name: &str, wmi: bool) -> bool {
         return true;
     }
     let Ok(program) = std::env::current_exe() else { return false };
-    let mut args: Vec<String> = words.iter().map(|word| word.to_string()).collect();
-    args.extend(["--host".to_string(), "claude".to_string(), "--cwd".to_string(), ctx.repo.root.clone()]);
+    // The one `dam` program: its `te` subcommand does the background jobs.
+    let mut args: Vec<String> = std::iter::once("te").chain(words.iter().copied()).map(str::to_string).collect();
+    args.extend(["--host".to_string(), crate::hosts::name().to_string(), "--cwd".to_string(), ctx.repo.root.clone()]);
     let log_path = ctx.store.base.join(log_name);
     let log = fs::create_dir_all(&ctx.store.base).and_then(|()| OpenOptions::new().create(true).append(true).open(&log_path));
     let Ok(log) = log else { return false };
@@ -175,7 +176,7 @@ fn wmi_spawn(program: &Path, args: &[String], cwd: &str, log: &Path) -> bool {
     if fs::write(&spec, doc.to_string()).is_err() {
         return false;
     }
-    let line = format!("\"{}\" run-spec \"{}\"", program.display(), spec.display());
+    let line = format!("\"{}\" te run-spec \"{}\"", program.display(), spec.display());
     let script = format!("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{ CommandLine = '{}'; CurrentDirectory = '{}' }}; exit $r.ReturnValue", line.replace('\'', "''"), cwd.replace('\'', "''"));
     let mut powershell = Command::new("powershell");
     powershell.args(["-NoProfile", "-NonInteractive", "-Command", &script]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());

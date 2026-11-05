@@ -7,7 +7,6 @@ export type Located = {
 
 export type Step = { label: string; argv: readonly string[] }
 
-
 // The build the plugin ships, then one built here: cargo's folder is often missing from an app-launched session's PATH.
 export function candidates(name: string, root: string, home: string | undefined): string[] {
   const folders = ['windows-x64', 'linux-x64', 'linux-arm64', 'macos-arm64', 'macos-x64']
@@ -32,13 +31,12 @@ export function setupSteps(found: Located, root: string): Step[] {
 }
 
 export function graphNudge(program: string): string {
-  return `A map of this project is ready: its code, its documents and its settings. To find where something is defined or described, what it calls or what calls it, or how parts connect, run \`"${program}" query "<name or question>"\` first, before Grep, Glob or Read sweeps: it answers in a few hundred tokens. When a prompt or a Grep names code, the map's answer for those names is added for you.`
+  return `A map of this project is ready: its code, its documents and its settings. To find where something is defined or described, what it calls or what calls it, or how parts connect, run \`"${program}" graph query "<name or question>"\` first, before Grep, Glob or Read sweeps: it answers in a few hundred tokens. When a prompt or a Grep names code, the map's answer for those names is added for you.`
 }
 
 const WORTH_SQUEEZING_CHARS = 2000
 // Claude Code hands over at most this much of a longer output, which it saves itself and shows as a preview.
 const MOST_INLINE_CHARS = 29_000
-const WORTH_KEEPING_TOKENS = 100
 type ToolRecord = { stdout?: unknown; content?: unknown; text?: unknown; mode?: unknown; isImage?: unknown; backgroundTaskId?: unknown; persistedOutputPath?: unknown }
 
 // An MCP tool's result as plain text: a string, or text blocks only; null for anything else (images, structured data).
@@ -96,26 +94,6 @@ export function savedPreview(condensed: string, before: number, after: number, s
   return `[Output too long to show. The dam ${how}, into ${saved}: read that file for the rest. Original: ${original}.]\n${lines}\nFirst lines:\n${cut}`
 }
 
-const PAGE_START = /^\s*(?:<!doctype html|<html[\s>]|<head[\s>]|<\?xml[^>]*>\s*(?:<!doctype html|<html))/i
-
-// Whether an output is a web page (with the headers `curl -i` prints, or none), which dam-squeeze --web turns into Markdown.
-export function looksLikeWebPage(text: string): boolean {
-  const head = text.slice(0, 8192).replace(/^\uFEFF/, '')
-  const body = head.startsWith('HTTP/') ? head.slice(head.search(/\r?\n\r?\n/) + 1) : head
-
-  return PAGE_START.test(body)
-}
-
-// The first web address a command names, for the links of the page it fetched.
-export function pageUrl(command: string | undefined): string | null {
-  return command?.match(/https?:\/\/[^\s'"`<>|;)]+/)?.[0] ?? null
-}
-
-// What the model reads under a page turned into Markdown: what was left out, and where the HTML is.
-export function webNote(before: number, after: number, path: string): string {
-  return `\n\n[The dam turned this web page into Markdown, from about ${before} to ${after} tokens: its main content, without menus, scripts or styles. The full HTML: ${path}.]`
-}
-
 // Whether a condensed output is small enough for Claude Code to show inline.
 export function fitsInline(text: string): boolean {
   return text.length < MOST_INLINE_CHARS
@@ -132,17 +110,6 @@ export function outputTokens(tool: string, record: ToolRecord & { persistedOutpu
   const text = tool === 'Grep' ? record.content : record.stdout
 
   return typeof text === 'string' ? tokensIn(text) : 0
-}
-
-export function squeezed(original: string, text: string): { text: string; before: number; after: number } | null {
-  const [before, after] = [tokensIn(original), tokensIn(text)]
-
-  return before - after >= WORTH_KEEPING_TOKENS ? { text, before, after } : null
-}
-
-// The model is told how to read the result, and where the original is if it prefers that.
-export function squeezeNote(before: number, after: number, path: string): string {
-  return `\n\n[The dam condensed this output from about ${before} to ${after} tokens without dropping any line. Original: ${path}.]`
 }
 
 export function parseEconomizer(stdout: string) {
@@ -165,49 +132,12 @@ export function worthGraphing(listing: string): boolean {
   return listing.split('\n').filter(path => MAPPED_FILE.test(path.trim())).length >= WORTH_GRAPHING_FILES
 }
 
-const GRAPH_QUERY = /dam-graph(?:\.exe)?"?\s+query\s+(.+)/
+// `dam graph query`, or the separate `dam-graph` program of versions before 0.21.
+const GRAPH_QUERY = /dam(?:-graph(?:\.exe)?"?|(?:\.exe)?"?\s+graph)\s+query\s+(.+)/
 
 // The question a Bash command asks the code graph, or null for any other command.
 export function graphQuestion(command: string): string | null {
   return command.match(GRAPH_QUERY)?.[1]?.trim().slice(0, 160) ?? null
-}
-
-const WORD = /[A-Za-z_][A-Za-z0-9_]*(?:\(\))?/g
-const MOST_NAMES = 3
-
-// The names in a prompt that look like code rather than words: snake_case, camelCase, PascalCase with two capitals, or a call.
-// Only these get the graph's answer, which is exact for a name and noisy for a sentence.
-export function codeNames(text: string): string[] {
-  const names: string[] = []
-  for (const found of text.match(WORD) ?? []) {
-    const name = found.replace(/\(\)$/, '')
-    const isCode = found.endsWith('()') || /[a-z0-9]_[a-z0-9]/i.test(name) || /[a-z][A-Z]/.test(name) || /^[A-Z][a-z0-9]+[A-Z]/.test(name)
-    if (isCode && name.length >= 4 && !names.includes(name)) names.push(name)
-    if (names.length === MOST_NAMES) break
-  }
-
-  return names
-}
-
-// The name a Grep looks for, when its pattern is one identifier (`\bname\b`, `name(`, `def name`), else null.
-export function grepName(pattern: string): string | null {
-  const name = pattern.replace(/\\b|\\\(|\(|\^|\$/g, '').replace(/^(def|fn|function|class|struct|interface|type|const|let|var)\s+/, '').trim()
-
-  return /^[A-Za-z_][A-Za-z0-9_]{3,}$/.test(name) ? name : null
-}
-
-// The entries of a graph answer about exactly `name`: where it is defined, what it calls and what calls it.
-export function exactEntries(answer: string, name: string): string[] {
-  return answer.split(/\n\s*\n/).filter(entry => {
-    const head = entry.trimStart()
-
-    return head.startsWith(`${name}(`) || head.startsWith(`${name} `)
-  })
-}
-
-// What the model reads about the names a prompt or a search named, in place of finding them itself.
-export function graphFacts(entries: string[], program: string): string {
-  return `The project's map on these names (\`"${program}" query "<question>"\` asks it more):\n\n${entries.join('\n\n')}`
 }
 
 // The number of nodes in dam-graph's table.

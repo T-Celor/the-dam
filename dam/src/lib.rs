@@ -24,15 +24,22 @@ pub mod denylist;
 pub mod docs;
 pub mod web;
 pub mod cli;
+pub mod channels;
+pub mod hosts;
+pub mod answers;
+pub mod journal;
 
 // The plugin's folder: given by Claude Code to a hook, else found above the running program.
 pub fn plugin_root() -> Option<std::path::PathBuf> {
-    if let Some(root) = std::env::var_os("CLAUDE_PLUGIN_ROOT").filter(|root| !root.is_empty()) {
-        return Some(root.into());
+    // Codex and Copilot name it PLUGIN_ROOT.
+    for name in ["CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT"] {
+        if let Some(root) = std::env::var_os(name).filter(|root| !root.is_empty()) {
+            return Some(root.into());
+        }
     }
     let program = std::env::current_exe().ok()?;
 
-    program.ancestors().find(|dir| dir.join("scripts").join("te_bootstrap.py").is_file()).map(std::path::Path::to_path_buf)
+    program.ancestors().find(|dir| dir.join("scripts").join("dam-run").is_file()).map(std::path::Path::to_path_buf)
 }
 
 // A hook's program ends by itself once Claude Code has given up on it: a stuck one would keep its .exe locked and the plugin from updating.

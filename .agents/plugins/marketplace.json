@@ -1,0 +1,21 @@
+{
+  "name": "the-dam",
+  "interface": {
+    "displayName": "The dam"
+  },
+  "plugins": [
+    {
+      "name": "the-dam",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/T-Celor/the-dam.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

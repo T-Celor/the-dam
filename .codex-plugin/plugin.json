@@ -1,0 +1,42 @@
+{
+  "name": "the-dam",
+  "version": "0.21.0",
+  "description": "Spend fewer tokens without losing a line: lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.",
+  "author": {
+    "name": "Tristan Celor",
+    "url": "https://github.com/T-Celor"
+  },
+  "homepage": "https://github.com/T-Celor/the-dam",
+  "repository": "https://github.com/T-Celor/the-dam",
+  "license": "PolyForm-Strict-1.0.0",
+  "keywords": [
+    "tokens",
+    "compression",
+    "code-graph",
+    "context",
+    "cost",
+    "rust"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/codex.json",
+  "interface": {
+    "displayName": "The dam",
+    "shortDescription": "Fewer tokens, every line kept",
+    "longDescription": "A local map of the project, lossless condensing of long outputs and Beaver's smallest-change rules, all on this machine.",
+    "developerName": "Tristan Celor",
+    "category": "Productivity",
+    "capabilities": [
+      "Instructions",
+      "Lifecycle hooks"
+    ],
+    "websiteURL": "https://github.com/T-Celor/the-dam",
+    "defaultPrompt": [
+      "Use Beaver mode for this task.",
+      "Review this diff for over-engineering.",
+      "Ask the project map where this is defined."
+    ],
+    "brandColor": "#2E7D8C",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
+  }
+}

@@ -29,3 +29,5 @@ jobs:
       - name: Run the programs end to end
         shell: bash
         run: sh scripts/smoke.sh
+      - name: Codex and Copilot packaging
+        run: node --test scripts/hosts.test.mjs

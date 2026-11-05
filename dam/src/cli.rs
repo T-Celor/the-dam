@@ -356,9 +356,52 @@ fn ignored_git_entries(cwd: &Path) -> Vec<PathBuf> {
     out
 }
 
+fn ago(seconds: u64) -> String {
+    match seconds {
+        0..=119 => format!("{seconds} s ago"),
+        120..=7199 => format!("{} min ago", seconds / 60),
+        7200..=172_799 => format!("{} h ago", seconds / 3600),
+        _ => format!("{} days ago", seconds / 86_400),
+    }
+}
+
+// Whether what the dam adds reaches the model here: under Claude Code its hooks (facts, Beaver, loop guard) and module
+// (map, compression); under Codex or Copilot the start hook, which gives Beaver, the map and condensing.
+fn print_channels(root: &Path, host: crate::channels::Host) {
+    use crate::channels::{age, blocking_policies, hooks_channel, host_name, instructions_file, is_on, Host, MODULE};
+    let show = |age: Option<u64>| age.map_or_else(|| "never ran on this machine".to_string(), |age| format!("last ran {}", ago(age)));
+    let hooks = age(root, &hooks_channel(host));
+    let module = (host == Host::Claude).then(|| age(root, MODULE)).flatten();
+    if host == Host::Claude {
+        println!("hooks       {} (learned facts, Beaver, loop guard, tool pruning)", show(hooks));
+        println!("module      {} (map, output compression, status line)", show(module));
+    } else {
+        println!("hooks       {} under {} (Beaver, the map's command, condensing)", show(hooks), host_name(host));
+    }
+    let policies = blocking_policies(host);
+    for policy in &policies {
+        println!("policy      plugin hooks blocked by {policy}");
+    }
+    // A day without a heartbeat while the other channel ran means that channel is blocked, not just idle.
+    let stale = |age: Option<u64>, other: Option<u64>| age.is_none_or(|age| age > 86_400) && other.is_some_and(|other| other < 86_400);
+    let blocked = !policies.is_empty() || host == Host::Claude && (stale(hooks, module) || stale(module, hooks));
+    let (on, off) = if host == Host::Claude {
+        ("`/the-dam:fallback on`".to_string(), "`/the-dam:fallback off`".to_string())
+    } else {
+        (format!("the `fallback` skill (`te fallback on --host {}`)", host_name(host)), "the `fallback` skill".to_string())
+    };
+    let file = instructions_file(host);
+    println!("fallback    {}", match (is_on(host), blocked, hooks.or(module).is_some()) {
+        (true, _, _) => format!("on in {}: sessions fetch the dam's context with `te context` ({off} removes it)", file.display()),
+        (false, true, _) => format!("off; hooks look blocked here: {on} has the model fetch the context itself"),
+        (false, false, false) => format!("off; no hook has run yet: if a session already ran here, they are blocked and {on} is the way"),
+        (false, false, true) => "off (not needed while the hooks run)".to_string(),
+    });
+}
+
 fn cmd_doctor(args: &Args, ctx: &Ctx) -> i32 {
     let mut ok = true;
-    println!("program     dam-economizer {}", env!("CARGO_PKG_VERSION"));
+    println!("program     dam {}", env!("CARGO_PKG_VERSION"));
     let root = &ctx.root;
     let probe = root.join(".write-test");
     match fs::create_dir_all(root).and_then(|()| fs::write(&probe, "")).and_then(|()| fs::remove_file(&probe)) {
@@ -377,6 +420,7 @@ fn cmd_doctor(args: &Args, ctx: &Ctx) -> i32 {
         }
         println!("claude      catalog {}", if root.join("hosts").join("claude").join("catalog.json").exists() { "present" } else { "not probed" });
     }
+    print_channels(root, crate::channels::Host::Claude);
     let repo = &ctx.repo;
     println!("repository  {}: identified {}; state {}", repo.root, how_words(&repo.how, &repo.remote), repo.key);
     let cwd = args.cwd();
@@ -415,11 +459,13 @@ pub fn main(raw: &[String]) -> i32 {
             return 2;
         }
     };
-    if args.host.as_deref().is_some_and(|host| host != "claude") {
-        eprintln!("te: only Claude Code is supported (--host claude)");
+    let command = args.words.first().map_or("", String::as_str);
+    if args.host.as_deref().is_some_and(|name| crate::channels::parse_host(name).is_none()) {
+        eprintln!("te: --host is claude, codex or copilot");
         return 2;
     }
-    let command = args.words.first().map_or("", String::as_str);
+    // Each host keeps its own state per repository (`hosts::current` reads the same `--host`).
+    let host = crate::hosts::current();
     match command {
         "status" => {
             println!("{}", status::report(&Ctx::for_cwd(&args.cwd()), args.flag("json"), args.flag("explain")));
@@ -439,7 +485,74 @@ pub fn main(raw: &[String]) -> i32 {
                 2
             }
         },
+        "doctor" if host != crate::channels::Host::Claude => {
+            println!("program     dam {}", env!("CARGO_PKG_VERSION"));
+            print_channels(&Ctx::for_cwd(&args.cwd()).root, host);
+            0
+        }
         "doctor" => cmd_doctor(&args, &Ctx::for_cwd(&args.cwd())),
+        "journal" => {
+            println!("{}", crate::journal::journal(host, &args.cwd()));
+            0
+        }
+        // Copilot's status line: its command prints the line; `install` and `uninstall` edit Copilot's settings.
+        "statusline" => match (host, args.words.get(1).map(String::as_str)) {
+            (crate::channels::Host::Copilot, Some(word @ ("install" | "uninstall"))) => match crate::journal::set_status_line(word == "install") {
+                Ok(done) => {
+                    println!("{done}");
+                    0
+                }
+                Err(why) => {
+                    eprintln!("te statusline: {why}");
+                    1
+                }
+            },
+            (crate::channels::Host::Copilot, None) => {
+                let mut payload = String::new();
+                let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut payload);
+                println!("{}", crate::journal::status_line(host, &payload));
+                0
+            }
+            (crate::channels::Host::Claude, _) => {
+                println!("Claude Code shows the dam's status line itself, through the plugin's module.");
+                0
+            }
+            (crate::channels::Host::Codex, _) => {
+                println!("Codex's status line takes its built-in items only (openai/codex#17827); `/the-dam:journal` shows the same figures.");
+                0
+            }
+            (_, Some(other)) => {
+                eprintln!("te statusline: `{other}` is not install or uninstall");
+                2
+            }
+        },
+        "context" => {
+            let cwd = args.cwd();
+            // Beaver's map and the graph read the project from the working directory.
+            let _ = std::env::set_current_dir(&cwd);
+            println!("{}", crate::channels::context(&Ctx::for_cwd(&cwd), &cwd));
+            0
+        }
+        "fallback" => match args.words.get(1).map(String::as_str) {
+            Some(word @ ("on" | "off")) => match crate::channels::set(host, word == "on") {
+                Ok(done) => {
+                    println!("{done}");
+                    0
+                }
+                Err(why) => {
+                    eprintln!("te fallback: {why}");
+                    1
+                }
+            },
+            None | Some("status") => {
+                println!("fallback {} ({})", if crate::channels::is_on(host) { "on" } else { "off" }, crate::channels::instructions_file(host).display());
+                0
+            }
+            Some(other) => {
+                eprintln!("te fallback: `{other}` is not on, off or status");
+                2
+            }
+        },
         "repos" => cmd_repos(&args, &Ctx::for_cwd(&args.cwd())),
         "repomap" => {
             println!("{OBSOLETE_REPOMAP}");
@@ -450,7 +563,7 @@ pub fn main(raw: &[String]) -> i32 {
             2
         }
         _ => {
-            eprintln!("usage: te [--cwd DIR] {{status,microskills,toolprune,config,fold,judge,doctor,repos}} ...");
+            eprintln!("usage: te [--cwd DIR] [--host claude|codex|copilot] {{status,microskills,toolprune,config,fold,judge,doctor,repos,context,fallback,journal,statusline}} ...");
             2
         }
     }

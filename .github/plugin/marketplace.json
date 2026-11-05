@@ -1,0 +1,19 @@
+{
+  "name": "the-dam",
+  "description": "Spend fewer tokens without losing a line: lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.",
+  "owner": {
+    "name": "Tristan Celor",
+    "url": "https://github.com/T-Celor"
+  },
+  "plugins": [
+    {
+      "name": "the-dam",
+      "description": "Spend fewer tokens without losing a line: lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.",
+      "version": "0.21.0",
+      "source": "./",
+      "category": "productivity",
+      "skills": "skills/",
+      "hooks": "hooks/copilot.json"
+    }
+  ]
+}

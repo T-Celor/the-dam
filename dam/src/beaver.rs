@@ -136,6 +136,14 @@ fn clear_level() {
     }
 }
 
+// A session's level, as its hooks set it, else the default: what a status line shows.
+pub fn level_of(session: &str) -> String {
+    let name: String = session.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '_' }).take(200).collect();
+    let live = fs::read_to_string(levels_dir().join(format!("session-{name}"))).ok().map(|text| text.trim().to_string()).filter(|level| !level.is_empty());
+
+    live.unwrap_or_else(default_level)
+}
+
 fn live_level() -> Option<String> {
     let text = fs::read_to_string(project_state().unwrap_or_else(shared_state)).ok()?;
     let level = text.trim().to_string();
@@ -273,7 +281,8 @@ fn read_stdin() -> String {
     });
     let bytes = receive.recv_timeout(Duration::from_secs(1)).unwrap_or_default();
     let input = String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string();
-    let _ = SESSION.set(json::field(&input, "session_id").unwrap_or_default());
+    // Copilot spells it sessionId.
+    let _ = SESSION.set(json::field(&input, "session_id").or_else(|| json::field(&input, "sessionId")).unwrap_or_default());
 
     input
 }
@@ -288,14 +297,73 @@ fn activate() {
         return;
     }
     set_level(&level);
-    let mut output = instructions(&level);
-    if setting("MAP").as_deref() != Some("0") {
-        let map = codebase_map(&crate::graph::source_files(), Path::new("."));
-        if !map.is_empty() {
-            output = format!("{output}\n\n{map}");
+    let host = host();
+    let mut text = start_text(&level);
+    if host != Host::Claude {
+        // Where `te doctor --host` tells a blocked start hook from one that never had a session.
+        crate::channels::beat(&crate::channels::hooks_channel(host));
+        // No module runs there to give the map's command; `dam te hook` gives the facts, `dam squeeze hook` condenses.
+        if let Some(map) = crate::channels::map_line(&std::env::current_dir().unwrap_or_default()) {
+            text = format!("{map}\n\n{text}");
         }
     }
-    print!("{output}");
+    print!("{}", start_output(host, &text));
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Host {
+    Claude,
+    Codex,
+    Copilot,
+}
+
+// As Ponytail tells them apart: Copilot sets COPILOT_PLUGIN_DATA (VS Code's Copilot only a CLAUDE_PLUGIN_ROOT under
+// .vscode/agent-plugins), Codex PLUGIN_DATA beside its CLAUDE_* aliases, Claude Code neither.
+fn host_from(copilot_data: Option<String>, claude_root: Option<String>, plugin_data: Option<String>) -> Host {
+    let vscode = claude_root.is_some_and(|root| root.replace('\\', "/").contains(".vscode/agent-plugins/"));
+    if copilot_data.is_some() || vscode {
+        Host::Copilot
+    } else if plugin_data.is_some() {
+        Host::Codex
+    } else {
+        Host::Claude
+    }
+}
+
+// The host this program runs for: `--host` on its command line first (`hosts::current`), else the environment.
+pub fn host() -> Host {
+    crate::hosts::current()
+}
+
+// As the environment tells: what a hook entry without `--host` relies on.
+pub fn host_from_env() -> Host {
+    host_from(env("COPILOT_PLUGIN_DATA"), env("CLAUDE_PLUGIN_ROOT"), env("PLUGIN_DATA"))
+}
+
+// Claude Code and Codex take a start hook's plain text as context; Copilot reads only `additionalContext`.
+fn start_output(host: Host, text: &str) -> String {
+    match host {
+        Host::Copilot => format!("{{\"additionalContext\":{}}}", json::quote(text)),
+        Host::Claude | Host::Codex => text.to_string(),
+    }
+}
+
+// What the session start adds at `level`: the rules, then the codebase map unless BEAVER_MAP=0.
+fn start_text(level: &str) -> String {
+    let output = instructions(level);
+    if setting("MAP").as_deref() == Some("0") {
+        return output;
+    }
+    let map = codebase_map(&crate::graph::source_files(), Path::new("."));
+
+    if map.is_empty() { output } else { format!("{output}\n\n{map}") }
+}
+
+// The session start's text at the default level, for `te context` where hooks cannot add it; None when Beaver is off.
+pub fn context_text() -> Option<String> {
+    let level = default_level();
+
+    (level != "off").then(|| start_text(&level))
 }
 
 // BEAVER_SUBAGENT_MATCHER (or PONYTAIL_SUBAGENT_MATCHER) as words separated by |, any of which may appear in the agent's type.
@@ -314,7 +382,12 @@ fn subagent() {
             return;
         }
     }
-    print!("{{\"hookSpecificOutput\":{{\"hookEventName\":\"SubagentStart\",\"additionalContext\":{}}}}}", json::quote(&instructions(&level)));
+    let rules = json::quote(&instructions(&level));
+    if host() == Host::Copilot {
+        print!("{{\"additionalContext\":{rules}}}");
+    } else {
+        print!("{{\"hookSpecificOutput\":{{\"hookEventName\":\"SubagentStart\",\"additionalContext\":{rules}}}}}");
+    }
 }
 
 // What a prompt asks of the level, or None when it asks nothing.
@@ -376,7 +449,7 @@ pub fn run(args: &[String]) {
         Some("subagent") => subagent(),
         Some("track") => track(),
         _ => {
-            eprintln!("usage: dam-beaver activate | subagent | track");
+            eprintln!("usage: dam beaver activate | subagent | track");
             std::process::exit(2);
         }
     }
@@ -414,6 +487,17 @@ mod tests {
         for ordinary in ["add a normal mode toggle", "/ponytail-review", "/beaver-review", "the beaver builds dams", "/ponytail banana", "fix the ponytail", "", "/ponytail default review"] {
             assert_eq!(answer_prompt(ordinary, None, "full"), None, "{ordinary}");
         }
+    }
+
+    #[test]
+    fn each_host_is_told_apart_and_answered_in_its_shape() {
+        let some = |s: &str| Some(s.to_string());
+        assert_eq!(host_from(None, some("C:/Users/x/.claude/plugins/cache/the-dam"), None), Host::Claude);
+        assert_eq!(host_from(None, some("/h/.codex/plugins/the-dam"), some("/h/.codex/data")), Host::Codex);
+        assert_eq!(host_from(some("/h/.copilot/data"), None, some("/x")), Host::Copilot);
+        assert_eq!(host_from(None, some("C:\\Users\\x\\.vscode\\agent-plugins\\the-dam"), None), Host::Copilot);
+        assert_eq!(start_output(Host::Codex, "rules"), "rules");
+        assert_eq!(start_output(Host::Copilot, "a \"b\""), r#"{"additionalContext":"a \"b\""}"#);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 {
   "name": "the-dam",
-  "version": "0.20.3",
+  "version": "0.21.0",
   "description": "Spend fewer tokens without losing a line: lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.",
   "author": {
     "name": "Tristan Celor",
@@ -18,6 +18,5 @@
     "rust"
   ],
   "icon": "./.claude-plugin/icon.png",
-  "commands": "./commands/",
   "types": "./types/index.d.ts"
 }

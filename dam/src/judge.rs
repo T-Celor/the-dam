@@ -98,7 +98,7 @@ pub fn run_job(ctx: &Ctx, session: &str, job: &str) -> Option<Value> {
     let spend = json!({"spiral_judge_tokens": number(verdict.as_ref().and_then(|v| v.get("_tokens"))), "spiral_nudge_writer_tokens": number(written.as_ref().and_then(|v| v.get("_tokens")))});
     if spend.as_object().is_some_and(|row| row.values().any(|amount| amount.as_f64() != Some(0.0))) {
         // Charged before the verdict is published: a fold that runs the instant it lands has the record.
-        let _ = ctx.store.append("ledger.jsonl", &json!({"kind": "overhead", "session_id": session, "host": "claude", "job": job, "at": now(), "overhead": spend}));
+        let _ = ctx.store.append("ledger.jsonl", &json!({"kind": "overhead", "session_id": session, "host": crate::hosts::name(), "job": job, "at": now(), "overhead": spend}));
     }
     let _ = ctx.store.write(&format!("judge/{session}.result.json"), &json!({"id": job, "verdict": verdict, "at": now()}));
 

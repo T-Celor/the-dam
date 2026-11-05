@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { EMPTY, carryStep, economizerEntries, projectFlow, savedOfSpent, formatCount, gainNote, journalLine, journalView, reportOf, sessionFigures, statusOf, totalLines } from './model'
-import { candidates, codeNames, mcpText, withMcpText, looksLikeWebPage, pageUrl, exactEntries, graphNodes, graphQuestion, grepName, missingNames, parseEconomizer, setupSteps, squeezableField, squeezed, squeezeNote, savedPreview, standoutLines, worthGraphing } from './tools'
+import { candidates, mcpText, withMcpText, graphNodes, graphQuestion, missingNames, parseEconomizer, setupSteps, squeezableField, savedPreview, standoutLines, worthGraphing } from './tools'
 
 const ALL = { squeezer: true, graphify: true, economizer: true, beaver: true }
 
@@ -80,13 +80,6 @@ test('only big Bash text gets squeezed, never file bytes or search hits', () => 
   expect(withMcpText([{ type: 'text', text: 'x' }], 'y')).toEqual([{ type: 'text', text: 'y' }])
 })
 
-test('a squeeze keeps its answer only when it saves enough, and names the full output', () => {
-  const big = 'x'.repeat(4_000)
-  expect(squeezed(big, 'short')).toEqual({ text: 'short', before: 1000, after: 2 })
-  expect(squeezed(big, big.slice(100))).toBe(null)
-  expect(squeezeNote(900, 100, '/k/1.txt')).toContain('/k/1.txt')
-})
-
 const BIG = 'noisy line\n'.repeat(800)
 
 test('a big output reaches the model condensed, with the path of the whole', async ($, on) => {
@@ -98,7 +91,9 @@ test('a big output reaches the model condensed, with the path of the whole', asy
 
     return { value: undefined }
   })
-  on('process.run', () => ({ value: { exitCode: 0, stdout: 'short', stderr: '' } }) as never)
+  // `dam squeeze condense` decides and answers JSON; any other call (`--version`) just succeeds.
+  const condensed = JSON.stringify({ text: 'short', note: '\n\n[condensed; original: {path}.]', before: 900, after: 2, url: null, web: false })
+  on('process.run', (_, e) => ({ value: { exitCode: 0, stdout: e.argv.includes('condense') ? condensed : 'dam 0.21.0', stderr: '' } }) as never)
   on('clock.after', () => ({ value: {} }) as never)
   on('store.get', () => ({ value: undefined }) as never)
   on('store.set', () => ({ value: undefined }) as never)
@@ -106,6 +101,7 @@ test('a big output reaches the model condensed, with the path of the whole', asy
   const ran = await $.tool.call({ tool: 'Bash', command: 'ls' })
   const stdout = (ran.result as { stdout: string }).stdout
   expect(stdout.startsWith('short')).toBe(true)
+  expect(stdout).toMatch(/original: C:\/u\/\.claude\/the-dam-outputs\/.+\.txt\.\]$/)
   expect(written).toEqual([BIG])
 })
 
@@ -175,27 +171,11 @@ test('the totals are this session\'s, counted from its journal', () => {
 test('a graph question is read from the command that asks it', () => {
   expect(graphQuestion('"C:/p/bin/windows-x64/dam-graph.exe" query "how is the log condensed"')).toBe('"how is the log condensed"')
   expect(graphQuestion('dam-graph update')).toBe(null)
+  expect(graphQuestion('"C:/p/bin/windows-x64/dam.exe" graph query "where is fold"')).toBe('"where is fold"')
+  expect(graphQuestion('dam graph query fold_lines')).toBe('fold_lines')
+  expect(graphQuestion('dam graph update')).toBe(null)
+  expect(graphQuestion('dam squeeze')).toBe(null)
   expect(graphQuestion('ls')).toBe(null)
-})
-
-test('only names that look like code are sent to the graph', () => {
-  expect(codeNames('why does SmartCrusherPlanner drop rows in crush_rows() and parseConfig?')).toEqual(['SmartCrusherPlanner', 'crush_rows', 'parseConfig'])
-  expect(codeNames('fix the typo in README and merci beaucoup')).toEqual([])
-  expect(codeNames('call run() then Foo')).toEqual([])
-})
-
-test('a Grep for one name is recognised, a broader pattern is not', () => {
-  expect(grepName('\\bSmartCrusher\\b')).toBe('SmartCrusher')
-  expect(grepName('def compress_tool_results')).toBe('compress_tool_results')
-  expect(grepName('parse\\(')).toBe('parse')
-  expect(grepName('TODO|FIXME')).toBe(null)
-  expect(grepName('foo.*bar')).toBe(null)
-})
-
-test('only the entries about exactly that name are kept', () => {
-  const answer = '3 nodes. Best matches of 3:\n\nSmartCrusherPlanner a.rs:49\n\nSmartCrusher b.py:269\n  called by: main()\n\ncrusher() c.py:1'
-  expect(exactEntries(answer, 'SmartCrusher')).toEqual(['SmartCrusher b.py:269\n  called by: main()'])
-  expect(exactEntries(answer, 'crusher')).toEqual(['crusher() c.py:1'])
 })
 
 test('the journal shows the newest first and leaves room for the totals', () => {
@@ -206,17 +186,6 @@ test('the journal shows the newest first and leaves room for the totals', () => 
   expect(tight.older).toBe(3)
   expect(journalView(entries, 8, 17)).toEqual({ shown: [...entries].reverse(), older: 0 })
   expect(journalView(entries, 8, 5).shown).toEqual([])
-})
-
-test('a fetched web page is recognised, with or without its headers, and other outputs are not', () => {
-  expect(looksLikeWebPage('<!DOCTYPE html><html><body>x</body></html>')).toBe(true)
-  expect(looksLikeWebPage('HTTP/2 200\r\ncontent-type: text/html\r\n\r\n<html lang="en">')).toBe(true)
-  expect(looksLikeWebPage('error: expected <html> at line 3')).toBe(false)
-  expect(looksLikeWebPage('{"body": "<html>"}')).toBe(false)
-  expect(pageUrl('curl -sL "https://example.com/a?b=1" | head')).toBe('https://example.com/a?b=1')
-  expect(pageUrl('(Invoke-WebRequest https://x.org/p).Content')).toBe('https://x.org/p')
-  expect(pageUrl('ls')).toBe(null)
-  expect(squeezableField('PowerShell', { stdout: 'x'.repeat(20_000) })).toBe('stdout')
 })
 
 test('token counts reach G and T, and savings read against the session total', () => {

@@ -8,26 +8,17 @@ import {
   candidates,
   graphNudge,
   graphNodes,
-  codeNames,
-  exactEntries,
-  graphFacts,
   graphQuestion,
-  grepName,
   missingNames,
   parseEconomizer,
   setupSteps,
   fitsInline,
-  looksLikeWebPage,
   outputTokens,
   mcpText,
   withMcpText,
-  pageUrl,
   savedPreview,
   standoutLines,
   squeezableField,
-  squeezed,
-  squeezeNote,
-  webNote,
   worthGraphing,
 } from './tools'
 
@@ -79,13 +70,10 @@ let located: Located | null = null
 async function locate($: Dollar): Promise<Located> {
   if (located) return located
   const home = await homeOf($)
-  located = {
-    squeezer: await firstExisting($, candidates('dam-squeeze', $.plugin.root, home)),
-    graph: await firstExisting($, candidates('dam-graph', $.plugin.root, home)),
-    beaver: await firstExisting($, candidates('dam-beaver', $.plugin.root, home)),
-    economizer: await firstExisting($, candidates('dam-economizer', $.plugin.root, home)),
-  }
-  const answer = located
+  // One `dam` program does each job, through its subcommands.
+  const dam = await firstExisting($, candidates('dam', $.plugin.root, home))
+  const answer = { squeezer: dam, graph: dam, beaver: dam, economizer: dam }
+  located = answer
   // Only a complete answer is kept, so one slow start never reads as "not installed" all session.
   if (missingNames(answer).length > 0) located = null
 
@@ -213,15 +201,15 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>,
   // A large output Claude Code already saved: condensed from the file, and shown inline if it then fits.
   const persisted = field === 'stdout' && typeof record.persistedOutputPath === 'string' ? record.persistedOutputPath : null
   const original = persisted ? await $.fs.read(persisted) : (record[field] as string)
-  // A web page a command fetched becomes Markdown, as markdowner gives it; any other output is condensed.
-  const url = pageUrl(command)
-  const page = looksLikeWebPage(original) ? await attempt(() => $.process.run([squeezer, '--web', ...(url ? [url] : [])], { stdin: original, timeoutMs: SQUEEZE_TIMEOUT_MS })) : null
-  const isWeb = page?.exitCode === 0
-  const run = isWeb ? page : await attempt(() => $.process.run([squeezer], { stdin: original, timeoutMs: SQUEEZE_TIMEOUT_MS }))
-  if (run?.exitCode !== 0) return null
-  const footer = isWeb ? webNote : squeezeNote
-  const result = squeezed(original, run.stdout)
-  if (!result) return null
+  // A web page a command fetched becomes Markdown, any other output is condensed: decided in Rust, as for Codex and
+  // Copilot (dam/src/answers.rs); nothing printed means it would not pay.
+  const run = await attempt(() => $.process.run([squeezer, 'squeeze', 'condense', ...(command ? [command] : [])], { stdin: original, timeoutMs: SQUEEZE_TIMEOUT_MS }))
+  if (run?.exitCode !== 0 || !run.stdout) return null
+  const result = JSON.parse(run.stdout) as { text: string; note: string; before: number; after: number; url: string | null; web: boolean }
+  const isWeb = result.web
+  const url = result.url
+  // A function: a path holding `$&` would otherwise be read as a replacement pattern.
+  const footer = (path: string | null) => result.note.replace('{path}', () => path ?? '')
   const isInline = !persisted || fitsInline(result.text)
   let path = isInline ? persisted : null
   if (!path) {
@@ -245,12 +233,12 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>,
 
   // Still too long to show: the saved file holds the condensed form, and the model gets our preview of it.
   if (persisted && !isInline) {
-    await $.fs.write(persisted, result.text + footer(result.before, result.after, path))
+    await $.fs.write(persisted, result.text + footer(path))
     const preview = savedPreview(result.text, result.before, result.after, persisted, path, standoutLines(original), isWeb)
 
     return { ...record, stdout: preview, persistedOutputPath: undefined, persistedOutputSize: undefined }
   }
-  const condensed = { ...record, [field]: result.text + footer(result.before, result.after, path) }
+  const condensed = { ...record, [field]: result.text + footer(path) }
 
   return persisted ? { ...condensed, persistedOutputPath: undefined, persistedOutputSize: undefined } : condensed
 }
@@ -264,7 +252,7 @@ async function reweave($: Dollar) {
   const { graph } = await locate($)
   if (!graph || !(await attempt(() => $.fs.stat(GRAPH)))) return
   hasEditedCode = false
-  await attempt(() => $.process.run([graph, 'update'], { timeoutMs: 120_000 }))
+  await attempt(() => $.process.run([graph, 'graph', 'update'], { timeoutMs: 120_000 }))
 }
 
 async function graphable($: Dollar) {
@@ -285,20 +273,20 @@ async function buildGraph($: Dollar) {
   const excluded = (await attempt(() => $.fs.read(path))) ?? ''
   if (!excluded.includes('.dam-graph')) await $.fs.write(path, `${excluded.trimEnd()}\n.dam-graph/\n`.trimStart())
   const started = Date.now()
-  const built = await attempt(() => $.process.run([graph, 'update'], { timeoutMs: GRAPH_TIMEOUT_MS }))
+  const built = await attempt(() => $.process.run([graph, 'graph', 'update'], { timeoutMs: GRAPH_TIMEOUT_MS }))
   if (built?.exitCode === 0) await note($, ICON.map, `map built: ${built.stdout.trim()} in ${((Date.now() - started) / 1000).toFixed(1)} s`)
 }
 
 const GRAPH_QUERY_TIMEOUT_MS = 5_000
 
-// What the graph says of each of `names`, exact matches only; null when there is no graph or it knows none of them.
-async function askGraph($: Dollar, names: string[]) {
+// What the map says of the code a prompt (`--prompt`) or a Grep pattern (`--grep`) names, decided in Rust as for
+// Codex and Copilot (dam/src/answers.rs); null when there is no map or it knows none of them.
+async function askGraph($: Dollar, flag: '--prompt' | '--grep', text: string) {
   const { graph } = await locate($)
-  if (!graph || names.length === 0 || !(await attempt(() => $.fs.stat(GRAPH)))) return null
-  const answers = await Promise.all(names.map(name => attempt(() => $.process.run([graph, 'query', name], { timeoutMs: GRAPH_QUERY_TIMEOUT_MS }))))
-  const entries = answers.flatMap((run, n) => (run?.exitCode === 0 ? exactEntries(run.stdout, names[n] as string) : []))
+  if (!graph || !(await attempt(() => $.fs.stat(GRAPH)))) return null
+  const run = await attempt(() => $.process.run([graph, 'graph', 'facts', flag, text], { timeoutMs: GRAPH_QUERY_TIMEOUT_MS }))
 
-  return entries.length > 0 ? graphFacts(entries, graph) : null
+  return run?.exitCode === 0 && run.stdout ? run.stdout : null
 }
 
 // Whether this project gets a graph, known a moment after the session starts: the first prompt waits for that, not for the graph.
@@ -349,7 +337,7 @@ async function rememberToolSizes($: Dollar, tools: ReadonlyArray<{ name: string;
 }
 
 async function readEconomizer($: Dollar, program: string) {
-  const out = (await $.process.run([program, 'status', '--json'])).stdout
+  const out = (await $.process.run([program, 'te', 'status', '--json'])).stdout
   const status = JSON.parse(out) as { state?: string; toolprune?: { applied?: string[] } }
   economizerState = status.state ?? null
   const sizes = ((await $.store.get(TOOL_SIZES)) ?? {}) as Record<string, number>
@@ -399,12 +387,17 @@ export const register: Register = on => {
     await $.command.register({ name: 'the-dam', description: 'Show what each tool saved' })
     await $.command.register({ name: 'the-dam-compress', description: 'Turn compression of large tool outputs on or off' })
     // In the background, and a step that throws must not take the session with it.
+    // Where `te doctor` looks to tell a blocked module from an idle one.
+    void attempt(async () => {
+      const state = (await $.env.get('TOKENECONOMIZER_HOME'))?.replace(/\\/g, '/') ?? `${await homeOf($)}/.tokeneconomizer`
+      await $.fs.write(`${state}/channels/module`, String(Math.floor(Date.now() / 1000)))
+    })
     void attempt(async () => {
       await installMissing($)
       await checkGains($)
       const { squeezer } = await locate($)
       const home = await homeOf($)
-      if (squeezer && home) await $.process.run([squeezer, '--prune', `${home}/.claude/the-dam-outputs`, String(KEPT_ALL_OUTPUTS)])
+      if (squeezer && home) await $.process.run([squeezer, 'squeeze', '--prune', `${home}/.claude/the-dam-outputs`, String(KEPT_ALL_OUTPUTS)])
     })
     isGraphable = attempt(() => graphable($)).then(Boolean)
     void isGraphable.then(isWorth => {
@@ -473,10 +466,9 @@ export const register: Register = on => {
   // A prompt that names code gets what the graph knows of those names, without anyone asking for it.
   on('prompt.submit', async ($, e, next) => {
     if (e.command || e.isMeta) return next(e)
-    const names = codeNames(e.text)
-    const facts = await attempt(() => askGraph($, names))
+    const facts = await attempt(() => askGraph($, '--prompt', e.text))
     if (!facts) return next(e)
-    void attempt(() => note($, ICON.map, `map answered for ${names.join(', ')} in your prompt`))
+    void attempt(() => note($, ICON.map, `map answered for the code in your prompt`))
 
     return next({ ...e, context: [...(e.context ?? []), facts] })
   }).catch(($, e, next) => next(e))
@@ -513,9 +505,9 @@ export const register: Register = on => {
     const record = condensed ?? (ran.result as Record<string, unknown>)
     checkSoon($)
     // A search for one name also gets where the graph says it is defined and who calls it.
-    const name = e.tool === 'Grep' ? grepName(e.pattern) : null
-    const facts = name && record?.mode === 'content' && typeof record.content === 'string' ? await attempt(() => askGraph($, [name])) : null
-    if (facts) void attempt(() => note($, ICON.map, `map answered for ${name} beside a Grep`))
+    const pattern = e.tool === 'Grep' ? e.pattern : null
+    const facts = pattern && record?.mode === 'content' && typeof record.content === 'string' ? await attempt(() => askGraph($, '--grep', pattern)) : null
+    if (facts) void attempt(() => note($, ICON.map, `map answered for ${pattern} beside a Grep`))
     const result = facts ? { ...record, content: `${record.content}\n\n${facts}` } : record
 
     return result === ran.result ? ran : ({ ...ran, result } as typeof ran)

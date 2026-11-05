@@ -1,0 +1,23 @@
+{
+  "name": "the-dam",
+  "version": "0.21.0",
+  "description": "Spend fewer tokens without losing a line: lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.",
+  "author": {
+    "name": "Tristan Celor",
+    "url": "https://github.com/T-Celor"
+  },
+  "homepage": "https://github.com/T-Celor/the-dam",
+  "repository": "https://github.com/T-Celor/the-dam",
+  "license": "PolyForm-Strict-1.0.0",
+  "keywords": [
+    "tokens",
+    "compression",
+    "code-graph",
+    "context",
+    "cost",
+    "rust"
+  ],
+  "category": "productivity",
+  "skills": "skills/",
+  "hooks": "hooks/copilot.json"
+}
