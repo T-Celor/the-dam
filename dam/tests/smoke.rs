@@ -112,3 +112,22 @@ fn the_graph_status_hooks_and_beaver_work_on_a_repository() {
     assert!(env.text(Some(&repo), &["dam-beaver", "activate"], &start).contains("BEAVER"));
     assert!(env.text(None, &["te", "--cwd", cwd, "config", "show"], "").contains("loopguard"));
 }
+
+#[test]
+fn a_query_after_an_edit_is_answered_from_a_rebuilt_map() {
+    let env = Env { home: TempDir::new("dam-smoke-").unwrap() };
+    let repo = env.home.0.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("a.py"), "def first_thing():\n    return 1\n").unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["add", "-A"]);
+    env.text(Some(&repo), &["graph", "update"], "");
+    assert!(!env.text(Some(&repo), &["graph", "query", "second_thing"], "").contains("b.py"));
+
+    // Some filesystems stamp whole seconds.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(repo.join("b.py"), "def second_thing():\n    return 2\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    let answer = env.text(Some(&repo), &["graph", "query", "second_thing"], "");
+    assert!(answer.contains("b.py"), "{answer}");
+}

@@ -481,6 +481,12 @@ pub fn hook() {
         let _ = writeln!(std::io::stdout(), "{{}}");
         std::process::exit(0);
     }));
+    // The map the answers read is brought up to date first, in the folder the payload names.
+    if let Some(cwd) = serde_json::from_str::<Value>(&input).ok().and_then(|p| p["cwd"].as_str().map(String::from)) {
+        if std::env::set_current_dir(&cwd).is_ok() {
+            graph::refresh();
+        }
+    }
     let answer = outputs_dir().and_then(|dir| {
         let answer = respond(host(), &input, &dir);
         if answer.is_some() {

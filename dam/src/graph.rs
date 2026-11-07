@@ -470,6 +470,19 @@ fn answer(graph: &Graph, question: &str) -> String {
 }
 
 // The graph's answer about `name`, from the graph file at `path`; None where there is no readable graph.
+
+// Rebuilds the map when a file changed after it was written, so edits made since are not answered with the old map.
+// Never creates one (the first query does). Works in the current folder.
+pub fn refresh() -> bool {
+    let Some(built) = fs::metadata(GRAPH_FILE).and_then(|m| m.modified()).ok() else { return false };
+    let changed = |file: &String| fs::metadata(file).and_then(|m| m.modified()).is_ok_and(|at| at > built);
+    if !source_files().iter().chain(doc_files().iter()).any(changed) {
+        return false;
+    }
+
+    save(&build()).is_ok()
+}
+
 pub fn answer_from(path: &str, name: &str) -> Option<String> {
     load(path).ok().map(|graph| answer(&graph, name))
 }
@@ -486,7 +499,7 @@ pub fn run(args: &[String]) {
                 }
             }
         }
-        Some("query") if args.len() > 1 => match load(GRAPH_FILE).or_else(|_| {
+        Some("query") if args.len() > 1 => match { refresh(); load(GRAPH_FILE) }.or_else(|_| {
             let graph = build();
             save(&graph).map(|()| graph)
         }) {

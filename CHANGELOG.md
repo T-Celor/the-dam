@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.4
+
+- **The map follows your edits.** It was only rebuilt by hand (`graph update`), so after a session of edits it answered with the old code: a function added an hour ago was "not found". Every `graph query`, and every hook that reads the map (Codex, Copilot), now rebuilds it first when a file changed after it was written. It still never creates a map by itself.
+
 ## 0.22.3
 
 - **Beaver replies are shorter still.** A finished task is at most 3 lines of under 20 words (what changed, the check and its result, the skip or risk); the first word is the answer; no bullets, bold, recap, offer of more work or closing question under 10 lines; ten lines at most even for a review.

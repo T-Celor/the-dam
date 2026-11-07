@@ -93,7 +93,7 @@ test('a big output reaches the model condensed, with the path of the whole', asy
   })
   // `dam squeeze condense` decides and answers JSON; any other call (`--version`) just succeeds.
   const condensed = JSON.stringify({ text: 'short', note: '\n\n[condensed; original: {path}.]', before: 900, after: 2, url: null, web: false })
-  on('process.run', (_, e) => ({ value: { exitCode: 0, stdout: e.argv.includes('condense') ? condensed : 'dam 0.22.3', stderr: '' } }) as never)
+  on('process.run', (_, e) => ({ value: { exitCode: 0, stdout: e.argv.includes('condense') ? condensed : 'dam 0.22.4', stderr: '' } }) as never)
   on('clock.after', () => ({ value: {} }) as never)
   on('store.get', () => ({ value: undefined }) as never)
   on('store.set', () => ({ value: undefined }) as never)
