@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.29.0
+
+- **The advisor's review is now mandatory where it matters.** A Stop hook (`dam goldfish gate`, Claude Code; Codex and Copilot get the same entry) reads the turn that is ending: when it changed three or more code files, or any file whose path names auth, security, crypto, passwords, secrets, tokens, payments, billing, migrations, permissions or SQL, and no `advisor` or goldfish reviewer was called in that turn, the agent is not allowed to finish. It is told to call the `advisor` with the task, the changed paths and the test result, fix the Blockers and Majors, then finish. Asked once per turn, never when a stop hook already continued the turn, so it cannot loop. Documents (md, txt...) do not count; work done inside subagents does not either. `DAM_REVIEW=off` turns it off. Tested in a real session: three files written, stop refused, advisor (Opus 5.5) called, then finished.
+
 ## 0.28.0
 
 - **The goldfish method is part of how every model works with the advisor and the workers.** Beaver's session rules (given to Claude Code, Codex and Copilot, and to subagents) have a new "Fresh eyes" section: broad reading and searching go to a `worker`; before calling a multi-file, security, money, data or migration change done, the `advisor` gets the task in one sentence, the changed paths and the test result, and nothing of the conversation, and its Blockers and Majors are fixed or answered; after two failed fixes it is asked before a third. The `advisor` agent now reviews as a goldfish (reads the code, not the summary, reports what is wrong first); the `worker` ends with what a reviewer should check first; the Codex `advisor` and `worker` files say the same.

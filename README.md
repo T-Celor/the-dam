@@ -225,6 +225,7 @@ On html-to-markdown's own test files, the conversion matches 75% of lines, setti
 
 | What | How |
 |---|---|
+| Mandatory review | A turn that changed 3 or more code files, or a sensitive one, cannot end before the `advisor` has reviewed it (once per turn). `DAM_REVIEW=off` disables. Claude Code transcripts only: Codex and Copilot get the hook, not a tested effect. |
 | Automatic review | A finished design document is reviewed by itself (/the-dam:goldfish, changed sections only). `DAM_GOLDFISH=ask` asks first, `off` disables. Documents that name missing files are reported once at session start. |
 | Upstream | [`UPSTREAM`](UPSTREAM) records the version followed for each project. `dam upstream` lists what moved since (commits, and files under the ported paths with `gh`); you port by hand, then `dam upstream pin NAME`. A weekly workflow opens an issue when one moved. |
 | Tests | `cd dam && cargo test` (unit tests, the programs end to end, the Codex and Copilot packaging), `claude plugin test .`, `claude plugin validate .` |

@@ -277,6 +277,11 @@ pub fn run(args: &[String]) -> i32 {
             crate::autoreview::hook();
             0
         }
+        // The Stop hook: no finishing a turn that changed a lot, or something sensitive, without a fresh reviewer.
+        Some("gate") => {
+            crate::gate::hook();
+            0
+        }
         _ => {
             eprintln!("usage: dam goldfish prepare DOCUMENT [CONTEXT_FILE...] | drift DOCUMENT... | mark DOCUMENT | hook");
             2
