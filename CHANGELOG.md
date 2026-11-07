@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.30.0
+
+- **A use case in, the right pieces called.** Each prompt is read (`dam usecase`): new feature, bug fix, refactor, review, documents or question, in English or French. The agent gets the playbook for it, once per change of case: which of the dam's pieces to use and in what order. `dam usecase show` lists them, `DAM_USECASE=off` stops it.
+- **The map comes first, enforced.** The map is built where it is missing (3 to 3,000 code files). The first exploration of a session, whatever the tool (Glob, Grep, Read of code, `ls`, `cat`, `rg`), is met once by the map's overview and the command to query it. A Grep for code names the map knows is answered by the map (at most three times a session); asked again, it runs. `DAM_MAPFIRST=off` stops it.
+- **The design review comes before the code, enforced.** A design flagged in the session blocks Write, Edit and shell writes of code until `dam goldfish prepare` has run, twice at most so a host without sub-agents is never stuck. A design written with `cat >` or `Set-Content` is now seen too. Found by running the use case for real: the model had written the design through the shell and implemented first.
+- Fixed: a path such as `docs/x.md` in a prompt no longer makes it a documentation request, and a sub-agent's report is not taken for a request.
+
 ## 0.29.1
 
 - **The design review comes before the implementation, and is asked once per session.** The hook that flags a finished design document now says "before you implement anything from it", and flags a document once per session instead of after every edit (fixes made after a review are not a new draft). A real run of a billing change shows the whole chain: design, hook, four reviewers with the files the map found, implementation, Stop gate, advisor. README has the walk-through.

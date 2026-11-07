@@ -34,6 +34,8 @@ pub mod goldfish;
 pub mod upstream;
 pub mod autoreview;
 pub mod gate;
+pub mod usecase;
+pub mod mapfirst;
 
 // The plugin's folder: given by Claude Code to a hook, else found above the running program.
 pub fn plugin_root() -> Option<std::path::PathBuf> {

@@ -165,6 +165,7 @@ fn prepare(doc: &str, extra: &[String]) -> Result<String, String> {
         None => out.push_str(&format!("specification: lines 1-{lines}\nplan: none\n")),
     }
     // Fresh eyes read a section once: what was reviewed and has not changed is not sent again.
+    crate::autoreview::review_started(path);
     let changed = crate::autoreview::changed_since_review(path, &text);
     if changed.is_empty() {
         out.push_str("changed since the last review: nothing; review nothing\n");

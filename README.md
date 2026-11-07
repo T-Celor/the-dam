@@ -159,18 +159,19 @@ Several sessions can run at once. Each keeps its own level, originals and counts
 
 ## A walk-through
 
-One request, run for real in Claude Code (Sonnet 5.5 session, about $0.55): *"Charges and refunds can be sent twice when the network drops. Add idempotency keys to `charge_customer` and `refund_customer`. Write a short design first, then implement everything it says."*
+One request, run for real in Claude Code (Sonnet 5.5 session): *"Charges and refunds can be sent twice when the network drops. Add idempotency keys to `charge_customer` and `refund_customer`. Write a short design first, then implement everything it says."*
 
-| Step | What the dam does by itself | Who runs |
+| Step | What the dam does, enforced by hooks | Who runs |
 |---|---|---|
-| 1. Look around | The map is announced at session start; a search for a name carries the callers and the definition. | Sonnet |
-| 2. Design | The model writes `docs/idempotency-design.md`. A hook sees a finished design and tells it, once, to review it before implementing. | hook (Rust) |
-| 3. Review | `dam goldfish prepare` lists the sections to review and, from the map, the files that define the code the document names (`charge.py`, `refund.py`). Four fresh reviewers, none of whom has the conversation, read it: simplicity, cold reader (Haiku 5.5), critic, readiness. | Sonnet, Haiku |
+| 0. Use case | The prompt is read: it is a new feature. A four-step playbook (map, design, implement, advisor) is added to the context once. | hook (Rust) |
+| 1. Look around | The map is built if missing. The first Glob, Read, `ls` or `cat` of the session is met by the map's overview (folders, files, the names they define) and the command to query it. A Grep for `charge_customer|post(` is answered by the map: definitions and callers. Asked again, it runs. | hook (Rust) |
+| 2. Design | The model writes `docs/idempotency-design.md`, with the Write tool or with `cat >`. The dam sees a finished design and says: review it before implementing. | hook (Rust) |
+| 3. Review | Writing code is refused until the review has begun. `dam goldfish prepare` lists the sections to review and, from the map, the files that define the code the document names. Four fresh reviewers read it: simplicity, cold reader (Haiku 5.5), critic, readiness. | Sonnet, Haiku |
 | 4. Implement | The design is corrected from the findings, then the code is written and the tests run. | Sonnet |
-| 5. Gate | Four code files changed, two of them on billing: the turn cannot end. The Stop hook asks for the `advisor`. | hook (Rust) |
-| 6. Advisor | Given the task, the changed paths and the test result, and nothing else, it reads the code and reports no Blocker or Major. The turn ends. | Opus 5.5 |
+| 5. Gate | Five code files changed, two of them on billing: the turn cannot end. The Stop hook asks for the `advisor`. | hook (Rust) |
+| 6. Advisor | Given the task, the changed paths and the test result, and nothing else, it reads the code and reports. The turn ends. | Opus 5.5 |
 
-Workers (Haiku) take broad searches and surveys when the model delegates them; nothing forces that, since one `Grep` costs less than an agent. `DAM_GOLDFISH=ask|off` and `DAM_REVIEW=off` turn steps 2 and 5 down.
+Workers (Haiku) take broad searches when the model delegates them; nothing forces that, since one `Grep` costs less than an agent. Each refusal is at most once or twice per session, so none can loop. Switches: `DAM_USECASE=off`, `DAM_MAPFIRST=off`, `DAM_GOLDFISH=ask|off`, `DAM_REVIEW=off`.
 
 ## Gains
 

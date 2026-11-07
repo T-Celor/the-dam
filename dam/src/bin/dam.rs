@@ -11,6 +11,8 @@ fn main() -> std::io::Result<()> {
     match args.first().map(String::as_str) {
         Some("--version") => println!("dam {}", env!("CARGO_PKG_VERSION")),
         Some("squeeze" | "dam-squeeze") => squeeze(rest)?,
+        // PreToolUse for Grep: the map answers a search for code names before it runs.
+        Some("graph" | "dam-graph") if rest.first().map(String::as_str) == Some("first") => dam::mapfirst::hook(),
         Some("graph" | "dam-graph") if rest.first().map(String::as_str) == Some("facts") => {
             if !dam::answers::facts_command(&rest[1..]) {
                 std::process::exit(1);
@@ -27,6 +29,7 @@ fn main() -> std::io::Result<()> {
         Some("hosts") => std::process::exit(dam::hostgen::run(rest.first().map(String::as_str) == Some("--check"))),
         Some("goldfish") => std::process::exit(dam::goldfish::run(rest)),
         Some("upstream") => std::process::exit(dam::upstream::run(rest)),
+        Some("usecase") => std::process::exit(dam::usecase::run(rest)),
         _ => {
             eprintln!("{USAGE}");
             std::process::exit(2);

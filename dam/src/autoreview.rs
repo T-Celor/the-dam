@@ -105,6 +105,15 @@ fn mark_in(state: &Path, doc: &str) -> Result<String, String> {
 fn paths_in(value: &Value, out: &mut Vec<String>) {
     match value {
         Value::String(text) => {
+            // A shell command that writes a document (`cat > docs/design.md <<EOF`, `tee`, `Set-Content`): the Write tool is not the only way in.
+            if text.contains('>') || text.contains("tee ") || text.contains("Out-File") || text.contains("Set-Content") {
+                for token in text.split_whitespace() {
+                    let token = token.trim_matches(|c: char| matches!(c, '\'' | '"' | ';' | '>' | '(' | ')' | '`'));
+                    if token.to_lowercase().ends_with(".md") && !token.starts_with('-') && !out.iter().any(|known| known == token) {
+                        out.push(token.to_string());
+                    }
+                }
+            }
             for line in text.lines() {
                 let line = line.trim();
                 let named = line.strip_prefix("*** Add File:").or_else(|| line.strip_prefix("*** Update File:")).map(str::trim);
@@ -154,6 +163,10 @@ fn nudge_in(state_dir: &Path, input: &Value, mode: &str) -> Option<String> {
         }
         state["nudged"] = json!(digest(&text));
         state["session"] = json!(session);
+        state["path"] = json!(doc.to_string_lossy());
+        // The review is owed until `prepare` (its first step) has run for this version.
+        state["started"] = json!(false);
+        state["denied"] = json!(0);
         save(&state_file(state_dir, &doc), &state);
         let name = doc.strip_prefix(&cwd).unwrap_or(&doc).to_string_lossy().replace('\\', "/");
         let what = if state["sections"].is_null() { "never reviewed".to_string() } else { format!("changed since its review: {}", changed.join(", ")) };
@@ -167,7 +180,57 @@ fn nudge_in(state_dir: &Path, input: &Value, mode: &str) -> Option<String> {
     (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
-fn mode() -> String {
+// The review of this document has begun: the goldfish skill ran `prepare`.
+pub fn review_started(doc: &Path) {
+    let state_dir = crate::economizer::state_root();
+    let mut state = load(&state_dir, doc);
+    if state["path"].is_null() {
+        return;
+    }
+    state["started"] = json!(true);
+    save(&state_file(&state_dir, doc), &state);
+}
+
+// Code may not be written from a design that was flagged in this session and has not been sent to review. Asked twice at
+// most, so a host that cannot run the review (no sub-agent tool) is never stuck. Returns the reason to refuse the edit.
+pub fn pending_review(input: &Value, state_dir: &Path, mode: &str) -> Option<String> {
+    if mode != "auto" {
+        return None;
+    }
+    let tool = input["tool_name"].as_str()?.to_lowercase();
+    let targets: Vec<String> = match tool.as_str() {
+        "write" | "edit" | "multiedit" => vec![input["tool_input"]["file_path"].as_str()?.to_lowercase()],
+        // A shell command that writes code is the same as an edit.
+        "bash" | "powershell" => crate::loopguard::shell_edit_targets(input["tool_input"]["command"].as_str()?).into_iter().map(|name| name.to_lowercase()).collect(),
+        _ => return None,
+    };
+    // Writing documents is how the design gets written and revised.
+    let is_doc = |target: &String| [".md", ".txt", ".rst"].iter().any(|ext| target.ends_with(ext));
+    if targets.is_empty() || targets.iter().all(is_doc) {
+        return None;
+    }
+    let session = input["session_id"].as_str().or_else(|| input["sessionId"].as_str()).filter(|session| !session.is_empty())?;
+    for entry in fs::read_dir(state_dir.join("goldfish")).ok()?.flatten() {
+        let file = entry.path();
+        if file.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let Some(mut state) = fs::read_to_string(&file).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) else { continue };
+        let doc = state["path"].as_str().map(PathBuf::from);
+        if state["session"].as_str() != Some(session) || state["started"].as_bool() != Some(false) || state["denied"].as_i64().unwrap_or(0) >= 2 || !doc.as_ref().is_some_and(|doc| doc.is_file()) {
+            continue;
+        }
+        state["denied"] = json!(state["denied"].as_i64().unwrap_or(0) + 1);
+        save(&file, &state);
+        let name = doc.map(|doc| doc.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).unwrap_or_default();
+
+        return Some(format!("Not yet: the design {name} has not been reviewed. Run /the-dam:goldfish on it first (it takes a minute and reviews only what changed), then write the code. If the review cannot run here, repeat the edit and it will go through."));
+    }
+
+    None
+}
+
+pub fn mode() -> String {
     std::env::var("DAM_GOLDFISH").ok().map(|value| value.to_lowercase()).filter(|value| matches!(value.as_str(), "auto" | "ask" | "off")).unwrap_or_else(|| "auto".to_string())
 }
 
@@ -306,6 +369,34 @@ mod tests {
         assert!(nudge_in(&home, &json!({"cwd": dir.to_str().unwrap(), "session_id": "s1", "tool_input": {"file_path": doc.to_str().unwrap()}}), "ask").is_none(), "not twice in one session");
         let again = nudge_in(&home, &input, "ask").expect("a note after an edit");
         assert!(again.contains("Goals") && !again.contains("Implementation Plan,") && again.contains("Offer the user"), "{again}");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn code_waits_for_the_review_of_a_design_flagged_in_the_session() {
+        let dir = std::env::temp_dir().join(format!("goldfish-pending-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let home = dir.join("home");
+        let doc = dir.join("design.md");
+        fs::write(&doc, format!("{DOC}{}", "More text. ".repeat(80))).unwrap();
+        let flagged = json!({"cwd": dir.to_str().unwrap(), "session_id": "s9", "tool_input": {"file_path": doc.to_str().unwrap()}});
+        assert!(nudge_in(&home, &flagged, "auto").is_some());
+        let edit = |file: &str, session: &str| json!({"tool_name": "Write", "session_id": session, "tool_input": {"file_path": file}});
+        // Documents and other sessions are free; code is refused, twice at most.
+        assert!(pending_review(&edit("notes.md", "s9"), &home, "auto").is_none());
+        assert!(pending_review(&edit("src/a.rs", "other"), &home, "auto").is_none());
+        assert!(pending_review(&edit("src/a.rs", "s9"), &home, "ask").is_none());
+        assert!(pending_review(&edit("src/a.rs", "s9"), &home, "auto").unwrap().contains("design.md"));
+        assert!(pending_review(&edit("src/a.rs", "s9"), &home, "auto").is_some());
+        assert!(pending_review(&edit("src/a.rs", "s9"), &home, "auto").is_none(), "a third time goes through");
+        // Once the review has begun nothing is owed.
+        let again = json!({"cwd": dir.to_str().unwrap(), "session_id": "s10", "tool_input": {"file_path": doc.to_str().unwrap()}});
+        fs::write(&doc, fs::read_to_string(&doc).unwrap().replace("Goal one.", "Goal one, v2.")).unwrap();
+        assert!(nudge_in(&home, &again, "auto").is_some());
+        let mut state = load(&home, &doc);
+        state["started"] = json!(true);
+        save(&state_file(&home, &doc), &state);
+        assert!(pending_review(&edit("src/a.rs", "s10"), &home, "auto").is_none());
         fs::remove_dir_all(&dir).ok();
     }
 }

@@ -45,6 +45,27 @@
             "statusMessage": "Listening for the beaver..."
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" usecase hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Grep|Glob|Read|Write|Edit|MultiEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" graph first",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -58,7 +79,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit|apply_patch|create|edit",
+        "matcher": "Write|Edit|MultiEdit|apply_patch|create|edit|Bash|PowerShell",
         "hooks": [
           {
             "type": "command",

@@ -520,6 +520,23 @@ impl Index {
     }
 }
 
+// Most code files a map is built for without being asked: a larger project builds it on the first `graph query`.
+const MOST_AUTO_BUILD_FILES: usize = 3_000;
+
+// Makes sure this folder has a current map where it is worth having one (a few code files, not thousands); whether it has one.
+pub fn ensure_built() -> bool {
+    if fs::metadata(GRAPH_FILE).is_ok() {
+        refresh();
+        return true;
+    }
+    let files = source_files().len();
+    if !(3..=MOST_AUTO_BUILD_FILES).contains(&files) {
+        return false;
+    }
+
+    save(&build()).is_ok()
+}
+
 // The map of this folder, brought up to date, or built if there is none; None where nothing can be read.
 pub fn index() -> Option<Index> {
     refresh();
