@@ -164,6 +164,15 @@ fn prepare(doc: &str, extra: &[String]) -> Result<String, String> {
         Some(_) => out.push_str(&format!("specification: none\nplan: lines 1-{lines}\n")),
         None => out.push_str(&format!("specification: lines 1-{lines}\nplan: none\n")),
     }
+    // Fresh eyes read a section once: what was reviewed and has not changed is not sent again.
+    let changed = crate::autoreview::changed_since_review(path, &text);
+    if changed.is_empty() {
+        out.push_str("changed since the last review: nothing; review nothing\n");
+    } else if crate::autoreview::sections(&text).len() == changed.len() {
+        out.push_str("changed since the last review: everything (first review)\n");
+    } else {
+        out.push_str(&format!("changed since the last review: {} (review only these sections)\n", changed.join(", ")));
+    }
     out.push_str("context (give each reviewer these paths, nothing of the conversation):\n");
     let mut files = linked_files(path, &text, &root);
     for file in extra {
@@ -252,8 +261,24 @@ pub fn run(args: &[String]) -> i32 {
             print!("{out}");
             i32::from(drifted)
         }
+        // Records that the document, as it is now, has been reviewed.
+        Some("mark") if args.len() > 1 => match crate::autoreview::mark(&args[1]) {
+            Ok(out) => {
+                print!("{out}");
+                0
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                1
+            }
+        },
+        // The PostToolUse hook that says when a design document is ready for review.
+        Some("hook") => {
+            crate::autoreview::hook();
+            0
+        }
         _ => {
-            eprintln!("usage: dam goldfish prepare DOCUMENT [CONTEXT_FILE...] | dam goldfish drift DOCUMENT...");
+            eprintln!("usage: dam goldfish prepare DOCUMENT [CONTEXT_FILE...] | drift DOCUMENT... | mark DOCUMENT | hook");
             2
         }
     }

@@ -56,6 +56,16 @@
             "timeout": 60
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|apply_patch|create|edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" goldfish hook",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [

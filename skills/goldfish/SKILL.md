@@ -26,8 +26,12 @@ Each stage is one subagent of the plugin, given the document path, its line rang
 
 Skip the plan stages when the document has no plan, or the specification stages for `plan`. Stages 1 to 3 do not depend on each other: run them together. After each stage, offer the findings to the user and fix what they accept before the next one, unless they asked for one consolidated report.
 
+Save tokens: `prepare` says which sections changed since the last review. Reviewers get only those line ranges (with the headings above them), and a stage whose range is untouched does not run. "Nothing changed" means no review at all; say so in one line. The dam starts this review by itself when a finished design document is written (`DAM_GOLDFISH=ask` to be asked first, `off` to stop it), so run it once per version: do not start it again for a document you just reviewed.
+
 ## 3. Settle
 
 Merge duplicate findings, rank them Blocker, Major, Nit, one line each. Two findings that disagree, or a Blocker you doubt: ask the `advisor`. Write the report to a file next to the document and tell the user its path. The user decides every trade-off; do not change the design on a finding they have not accepted.
+
+When the user has settled the findings, record the version that was reviewed: `dam goldfish mark <document>` (same launcher as `prepare`). Sections edited after that are the only ones reviewed next time.
 
 A review does not replace tests or the user's judgement.

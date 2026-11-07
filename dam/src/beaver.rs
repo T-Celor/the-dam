@@ -305,6 +305,10 @@ fn activate() {
     if let Some(done) = models {
         text = format!("{done}\n\n{text}");
     }
+    // Said once per list: a document that names files the code no longer has.
+    if let Some(note) = std::env::current_dir().ok().and_then(|root| crate::autoreview::drift_note(&root)) {
+        text = format!("{note}\n\n{text}");
+    }
     if host != Host::Claude {
         // Where `te doctor --host` tells a blocked start hook from one that never had a session.
         crate::channels::beat(&crate::channels::hooks_channel(host));

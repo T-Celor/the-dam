@@ -32,6 +32,7 @@ pub mod journal;
 pub mod models;
 pub mod goldfish;
 pub mod upstream;
+pub mod autoreview;
 
 // The plugin's folder: given by Claude Code to a hook, else found above the running program.
 pub fn plugin_root() -> Option<std::path::PathBuf> {

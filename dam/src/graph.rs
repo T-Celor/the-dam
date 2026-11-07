@@ -527,6 +527,18 @@ pub fn index() -> Option<Index> {
         let graph = build();
         save(&graph).ok().map(|()| graph)
     })?;
+
+    Some(index_of(graph))
+}
+
+// The map as it is, kept current; None where this folder has none (a session start never creates one).
+pub fn index_if_built() -> Option<Index> {
+    refresh();
+
+    load(GRAPH_FILE).ok().map(index_of)
+}
+
+fn index_of(graph: Graph) -> Index {
     let mut defined: HashMap<String, Vec<usize>> = HashMap::new();
     let mut spelled = HashMap::new();
     for node in graph.nodes.iter().filter(|node| node.kind != Kind::File) {
@@ -537,7 +549,7 @@ pub fn index() -> Option<Index> {
         spelled.entry(squash(&node.name)).or_insert_with(|| node.name.clone());
     }
 
-    Some(Index { files: graph.files, defined, spelled })
+    Index { files: graph.files, defined, spelled }
 }
 
 pub fn answer_from(path: &str, name: &str) -> Option<String> {

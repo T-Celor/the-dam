@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.27.0
+
+- **The goldfish review and the documents' upkeep now happen by themselves, and cost less.** A hook after each file write (`dam goldfish hook`, every host) notices a finished design document (a Markdown file named design, spec, rfc, proposal or architecture, or with an `## Implementation Plan`) and tells the agent once per version to run `/the-dam:goldfish` without asking. The review is limited to the sections changed since the last one (`dam goldfish prepare` lists them, `dam goldfish mark` records the reviewed version), so a small edit is a small review and an unchanged document costs nothing. `DAM_GOLDFISH=ask` makes it offer first, `off` stops it. At session start the dam says once, in a line, when the README or a document under `docs/` names a file that is gone (or moved, with where the map finds it); no model runs for it. The map is used, never created, for that check.
+
 ## 0.26.0
 
 - **The rest of the Elephant-Goldfish Model's skills.** `/the-dam:resolve` sorts review findings (contest, escalate, fix, decline) and applies the ones you accept; `/the-dam:goldfish-loop` repeats review and resolve until two clean rounds in a row; `/the-dam:bootstrap` writes a contract README per folder from the map, then checks it with `drift`.
