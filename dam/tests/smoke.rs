@@ -197,3 +197,39 @@ fn the_first_codex_session_sets_the_models_once_and_uninstall_gives_them_back() 
     assert!(after.starts_with("model = \"gpt-6-astra\"") && !after.contains("gpt-6-luna") && after.contains("trust_level"), "{after}");
     assert!(!codex.join("agents").join("advisor.toml").exists());
 }
+
+// Three sessions where `ruff` is not installed and nothing else runs it: the fourth is told not to try.
+#[test]
+fn a_tool_that_is_not_installed_becomes_a_note() {
+    let env = Env { home: TempDir::new("dam-smoke-").unwrap() };
+    let repo = env.home.0.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("a.py"), "x = 1\n").unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["add", "-A"]);
+    let cwd = repo.to_str().unwrap();
+    let key = serde_json::from_str::<Value>(&env.text(None, &["te", "--cwd", cwd, "status", "--json"], "")).unwrap()["repo_key"].as_str().unwrap().to_string();
+    let state = env.home.0.join("state");
+    std::fs::create_dir_all(state.join("sessions").join("claude")).unwrap();
+    std::fs::create_dir_all(state.join("repos").join(&key).join("claude").join("sessions")).unwrap();
+    for n in 1..=3 {
+        let id = format!("sess{n}");
+        let line = |kind: &str, message: Value| json!({"type": kind, "sessionId": id, "cwd": cwd, "message": message, "uuid": format!("{kind}{n}{}", message), "timestamp": format!("2026-11-0{n}T10:00:00Z")}).to_string();
+        let transcript = [
+            line("user", json!({"role": "user", "content": "lint it"})),
+            line("assistant", json!({"role": "assistant", "content": [{"type": "tool_use", "id": "c1", "name": "Bash", "input": {"command": "ruff check ."}}]})),
+            line("user", json!({"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": "bash: ruff: command not found"}]})),
+        ]
+        .join("\n");
+        let path = env.home.0.join(format!("t{n}.jsonl"));
+        std::fs::write(&path, transcript).unwrap();
+        for event in [json!({"hook_event_name": "SessionStart", "source": "startup"}), json!({"hook_event_name": "SessionEnd", "reason": "exit"})] {
+            let mut payload = json!({"session_id": id, "cwd": cwd, "transcript_path": path.to_str().unwrap()});
+            payload.as_object_mut().unwrap().extend(event.as_object().unwrap().clone());
+            env.text(Some(&repo), &["te", "hook"], &payload.to_string());
+        }
+        env.text(None, &["te", "--cwd", cwd, "fold"], "");
+    }
+    let notes = env.text(None, &["te", "--cwd", cwd, "microskills"], "");
+    assert!(notes.contains("ruff") && notes.contains("command not found"), "{notes}");
+}

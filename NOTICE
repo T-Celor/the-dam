@@ -42,7 +42,7 @@ graphify, https://graphify.com
 
 Elephant-Goldfish Model, Copyright Google LLC, Apache License 2.0
 https://github.com/google/elephant-goldfish-model
-  skills/goldfish, skills/design, skills/drift and agents/goldfish-* follow its method (a
+  skills/goldfish, goldfish-loop, resolve, design, bootstrap, drift and agents/goldfish-* follow its method (a
   reviewer that has none of the conversation, review stages, drift against the code), rewritten
   and shortened; dam/src/goldfish.rs and dam/src/upstream.rs are new Rust. Changed from the
   original: reviewers cut to four, run on the dam's model ladder and use the map.

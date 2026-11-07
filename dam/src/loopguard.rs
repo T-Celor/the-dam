@@ -24,10 +24,10 @@ static QUOTED: LazyLock<Regex> = LazyLock::new(|| re(r#"'[^']*'|"(?:\\.|[^"\\])*
 static NOT_A_RUN: LazyLock<Regex> = LazyLock::new(|| re(r"\s(?:-h|--help|--version|--collect-only|--co|--list\S*)(?!\S)"));
 // What may precede the command itself: `FOO=1 timeout 60 npm test`, and a launcher that runs it in the project's
 // environment, `uv run pytest`, `npx jest`, `bundle exec rspec`.
-static PREFIX: LazyLock<Regex> = LazyLock::new(|| re(r"^\s*(?:(?:\w+=\S*|time|nice|nohup|command|env|timeout(?:\s+(?:-\S+|[A-Z]+|\d\S*))+|(?:(?:uv|poetry|pipenv|pdm|hatch|rye)\s+run|npx|bunx|(?:npm|pnpm|yarn)\s+(?:exec|dlx)|bundle\s+exec|xvfb-run)(?:\s+-\S+)*)\s+)*"));
+static PREFIX: LazyLock<Regex> = LazyLock::new(|| re(r"^\s*(?:(?:\w+=\S*|time|nice|nohup|command|env|timeout(?:\s+(?:-\S+|[A-Z]+|\d\S*))+|(?:(?:uv|poetry|pipenv|pdm|hatch|rye)\s+run|npx|bunx|(?:npm|pnpm|yarn)\s+(?:exec|dlx)|bundle\s+exec|xvfb-run)(?:\s+-\S+)*|dotenv(?:\s+(?!--(?:\s|$))\S+)*\s+--)\s+)*"));
 static REPORT: LazyLock<Regex> = LazyLock::new(|| re(r"^\s*(?:echo|printf|true|:|exit)(?:\s|$)"));
-static RUN_FAILED: LazyLock<Regex> = LazyLock::new(|| re(r"(?m)\b[1-9]\d* (?:failed|errors?)\b.*\bin \d+(?:\.\d+)?s\b|^FAILED \((?:failures|errors)=|^tests finished:.*\b[1-9]\d* (?:failed|exceptions?)\b|^# fail [1-9]|^Tests:.*\b[1-9]\d* failed\b|^\s*Tests\s+[1-9]\d* failed\b|^\s*[1-9]\d* failing\b|^(?:--- FAIL: |FAIL\t|FAIL$)|^test result: FAILED|\b\d+ examples?, [1-9]\d* failures?\b|Tests run: \d+, Failures: (?:[1-9]|0, Errors: [1-9])|BUILD FAIL(?:URE|ED)"));
-static RUN_PASSED: LazyLock<Regex> = LazyLock::new(|| re(r"(?m)\b\d+ passed\b.*\bin \d+(?:\.\d+)?s\b|^OK(?: \(.*\))?\s*$|^tests finished: \d+ passed|^# fail 0\b|^Tests:\s+\d+ passed|^\s*Tests\s+\d+ passed|^\s*\d+ passing\b|^ok\s+\S+\s+(?:\d+(?:\.\d+)?s|\(cached\))|^test result: ok\.|\b\d+ examples?, 0 failures\b|BUILD SUCCESS"));
+static RUN_FAILED: LazyLock<Regex> = LazyLock::new(|| re(r"(?m)\b[1-9]\d* (?:failed|errors?)\b.*\bin \d+(?:\.\d+)?s\b|^FAILED \((?:failures|errors)=|^tests finished:.*\b[1-9]\d* (?:failed|exceptions?)\b|^# fail [1-9]|^Tests:.*\b[1-9]\d* failed\b|^\s*Tests\s+[1-9]\d* failed\b|^\s*[1-9]\d* failing\b|^\s*[1-9]\d* failed\s*$|^(?:--- FAIL:|FAIL\t|FAIL$)|^test result: FAILED|\b\d+ examples?, [1-9]\d* failures?\b|Tests run: \d+, Failures: (?:[1-9]|0, Errors: [1-9])|BUILD FAIL(?:URE|ED)"));
+static RUN_PASSED: LazyLock<Regex> = LazyLock::new(|| re(r"(?m)\b\d+ passed\b.*\bin \d+(?:\.\d+)?s\b|^OK(?: \(.*\))?\s*$|^tests finished: \d+ passed|^# fail 0\b|^Tests:\s+\d+ passed|^\s*Tests\s+\d+ passed|^\s*\d+ passing\b|^\s*\d+ passed \(\d+(?:\.\d+)?(?:ms|s|m|h)\)|^ok\s+\S+\s+(?:\d+(?:\.\d+)?s|\(cached\))|^test result: ok\.|\b\d+ examples?, 0 failures\b|BUILD SUCCESS"));
 static HEREDOC: LazyLock<Regex> = LazyLock::new(|| re(r#"<<-?\s*(['"]?)([A-Za-z_]\w*)\1"#));
 static SOURCE_FILE: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)\.(?:py|pyi|pyx|pxd|js|jsx|mjs|cjs|ts|tsx|rs|go|java|kt|kts|scala|c|cc|cpp|cxx|h|hh|hpp|rb|php|cs|swift|m|mm|sh|bash|zsh|lua|jl|ex|exs|erl|hs|ml|clj|sql|toml|ya?ml|json|cfg|ini|conf|md|rst|html?|css|scss|vue|svelte|xml|gradle|properties|in)$"));
 static PYTHON: LazyLock<Regex> = LazyLock::new(|| re(r"(?:^|[\s/;&|(])python\d?(?:\.\d+)?\b"));
@@ -586,6 +586,47 @@ fn python_writes(text: &str) -> Vec<String> {
     out
 }
 
+// The paths a `git checkout -- PATH` or `git restore PATH` puts back; none for any other command.
+fn restored(tokens: &[String]) -> Vec<String> {
+    let is_git = tokens.first().is_some_and(|first| first.rsplit('/').next() == Some("git"));
+    let sub = tokens.get(1).map_or("", String::as_str);
+    if !is_git || tokens.len() < 3 || !matches!(sub, "checkout" | "restore") {
+        return Vec::new();
+    }
+    let rest: &[String] = match tokens.iter().position(|t| t == "--") {
+        Some(at) => &tokens[at + 1..],
+        None if sub == "restore" => &tokens[2..],
+        None => &[],
+    };
+
+    rest.iter().filter(|t| !t.starts_with('-')).cloned().collect()
+}
+
+// The file names a shell command puts back with `git checkout --` or `git restore`. `shell_edit_targets` counts them as written, which they are; the loop guard counts them as edits only for a file the turn edited: putting back what a dev server keeps regenerating is not churn.
+pub fn shell_revert_targets(command: &str) -> Vec<String> {
+    if command.trim_matches(is_python_space).is_empty() {
+        return Vec::new();
+    }
+    let (shell, _) = split_heredocs(command);
+    let (commands, _) = shell_commands(&shell);
+    let mut names: Vec<String> = Vec::new();
+    for tokens in &commands {
+        let mut tokens: &[String] = tokens;
+        while tokens.first().is_some_and(|first| matches!(first.as_str(), "sudo" | "command" | "env" | "time" | "nohup") || hit(&ASSIGNMENT, first)) {
+            tokens = &tokens[1..];
+        }
+        for path in restored(tokens) {
+            let scratch = path.is_empty() || path.starts_with("/dev/") || path.starts_with("/proc/") || path.starts_with("/tmp/");
+            let name = basename(&path).to_string();
+            if !scratch && !name.is_empty() && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+
+    names
+}
+
 pub fn shell_edit_targets(command: &str) -> Vec<String> {
     if command.trim_matches(is_python_space).is_empty() {
         return Vec::new();
@@ -617,14 +658,7 @@ pub fn shell_edit_targets(command: &str) -> Vec<String> {
             }
             "patch" => found.push("(patch)".to_string()),
             "git" if word(1) == "apply" => found.push("(patch)".to_string()),
-            "git" if tokens.len() > 2 && matches!(word(1), "checkout" | "restore") => {
-                let rest: &[String] = match tokens.iter().position(|t| t == "--") {
-                    Some(at) => &tokens[at + 1..],
-                    None if word(1) == "restore" => &tokens[2..],
-                    None => &[],
-                };
-                found.extend(rest.iter().filter(|t| !t.starts_with('-')).cloned());
-            }
+            "git" => found.extend(restored(tokens)),
             _ => {}
         }
     }
@@ -1112,7 +1146,11 @@ impl TurnGuard {
     pub fn fold(&mut self, name: &str, args: &Value, result: &str, exit_code: Option<i64>, envelope: Option<f64>, thr: &Thresholds, judge: Judge<'_>, nudge_budget: i64) -> Option<(String, String)> {
         let canon = canon_tool(name);
         let command = if canon == "bash" { args.get("command").and_then(Value::as_str) } else { None };
-        let shell_edits = command.map_or_else(Vec::new, shell_edit_targets);
+        let mut shell_edits = command.map_or_else(Vec::new, shell_edit_targets);
+        if let Some(command) = command.filter(|_| !shell_edits.is_empty()) {
+            let reverted = shell_revert_targets(command);
+            shell_edits.retain(|name| !reverted.contains(name) || self.whole.edit_counts.iter().any(|(known, count)| known == name && *count > 0));
+        }
         let mut exit_code = exit_code;
         let status = status_of_tests(command);
         if matches!(status, Some(TestStatus::Hidden | TestStatus::Mixed)) {
@@ -1376,5 +1414,21 @@ mod tests {
         let tracker = EnvelopeTracker::load(&saved(vec![10, 10, 10, 10, 10]), "default", &Map::new());
         assert_eq!(tracker.envelope(), Some(12.5));
         assert_eq!(tracker.thresholds()["gate_min_turns"], json!(6));
+    }
+
+    #[test]
+    fn putting_back_a_file_is_an_edit_only_when_the_turn_edited_it() {
+        assert_eq!(shell_revert_targets("git checkout -- src/a.py b.py"), vec!["a.py", "b.py"]);
+        assert_eq!(shell_revert_targets("sudo git restore c.rs"), vec!["c.rs"]);
+        assert!(shell_revert_targets("git status").is_empty());
+        assert_eq!(shell_edit_targets("git checkout -- a.py"), vec!["a.py"]);
+    }
+
+    #[test]
+    fn dotenv_and_playwright_are_read() {
+        assert!(hit(&RUN_FAILED, "  2 failed\n"));
+        assert!(hit(&RUN_PASSED, "  5 passed (3.2s)\n"));
+        let rest = PREFIX.find("dotenv -e .env.local -- npx vitest run").ok().flatten().map(|found| found.end());
+        assert_eq!(rest, Some("dotenv -e .env.local -- npx ".len()));
     }
 }

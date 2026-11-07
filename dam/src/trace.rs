@@ -66,7 +66,7 @@ pub fn claude_calls(lines: &[String]) -> Vec<Call> {
                     let id = block.get("tool_use_id").map_or_else(|| "null".to_string(), Value::to_string);
                     let text = match block.get("content") {
                         Some(Value::String(text)) => text.clone(),
-                        Some(Value::Array(items)) => items.iter().filter(|item| item.is_object()).map(|item| item.get("text").and_then(Value::as_str).unwrap_or("")).collect::<Vec<_>>().join(" "),
+                        Some(Value::Array(items)) => items.iter().filter(|item| item.is_object()).map(|item| item.get("text").and_then(Value::as_str).unwrap_or("")).collect::<Vec<_>>().join("\n"),
                         _ => String::new(),
                     };
                     results.insert(id, (text, !is_truthy(block.get("is_error"))));
@@ -223,7 +223,8 @@ mod tests {
         let calls = claude_calls(&log);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].tool.as_deref(), Some("Bash"));
-        assert_eq!(calls[0].result, "a b");
+        // Text blocks keep their line break (as TokenEconomizer's transcript reader does since its 2026-11 fixes).
+        assert_eq!(calls[0].result, "a\nb");
         assert!(!calls[0].success);
         assert_eq!(calls[0].cwd.as_deref(), Some("/r"));
     }

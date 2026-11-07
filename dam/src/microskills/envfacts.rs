@@ -89,9 +89,24 @@ fn typed_ok(o: &Observation) -> bool {
     form_worked(o) && !o.env
 }
 
-// Another form, and, outside test runs and builds, not a bare one: only a fuller spelling repairs a bare interpreter or package tool.
+const RUN_WORDS: [&str; 11] = ["run", "npx", "uv", "uvx", "pipx", "poetry", "pipenv", "conda", "-m", "python", "python3"];
+
+// Another form, and, outside test runs and builds, not a bare one: only a fuller spelling repairs a bare interpreter or package tool. A build or check is repaired only by the same tool spelled another way: `make build` does not repair a missing `ruff`.
 fn repairs(form: &str, a_form: &str, intent: &str) -> bool {
-    form != a_form && (intent == "run_tests" || intent == "run_build" || !is_bare(form))
+    if form == a_form {
+        return false;
+    }
+    if intent == "run_build" {
+        let mine = split(a_form);
+        return split(form).iter().any(|word| mine.contains(word) && !RUN_WORDS.contains(word));
+    }
+
+    intent == "run_tests" || !is_bare(form)
+}
+
+// The executable a form runs, by its last word: `ruff`, `npx ruff`, `uv run ruff`, `.venv/bin/ruff` all name `ruff`.
+fn tool_of(form: &str) -> String {
+    split(form).last().map_or("", |last| last.rsplit('/').next().unwrap_or("")).to_string()
 }
 
 impl EnvFact {
@@ -190,6 +205,7 @@ impl EnvFact {
 
                 format!("Code that imports the project needs `{var}` set here: `{var}={good}` works{tail}")
             }
+            "absent_tool" => format!("`{} \u{2026}` fails here with command not found, and no other way to run it has worked.", text(p, "tool")),
             "empty_probe" => "This checkout has no git remote and no branches, tags or unreachable objects beyond HEAD; its history ends at the checked-out commit.".to_string(),
             _ => String::new(),
         }
@@ -287,8 +303,9 @@ impl EnvFacts {
             "form_repair" => 0,
             "arg_repair" => 1,
             "env_value" => 2,
-            "empty_probe" => 3,
-            "boundary" => 4,
+            "absent_tool" => 3,
+            "empty_probe" => 4,
+            "boundary" => 5,
             _ => 9,
         };
         let mut candidates: Vec<usize> = (0..self.facts.len()).filter(|&n| self.facts[n].injectable() && !self.facts[n].claim().is_empty() && !hit(&LINT, &self.facts[n].claim())).collect();
@@ -432,13 +449,43 @@ impl EnvFacts {
             let seq = of(&intent);
             let exercised = !seq.is_empty();
             let a_failed = seq.iter().any(|o| o.form == a_form && form_failed(o));
-            let b_ran = seq.iter().any(|o| b_forms.contains(&o.form) && form_worked(o)) || seq.iter().any(|o| form_worked(o) && !is_bare(&o.form));
-            // Contradiction: the bare form ran the TEST RUNNER without an environment error. A bare interpreter one-liner succeeding is not evidence.
-            let a_runner_ok = of("run_tests").iter().any(|o| o.form == a_form && form_worked(o));
+            let b_ran = seq.iter().any(|o| b_forms.contains(&o.form) && form_worked(o)) || seq.iter().any(|o| form_worked(o) && !is_bare(&o.form) && repairs(&o.form, &a_form, &intent));
+            // Contradiction: the bare form ran the TEST RUNNER or build tool without an environment error. A bare interpreter one-liner succeeding is not evidence.
+            let a_runner_ok = of(if intent == "run_build" { "run_build" } else { "run_tests" }).iter().any(|o| o.form == a_form && form_worked(o));
             let fired = a_failed || (injected.contains(&id) && b_ran && !a_failed);
             let verdict = if a_failed || (b_ran && !a_runner_ok) { Some("confirm") } else if a_runner_ok { Some("contradict") } else { None };
             fold(fact, now, verdict, fired, exercised, &files);
             verdicts.push((id, verdict, fired, exercised));
+        }
+
+        // AbsentTool: a bare tool that is not installed and has no working form here.
+        if self.vocab.generic {
+            let repaired: BTreeSet<String> = self.facts.iter().filter(|fact| fact.family == "form_repair" && fact.working_form().is_some()).map(|fact| text(&fact.params, "a").to_string()).collect();
+            let mut missing: Vec<(String, &'static str)> = Vec::new();
+            for o in &digest.obs {
+                let absent = matches!(o.intent, "run_build" | "run_tests" | "package_tool") && o.outcome == Some("command_missing") && o.not_found && is_bare(&o.form) && !o.form.contains(' ') && !repaired.contains(&o.form);
+                if absent && !missing.iter().any(|(tool, _)| *tool == o.form) {
+                    missing.push((o.form.clone(), o.intent));
+                }
+            }
+            let worked: BTreeSet<String> = digest.obs.iter().filter(|o| form_worked(o)).map(|o| tool_of(&o.form)).collect();
+            for (tool, intent) in missing.into_iter().filter(|(tool, _)| !worked.contains(tool)) {
+                self.ensure(&format!("absent_tool:{tool}"), "absent_tool", true, json!({"tool": tool, "intent": intent}));
+            }
+            for id in self.family_ids("absent_tool") {
+                let fact = self.find(&id).expect("listed above");
+                let (tool, intent) = (text(&fact.params, "tool").to_string(), text(&fact.params, "intent").to_string());
+                let seen: Vec<&Observation> = digest.obs.iter().filter(|o| tool_of(&o.form) == tool).collect();
+                let contradicted = repaired.contains(&tool) || seen.iter().any(|o| form_worked(o));
+                let missing_now = seen.iter().any(|o| o.outcome == Some("command_missing") && o.not_found && o.form == tool && is_bare(&o.form));
+                // Injected, it counts a session only when that session ran another check of the same kind: one that never needed the tool says nothing about it.
+                let prevented = injected.contains(&id) && !contradicted && digest.obs.iter().any(|o| o.intent == intent);
+                let fired = missing_now || prevented;
+                let exercised = fired || contradicted;
+                let verdict = if contradicted { Some("contradict") } else if fired { Some("confirm") } else { None };
+                fold(fact, now, verdict, fired, exercised, &files);
+                verdicts.push((id, verdict, fired, exercised));
+            }
         }
 
         // ArgRepair: labels the runner loads only in another shape.
@@ -566,5 +613,27 @@ impl EnvFacts {
         }
 
         row
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_build_is_repaired_only_by_the_same_tool() {
+        assert!(repairs("uvx ruff", "ruff", "run_build"));
+        assert!(repairs(".venv/bin/ruff", "ruff", "run_build") || !repairs("make build", "ruff", "run_build"));
+        assert!(!repairs("make build", "ruff", "run_build"));
+        assert!(!repairs("ruff", "ruff", "run_build"));
+        assert!(repairs("python -m pytest", "pytest", "run_tests"));
+    }
+
+    #[test]
+    fn the_tool_is_the_last_word_of_the_form() {
+        assert_eq!(tool_of("uv run ruff"), "ruff");
+        assert_eq!(tool_of(".venv/bin/ruff"), "ruff");
+        assert_eq!(tool_of("npx ruff"), "ruff");
+        assert_eq!(tool_of(""), "");
     }
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.26.0
+
+- **The rest of the Elephant-Goldfish Model's skills.** `/the-dam:resolve` sorts review findings (contest, escalate, fix, decline) and applies the ones you accept; `/the-dam:goldfish-loop` repeats review and resolve until two clean rounds in a row; `/the-dam:bootstrap` writes a contract README per folder from the map, then checks it with `drift`.
+- **TokenEconomizer, ported up to `0aa2aca`** (Hermes, Grok, Cursor and Pi are left out: the dam has three hosts). Micro-skills: a new `absent_tool` fact ("`ruff …` fails here with command not found, and no other way to run it has worked") learned only when the error names that tool, retired when it runs or a working form appears; `uvx` / `pipx run` / `python -m mypy` read as the tool; a build is repaired only by the same tool; `pre-commit` and `shellcheck` count as checks; test output text blocks keep their line breaks. Loop guard: putting back a file with `git checkout --` or `git restore` counts as an edit only if the turn edited it; Playwright results and `dotenv -e … --` prefixes are read. Not ported: the history reader, hook queue and the `held` decision.
+- **Upstream is followed by itself.** A weekly scheduled task runs `dam upstream`, ports what applies, tests, pins and publishes.
+
 ## 0.25.0
 
 - **Goldfish review, from Google's Elephant-Goldfish Model.** `/the-dam:design` turns an idea into a concepts brief and a specification, step by step. `/the-dam:goldfish DOCUMENT` has the document reviewed by reviewers that get the document and its source files but none of the conversation: four plugin agents (`goldfish-simplicity`, `goldfish-reader` on Haiku 5.5, `goldfish-critic`, `goldfish-ready`), five stages, findings settled with you and the `advisor`. The Rust part, `dam goldfish prepare`, finds the specification/plan split, the linked files inside the folder and, from the map, the files that define the code the document names. `/the-dam:drift` (`dam goldfish drift`) checks the documents' code spans against the map: a file that is gone (with where it is now), a name that no code file has (with its current spelling).

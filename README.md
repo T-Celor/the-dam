@@ -90,7 +90,7 @@ Codex cannot rewrite a tool's output, so the condensed one comes back as the hoo
 | `/beaver lite\|full\|ultra\|off` | Beaver's level for this session (`full` by default) |
 | `/the-dam:beaver-review`, `:beaver-audit` | Review of a change, or of the whole repository |
 | `/the-dam:beaver-debt` | Every `shortcut:` comment, as a ledger |
-| `/the-dam:design`, `:goldfish`, `:drift` | Idea to specification; review of a design by reviewers with none of the conversation (the map gives them the code it names); documents checked against the map |
+| `/the-dam:design`, `:goldfish`, `:goldfish-loop`, `:resolve`, `:bootstrap`, `:drift` | Idea to specification; review (once or looped) and settling of a design by reviewers with none of the conversation (the map gives them the code it names); documents checked against the map |
 | `/the-dam:beaver-gain`, `:beaver-help` | Beaver's benchmark and reference card |
 
 ## Status line

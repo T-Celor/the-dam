@@ -1,7 +1,7 @@
 # What the dam follows from each project it builds on.
 # tool            repository                   followed                                   paths to compare ("-": the log only)
 ponytail          DietrichGebert/ponytail      v5.3.3                                     skills hooks
-tokeneconomizer   microsoft/TokenEconomizer    d58755d849cd9157d29aef539f2beab3d5fee0fc   tokeneconomizer plugin/slash-commands
+tokeneconomizer   microsoft/TokenEconomizer    0aa2aca2423328863fe52a0beef0ed6323ff1e63   tokeneconomizer plugin/slash-commands
 headroom          headroomlabs-ai/headroom     fc1ba891bff2d1e0cb53c4ffd4037f5066988c8e   headroom/transforms/lossless_compaction.py
 graphify          Graphify-Labs/graphify       v0.9.99                                    -
 html-to-markdown  JohannesKaufmann/html-to-markdown  v2.5.2                           ESCAPING.md plugin/commonmark plugin/table

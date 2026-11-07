@@ -67,7 +67,7 @@ pub const GENERIC: Vocabulary = Vocabulary {
         "pip", "pip3", "conda", "mamba", "poetry", "pipenv", "uv", "apt", "apt-get", "npm", "yarn", "pnpm", "corepack", "gem", "bundle", "composer", "cargo", "go", "mvn", "gradle", "dotnet", "brew", "rustup", "pyenv", "nvm", "asdf",
     ],
     task_heads: &["make", "npm", "yarn", "pnpm", "cargo", "go", "mvn", "gradle", "gradlew", "dotnet", "mix", "swift", "rake"],
-    build_heads: &["make", "cmake", "ninja", "bazel", "tsc", "eslint", "prettier", "ruff", "flake8", "pylint", "mypy", "pyright", "black", "isort", "golangci-lint", "gcc", "g++", "clang", "javac", "webpack", "vite"],
+    build_heads: &["make", "cmake", "ninja", "bazel", "tsc", "eslint", "prettier", "ruff", "flake8", "pylint", "mypy", "pyright", "black", "isort", "golangci-lint", "gcc", "g++", "clang", "javac", "webpack", "vite", "pre-commit", "shellcheck"],
     generic: true,
 };
 
@@ -100,6 +100,10 @@ static CONDA_ACTIVATE: LazyLock<Regex> = LazyLock::new(|| rx(r"^(?:conda|mamba)\
 static CONDA_RUN: LazyLock<Regex> = LazyLock::new(|| rx(r"^(?:conda|mamba)\s+run\s+(?:--no-capture-output\s+|--live-stream\s+)*(?:-n|--name)\s+([\w.-]+)\s+"));
 static TOOL_RUN: LazyLock<Regex> = LazyLock::new(|| rx(r"^(poetry|pipenv|uv|npx|bundle|yarn|pnpm)\s+(?:run|exec)\s+"));
 static NPX: LazyLock<Regex> = LazyLock::new(|| rx(r"^npx\s+(?:(?:--yes|-y|--no-install|--no)\s+)*"));
+// Launchers that fetch and run a Python tool in a throwaway environment (generic reading only).
+static TOOL_LAUNCH: LazyLock<Regex> = LazyLock::new(|| rx(r"^(uvx|uv\s+tool\s+run|pipx\s+run)\s+"));
+// The command a "not found" line names: `bash: ruff: command not found`, `/bin/sh: 1: ruff: not found`, `zsh: command not found: ruff`, `'ruff' is not recognized`.
+static NOT_FOUND_NAME: LazyLock<Regex> = LazyLock::new(|| rx(r#"(?i)([^\s:'"]+):\s+(?:command\s+)?not found\b(?!:)|command not found:\s+(\S+)|'([^']+)' is not recognized"#));
 static INTERP_VERSIONED: LazyLock<Regex> = LazyLock::new(|| rx(r"^(?:python|node)\d(?:\.\d+)?$"));
 static ENV_ASSIGN: LazyLock<Regex> = LazyLock::new(|| rx(r#"^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S+)\s+)+"#));
 static ASSIGN_TOKEN: LazyLock<Regex> = LazyLock::new(|| rx(r"^[A-Za-z_][A-Za-z0-9_]*="));
@@ -167,11 +171,13 @@ pub struct Observation {
     pub tests_ran: bool,
     // Typed with `VAR=value` before it, which its form leaves out.
     pub env: bool,
+    // The "command not found" line names this command, not one it started (`make` running a recipe whose `cc` is missing).
+    pub not_found: bool,
 }
 
 impl Observation {
     fn new(call: usize, intent: &'static str, form: String, head: &str, segment: &str) -> Self {
-        Observation { call, intent, form, head: head.to_string(), segment: segment.to_string(), hosts: Vec::new(), probe: None, outcome: None, labels: Vec::new(), label_err: false, loaded: false, tests_ran: false, env: false }
+        Observation { call, intent, form, head: head.to_string(), segment: segment.to_string(), hosts: Vec::new(), probe: None, outcome: None, labels: Vec::new(), label_err: false, loaded: false, tests_ran: false, env: false, not_found: false }
     }
 
     fn with_hosts(mut self, body: &str) -> Self {
@@ -403,6 +409,9 @@ pub fn classify_command(cmd: &str, call: usize, vocab: &Vocabulary, cwd: &str, r
         } else if let Ok(Some(caps)) = NPX.captures(body) {
             push(&mut prefix, "npx".to_string());
             body = &body[caps.get(0).map_or(0, |m| m.end())..];
+        } else if let Some(caps) = vocab.generic.then(|| TOOL_LAUNCH.captures(body).ok().flatten()).flatten() {
+            push(&mut prefix, (if caps[1].starts_with("pipx") { "pipx run" } else { "uvx" }).to_string());
+            body = &body[caps.get(0).map_or(0, |m| m.end())..];
         }
         let mut tokens = split(body);
         while let Some(&token) = tokens.first() {
@@ -446,6 +455,10 @@ fn classify(head: &str, base: &str, rest: &[&str], body: &str, prefix: &str, seg
             let module = rest.get(at + 1).copied().unwrap_or("");
             if vocab.runner_modules.contains(&module) {
                 return made("run_tests", &format!("{head} -m {module}"));
+            }
+            // `python -m mypy` runs the checker itself, not the interpreter.
+            if vocab.generic && vocab.build_heads.contains(&module) {
+                return made("run_build", &format!("{head} -m {module}"));
             }
         }
         if let Some(script) = runner_script(rest, vocab).filter(|script| *script != "manage.py" || rest.contains(&"test")) {
@@ -614,7 +627,7 @@ pub fn form_worked(o: &Observation) -> bool {
 pub fn is_bare(form: &str) -> bool {
     let head = split(form).first().copied().unwrap_or("");
 
-    !head.contains('/') && !form.contains(" activate ") && !form.contains(" run ") && !["conda run", "poetry run", "pipenv run", "uv run", "npx "].iter().any(|start| form.starts_with(start))
+    !head.contains('/') && !form.contains(" activate ") && !form.contains(" run ") && !["conda run", "poetry run", "pipenv run", "uv run", "npx ", "uvx "].iter().any(|start| form.starts_with(start))
 }
 
 pub struct EnvCall {
@@ -646,6 +659,17 @@ fn env_call(cmd: &str, out: &str, ok: bool) -> EnvCall {
     let need: BTreeSet<String> = ENV_NEED.captures_iter(out).flatten().map(|caps| caps[1].to_string()).collect();
 
     EnvCall { need: need.into_iter().collect(), sets, ok: ok && !hit(&FAILED, out) }
+}
+
+fn base_of(path: &str) -> String {
+    path.replace('\\', "/").rsplit('/').next().unwrap_or("").to_string()
+}
+
+// The command a "not found" line says is missing, by its last path part; "" if none.
+fn not_found_name(line: &str) -> String {
+    let Ok(Some(caps)) = NOT_FOUND_NAME.captures(line) else { return String::new() };
+
+    (1..=3).find_map(|group| caps.get(group)).map_or_else(String::new, |found| base_of(found.as_str()))
 }
 
 fn error_line<'a>(out: &'a str, err: &str) -> &'a str {
@@ -697,8 +721,8 @@ pub fn observe_task(calls: &[Call], vocab: &Vocabulary) -> Digest {
             if o.intent == "run_tests" {
                 o.labels = test_labels(o);
                 o.label_err = !o.labels.is_empty() && label_failed(&o.labels, out);
-                o.loaded = !o.labels.is_empty() && !o.label_err && hit(&LOADED, out);
                 o.tests_ran = hit(&LOADED, out) || (vocab.generic && hit(&LOADED_GENERIC, out));
+                o.loaded = !o.labels.is_empty() && !o.label_err && o.tests_ran;
             }
         }
         // Pass-through segments neither add evidence nor pollute the output; filters that rewrite content do.
@@ -719,8 +743,10 @@ pub fn observe_task(calls: &[Call], vocab: &Vocabulary) -> Digest {
                 }
             }
             let chosen: Vec<usize> = if !named.is_empty() { named } else if !success { targets.last().copied().into_iter().collect() } else { Vec::new() };
+            let missing = if err == "command_missing" { not_found_name(line) } else { String::new() };
             for n in chosen {
                 obs[n].outcome = Some(err);
+                obs[n].not_found = !missing.is_empty() && base_of(&obs[n].head) == missing;
             }
             if success {
                 for o in &mut obs {
@@ -794,5 +820,14 @@ mod tests {
         assert_eq!(cd_target("", "/r", Some("/r/sub"), Some("/r")), Some(String::new()));
         assert_eq!(cd_target("", "..", Some("/r/sub"), None), None);
         assert_eq!(cd_target("", "~/x", Some("/r"), None), None);
+    }
+
+    #[test]
+    fn a_not_found_line_names_its_command() {
+        assert_eq!(not_found_name("bash: ruff: command not found"), "ruff");
+        assert_eq!(not_found_name("/bin/sh: 1: cc: not found"), "cc");
+        assert_eq!(not_found_name("zsh: command not found: .venv/bin/ruff"), "ruff");
+        assert_eq!(not_found_name("'ruff' is not recognized as an internal or external command"), "ruff");
+        assert_eq!(not_found_name("error: something else"), "");
     }
 }
