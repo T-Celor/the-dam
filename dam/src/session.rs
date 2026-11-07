@@ -16,11 +16,21 @@ pub struct TempDir(pub PathBuf);
 
 impl TempDir {
     pub fn new(prefix: &str) -> std::io::Result<Self> {
+        static COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
-        let dir = std::env::temp_dir().join(format!("{prefix}{:x}{nanos:x}", std::process::id()));
-        fs::create_dir_all(&dir)?;
+        // The clock alone can give two threads the same name, and one's cleanup would then delete the other's folder: a counter
+        // tells them apart, and a folder that already exists is never taken.
+        for _ in 0..100 {
+            let n = COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("{prefix}{:x}{nanos:x}{n:x}", std::process::id()));
+            match fs::create_dir(&dir) {
+                Ok(()) => return Ok(TempDir(dir)),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
 
-        Ok(TempDir(dir))
+        Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "no free temporary folder name"))
     }
 }
 

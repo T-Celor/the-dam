@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.6
+
+- **Temporary folders no longer collide.** Their names came from the clock alone, so two threads starting at the same instant could get the same folder and one would delete the other's: tests failed now and then (git or `sh` "not found" on macOS). A counter now tells them apart and an existing folder is never taken.
+
 ## 0.22.5
 
 - **Correction: code and search output is never shortened.** 0.22.0 to 0.22.4 also cut the middle of what `cat`, `sed`, `head`, `tail`, `grep`, `rg`, `git diff` and `git show` printed, which hid code the model had asked to read. That output is now left whole, as is any command chaining one of them. The figures of 0.22.1 (13.9%) counted those outputs; measured with the real commands, shortening build, test and install output saves **0.8%** and the whole compression **2.6%** of tool output in long sessions. Most large output is code and search results read on purpose, and file reads (32% of tokens) are never touched. `dam squeeze commands FILE.jsonl...` shows which commands print the tokens.
