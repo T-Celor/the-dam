@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.3
+
+- **Beaver replies are shorter still.** A finished task is at most 3 lines of under 20 words (what changed, the check and its result, the skip or risk); the first word is the answer; no bullets, bold, recap, offer of more work or closing question under 10 lines; ten lines at most even for a review.
+
 ## 0.22.2
 
 - **A notification for every saving.** Under Claude Code each condensed output, and each change in pruned tools, now shows a toast with the tokens before and after and the share saved (it was only written to the journal). Under Codex the hook sends the same line as a message to the person (`systemMessage`, not shown to the model).
