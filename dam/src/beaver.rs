@@ -292,15 +292,17 @@ fn activate() {
     prune_levels();
     // Compaction runs this again inside one conversation, which keeps its live level.
     let level = if json::field(&input, "source").as_deref() == Some("compact") { live_level().unwrap_or_else(|| "off".to_string()) } else { default_level() };
+    let host = host();
+    // Part of the installation: the first Codex session sets its models, whatever Beaver's level (Claude Code's module does
+    // that for itself).
+    let models = crate::models::first_session(host);
     if level == "off" {
         clear_level();
         return;
     }
     set_level(&level);
-    let host = host();
     let mut text = start_text(&level);
-    // Part of the installation: the first Codex session sets its models (Claude Code's module does that for itself).
-    if let Some(done) = crate::models::first_session(host) {
+    if let Some(done) = models {
         text = format!("{done}\n\n{text}");
     }
     if host != Host::Claude {

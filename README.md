@@ -20,7 +20,7 @@
     <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: reduce)" srcset="assets/intro-dark.png">
     <source media="(prefers-reduced-motion: reduce)" srcset="assets/intro.png">
     <source media="(prefers-color-scheme: dark)" srcset="assets/intro-dark.gif">
-    <img src="assets/intro.gif" width="100%" alt="The dam in a few seconds: a beaver on its log dam, then seven cards. Compression, 24% fewer tokens with every line kept. Web pages, 99% less of a page, HTML to Markdown. Map, 2,112 files mapped in 1.5 s. Tool pruning, fewer tools on every request. Loop guard, one nudge out of a loop. Learned facts, remembered across sessions. Beaver, 45% less output. Then the install command.">
+    <img src="assets/intro.gif" width="100%" alt="The dam in a few seconds: a beaver on its log dam, then seven cards. Compression, every line kept (up to 24% fewer tokens on repetitive output, about 2.6% over a whole session). Web pages, 99% less of a page, HTML to Markdown. Map, 2,112 files mapped in 1.5 s. Tool pruning, fewer tools on every request. Loop guard, one nudge out of a loop. Learned facts, remembered across sessions. Beaver, 45% less output. Then the install command.">
   </picture>
 </p>
 

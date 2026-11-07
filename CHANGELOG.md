@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.24.1
+
+- **Gaps closed.** The map is also rebuilt before the answers the Claude Code module asks for (names in your prompt, search hits), not only for `graph query` and the Codex and Copilot hooks. Codex gets its models even when Beaver is off. The module names the host when it sets the Claude Code models. The README no longer gives 24% as the compression figure for a whole session (about 2.6%).
+
 ## 0.24.0
 
 - **The same model ladder in Codex.** Balanced model for the session, most capable as advisor, smallest for the workers: `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-luna` (the ids on learn.chatgpt.com/docs/models; availability depends on your plan). The first Codex session after the plugin is installed writes `model = "gpt-6.1-sol"` and `agents.default_subagent_model = "gpt-6-luna"` into `~/.codex/config.toml` and adds two agent files in `~/.codex/agents/`, `advisor` (`gpt-6-astra`, read-only instructions) and `worker` (`gpt-6-luna`). Once only; it remembers the lines it replaced; `/the-dam:models uninstall` (`$the-dam:models` in Codex) puts them back, leaves a model you changed since and removes only the agent files it wrote. A `config.toml` with multi-line strings or a dotted `agents.` key is left untouched. A `-m` on the command line still wins. Copilot CLI is not covered: its settings key for the model is not documented well enough to edit safely.

@@ -393,6 +393,8 @@ pub fn condense_command(command: Option<&str>) -> bool {
 
 // `dam graph facts --prompt TEXT | --grep PATTERN`, the mod's call: what the map says of the code it names, or nothing.
 pub fn facts_command(args: &[String]) -> bool {
+    // The mod's call under Claude Code: the map is brought up to date first, as for every other way of asking it.
+    graph::refresh();
     let facts = match (args.first().map(String::as_str), args.get(1)) {
         (Some("--prompt"), Some(text)) => prompt_facts(text, "."),
         (Some("--grep"), Some(pattern)) => grep_name(pattern).and_then(|name| ask_graph(Path::new("."), &[name])),

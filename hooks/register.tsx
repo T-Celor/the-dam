@@ -122,7 +122,7 @@ async function applyModels($: Dollar) {
   if (await $.store.get(MODELS_APPLIED)) return
   const { squeezer } = await locate($)
   if (!squeezer) return
-  const run = await attempt(() => $.process.run([squeezer, 'te', 'models', 'install'], { timeoutMs: 20_000 }))
+  const run = await attempt(() => $.process.run([squeezer, 'te', '--host', 'claude', 'models', 'install'], { timeoutMs: 20_000 }))
   if (run?.exitCode !== 0) return
   await $.store.set(MODELS_APPLIED, true)
   $.ui.toast(signed('Sonnet 5.5 for the session, Opus 5.5 as advisor, Haiku 5.5 for the workers. Restart Claude Code to apply; /the-dam:models uninstall undoes it.'))
