@@ -9,7 +9,7 @@
     {
       "name": "the-dam",
       "description": "Spend fewer tokens without losing a line: lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.",
-      "version": "0.22.4",
+      "version": "0.22.5",
       "source": "./",
       "category": "productivity",
       "skills": "skills/",

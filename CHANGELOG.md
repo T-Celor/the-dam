@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.22.5
+
+- **Correction: code and search output is never shortened.** 0.22.0 to 0.22.4 also cut the middle of what `cat`, `sed`, `head`, `tail`, `grep`, `rg`, `git diff` and `git show` printed, which hid code the model had asked to read. That output is now left whole, as is any command chaining one of them. The figures of 0.22.1 (13.9%) counted those outputs; measured with the real commands, shortening build, test and install output saves **0.8%** and the whole compression **2.6%** of tool output in long sessions. Most large output is code and search results read on purpose, and file reads (32% of tokens) are never touched. `dam squeeze commands FILE.jsonl...` shows which commands print the tokens.
+- **Micro-skills note a repeated repair sooner.** A fact (for example "`pytest` is not found here, `python -m pytest` works") is learned after 3 sessions and was only told to the model after it had applied 4 more times, so five sessions in the same repository. It is now told after it has applied twice. A test runs three sessions and checks the note. Facts are kept per repository: sessions in a new folder each time never accumulate.
+
 ## 0.22.4
 
 - **The map follows your edits.** It was only rebuilt by hand (`graph update`), so after a session of edits it answered with the old code: a function added an hour ago was "not found". Every `graph query`, and every hook that reads the map (Codex, Copilot), now rebuilds it first when a file changed after it was written. It still never creates a map by itself.

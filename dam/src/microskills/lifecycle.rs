@@ -6,7 +6,8 @@ const K_PROMOTE: usize = 3;
 const GAMMA: f64 = 0.8;
 const LAMBDA: f64 = 5.0;
 const FIRE_GATE: f64 = 0.40;
-const FIRE_MIN_N: i64 = 4;
+// A fact confirmed K_PROMOTE times is injected once it has applied this many times: 4 (TokenEconomizer's value) meant five sessions of the same repair before the first note.
+const FIRE_MIN_N: i64 = 2;
 
 const EDIT_TOOLS: [&str; 5] = ["edit", "multiedit", "write", "create", "str_replace_editor"];
 

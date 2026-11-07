@@ -131,3 +131,41 @@ fn a_query_after_an_edit_is_answered_from_a_rebuilt_map() {
     let answer = env.text(Some(&repo), &["graph", "query", "second_thing"], "");
     assert!(answer.contains("b.py"), "{answer}");
 }
+
+// Three sessions of the same repair (`pytest` is not found, `python -m pytest` works): the fourth is told.
+#[test]
+fn a_repair_seen_in_three_sessions_becomes_a_note() {
+    let env = Env { home: TempDir::new("dam-smoke-").unwrap() };
+    let repo = env.home.0.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("a.py"), "x = 1\n").unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["add", "-A"]);
+    let cwd = repo.to_str().unwrap();
+    let key = serde_json::from_str::<Value>(&env.text(None, &["te", "--cwd", cwd, "status", "--json"], "")).unwrap()["repo_key"].as_str().unwrap().to_string();
+    let state = env.home.0.join("state");
+    std::fs::create_dir_all(state.join("sessions").join("claude")).unwrap();
+    std::fs::create_dir_all(state.join("repos").join(&key).join("claude").join("sessions")).unwrap();
+    for n in 1..=3 {
+        let id = format!("sess{n}");
+        let line = |kind: &str, message: Value| json!({"type": kind, "sessionId": id, "cwd": cwd, "message": message, "uuid": format!("{kind}{n}{}", message), "timestamp": format!("2026-11-0{n}T10:00:00Z")}).to_string();
+        let transcript = [
+            line("user", json!({"role": "user", "content": "run the tests"})),
+            line("assistant", json!({"role": "assistant", "content": [{"type": "tool_use", "id": "c1", "name": "Bash", "input": {"command": "pytest -q"}}]})),
+            line("user", json!({"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": "bash: pytest: command not found"}]})),
+            line("assistant", json!({"role": "assistant", "content": [{"type": "tool_use", "id": "c2", "name": "Bash", "input": {"command": "python -m pytest -q"}}]})),
+            line("user", json!({"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c2", "content": "3 passed in 0.1s"}]})),
+        ]
+        .join("\n");
+        let path = env.home.0.join(format!("t{n}.jsonl"));
+        std::fs::write(&path, transcript).unwrap();
+        for event in [json!({"hook_event_name": "SessionStart", "source": "startup"}), json!({"hook_event_name": "SessionEnd", "reason": "exit"})] {
+            let mut payload = json!({"session_id": id, "cwd": cwd, "transcript_path": path.to_str().unwrap()});
+            payload.as_object_mut().unwrap().extend(event.as_object().unwrap().clone());
+            env.text(Some(&repo), &["te", "hook"], &payload.to_string());
+        }
+        env.text(None, &["te", "--cwd", cwd, "fold"], "");
+    }
+    let notes = env.text(None, &["te", "--cwd", cwd, "microskills"], "");
+    assert!(notes.contains("python -m pytest"), "{notes}");
+}

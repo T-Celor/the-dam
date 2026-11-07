@@ -452,24 +452,24 @@ pub fn prune(dir: &std::path::Path, keep: usize) {
 
 // The tool results of Claude Code transcripts (`~/.claude/projects/*/*.jsonl`).
 // Each as (whether a shell tool printed it, the text).
-fn tool_results(path: &std::path::Path) -> Vec<(bool, String)> {
+fn tool_results(path: &std::path::Path) -> Vec<(Option<String>, String)> {
     let mut counted = std::collections::HashSet::new();
     let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
-    let mut shell_calls = std::collections::HashSet::new();
+    let mut shell_calls = std::collections::HashMap::<String, String>::new();
     let mut found = Vec::new();
     for line in text.lines().filter(|line| line.contains("tool_use") || line.contains("tool_result")) {
         let Ok(doc) = serde_json::from_str::<serde_json::Value>(line) else { continue };
         for part in doc["message"]["content"].as_array().into_iter().flatten() {
             if part["type"] == "tool_use" && matches!(part["name"].as_str(), Some("Bash" | "PowerShell")) {
-                shell_calls.insert(part["id"].as_str().unwrap_or_default().to_string());
+                shell_calls.insert(part["id"].as_str().unwrap_or_default().to_string(), part["input"]["command"].as_str().unwrap_or("shell").to_string());
             } else if part["type"] == "tool_result" {
                 // A transcript can hold the same call twice (resumed or copied history): once.
                 if !counted.insert(part["tool_use_id"].as_str().unwrap_or_default().to_string()) {
                     continue;
                 }
-                let shell = shell_calls.contains(part["tool_use_id"].as_str().unwrap_or_default());
+                let shell = shell_calls.get(part["tool_use_id"].as_str().unwrap_or_default()).cloned();
                 match &part["content"] {
-                    serde_json::Value::String(s) => found.push((shell, s.clone())),
+                    serde_json::Value::String(s) => found.push((shell.clone(), s.clone())),
                     serde_json::Value::Array(items) => found.push((shell, items.iter().filter_map(|i| i["text"].as_str()).collect::<Vec<_>>().join("\n"))),
                     _ => {}
                 }
@@ -483,7 +483,7 @@ fn tool_results(path: &std::path::Path) -> Vec<(bool, String)> {
 // `dam squeeze bench FILE...`: what the compression would save on real tool results, by output size, at today's floor and lower ones.
 pub fn bench(paths: &[String]) {
     const BUCKETS: [(usize, &str); 6] = [(500, "<500"), (2000, "500-2k"), (6000, "2k-6k"), (20000, "6k-20k"), (100_000, "20k-100k"), (usize::MAX, ">100k")];
-    let all: Vec<(bool, String)> = paths.iter().flat_map(|p| tool_results(std::path::Path::new(p))).collect();
+    let all: Vec<(Option<String>, String)> = paths.iter().flat_map(|p| tool_results(std::path::Path::new(p))).collect();
     let outputs: Vec<String> = all.iter().map(|(_, text)| text.clone()).collect();
     let tokens = |text: &str| text.chars().count().div_ceil(4);
     let total: usize = outputs.iter().map(|o| tokens(o)).sum();
@@ -491,10 +491,10 @@ pub fn bench(paths: &[String]) {
     // As the hooks decide today, the shortening of long shell outputs included.
     let (mut lossless, mut shortened, mut shell_tokens) = (0usize, 0usize, 0usize);
     for (shell, output) in &all {
-        if *shell {
+        if shell.is_some() {
             shell_tokens += tokens(output);
         }
-        if let Some(done) = crate::answers::condensed(output, shell.then_some("cmd")) {
+        if let Some(done) = crate::answers::condensed(output, shell.as_deref()) {
             let gain = done.before - done.after;
             if done.elided { shortened += gain } else { lossless += gain }
         }
@@ -739,4 +739,28 @@ pub fn profile(paths: &[String]) {
         println!("  {name:<14} {n:>6} results {size:>9} tokens {:>5.1}%", *size as f64 * 100.0 / total.max(1) as f64);
     }
     println!("a result identical to an earlier one in its session: {repeated} tokens = {:.1}% ({repeated_big} tokens = {:.1}% in results of 500+ tokens)", repeated as f64 * 100.0 / total.max(1) as f64, repeated_big as f64 * 100.0 / total.max(1) as f64);
+}
+
+// `dam squeeze commands FILE...`: the tokens each kind of shell command printed, biggest first.
+pub fn commands(paths: &[String]) {
+    let mut by_word: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+    let mut total = 0;
+    for (command, output) in paths.iter().flat_map(|p| tool_results(std::path::Path::new(p))) {
+        let Some(command) = command else { continue };
+        let tokens = output.chars().count().div_ceil(4);
+        total += tokens;
+        let step = command.split(['\n', ';', '|', '&']).find(|s| !s.trim().is_empty() && !s.trim_start().starts_with("cd ")).unwrap_or("").to_string();
+        let mut words = step.split_whitespace();
+        let first = words.next().unwrap_or("?").rsplit(['/', '\\']).next().unwrap_or("?").trim_end_matches(".exe").to_lowercase();
+        let word = if first == "git" || first == "cargo" || first == "gh" || first == "claude" { format!("{first} {}", words.find(|w| !w.starts_with('-')).unwrap_or("")) } else { first };
+        let entry = by_word.entry(word).or_default();
+        entry.0 += 1;
+        entry.1 += tokens;
+    }
+    let mut rows: Vec<_> = by_word.into_iter().collect();
+    rows.sort_by_key(|(_, (_, tokens))| std::cmp::Reverse(*tokens));
+    println!("{total} tokens printed by shell commands");
+    for (word, (n, tokens)) in rows.iter().take(25) {
+        println!("  {word:<22} {n:>5} calls {tokens:>9} tokens {:>5.1}%", *tokens as f64 * 100.0 / total.max(1) as f64);
+    }
 }

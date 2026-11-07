@@ -329,6 +329,18 @@ pub struct Condensed {
     pub elided: bool,
 }
 
+// Whether any step of a shell command prints content for reading (a file, a diff, a search) rather than a run's log.
+pub fn reads_content(command: &str) -> bool {
+    const READERS: [&str; 20] = ["cat", "sed", "head", "tail", "bat", "type", "nl", "less", "more", "awk", "gc", "get-content", "select-string", "sls", "rg", "grep", "egrep", "fgrep", "ag", "findstr"];
+    command.split(['\n', ';', '|', '&']).any(|step| {
+        let mut words = step.split_whitespace().skip_while(|word| word.contains('=') && !word.starts_with('-') || matches!(*word, "cd" | "sudo" | "time"));
+        let Some(first) = words.next() else { return false };
+        let base = first.trim_matches(['"', '\'']).rsplit(['/', '\\']).next().unwrap_or(first).trim_end_matches(".exe").to_lowercase();
+        // `git diff`, `git show`, `git log -p`, `git blame`, `git grep` print content too.
+        READERS.contains(&base.as_str()) || (base == "git" && words.any(|word| matches!(word, "diff" | "show" | "log" | "blame" | "grep" | "cat-file")))
+    })
+}
+
 // The one decision for every host, the mod included: None where it would not pay.
 pub fn condensed(original: &str, command: Option<&str>) -> Option<Condensed> {
     if !worth_squeezing(original) {
@@ -339,7 +351,8 @@ pub fn condensed(original: &str, command: Option<&str>) -> Option<Condensed> {
     let is_web = page.is_some();
     let lossless = squeezed(original, page.unwrap_or_else(|| squeeze::squeeze(original)));
     // Only what a shell printed, and only when it is long: the model can open the original for the middle.
-    let shortened = if command.is_some() && !is_web && squeeze::elide_enabled() && original.chars().count() >= squeeze::ELIDE_FROM_CHARS { squeeze::elide(original).and_then(|(short, _)| squeezed(original, short)) } else { None };
+    // Never what a command printed to be read: file contents, a diff, search hits, where each line may be the one needed.
+    let shortened = if command.is_some_and(|command| !reads_content(command)) && !is_web && squeeze::elide_enabled() && original.chars().count() >= squeeze::ELIDE_FROM_CHARS { squeeze::elide(original).and_then(|(short, _)| squeezed(original, short)) } else { None };
     let (text, before, after, elided) = match (lossless, shortened) {
         (Some(kept), Some(short)) if short.2 < kept.2 => (short.0, short.1, short.2, true),
         (Some(kept), _) => (kept.0, kept.1, kept.2, false),
@@ -503,6 +516,19 @@ mod tests {
 
     fn build_log(n: usize) -> String {
         (0..n).map(|i| format!("compiling crate{i} v{}.{}.{} ({:x})\n", i % 7, i % 11, i % 13, i * 2654435761usize % 0xfffff)).collect()
+    }
+
+    #[test]
+    fn what_a_command_prints_to_be_read_is_never_shortened() {
+        let log = build_log(900);
+        for command in ["cat src/lib.rs", "sed -n 1,200p src/lib.rs", "cd dam && head -500 x.rs", "git diff HEAD~3", "git -C repo show abc", "rg -n foo", "cargo build 2>&1 | tail -300", "Get-Content a.txt", "FOO=1 grep -r bar ."] {
+            assert!(reads_content(command), "{command}");
+            assert!(!condensed(&log, Some(command)).is_some_and(|done| done.elided), "{command}");
+        }
+        for command in ["cargo build", "cargo test --release", "npm install", "ls -la", "git status", "git push origin main"] {
+            assert!(!reads_content(command), "{command}");
+        }
+        assert!(condensed(&log, Some("cargo build")).is_some_and(|done| done.elided));
     }
 
     #[test]
