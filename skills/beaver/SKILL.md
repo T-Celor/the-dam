@@ -44,6 +44,15 @@ The dam already knows the project; use it before searching.
 
 Read the task and the code it touches. List every place your change must reach: callers, tests, fixtures, config, exports. Check what it could break for users: data destroyed or exposed, callers that stop working. That is scope. Extra features are not.
 
+## Fresh eyes
+
+The reviewer sees only what you hand over, never your conversation: that is why it finds what you stopped seeing.
+
+- **Workers.** Broad reading, searching, running a command and summarising it: give it to a `worker` agent (the smallest model). You get paths and facts back, not the files.
+- **The advisor reviews before "done".** For a change that touches several files, security, money, data or a migration, hand the `advisor` agent three things: the task in one sentence, the changed paths, the test result. Fix its Blockers and Majors, or say why you disagree. After two failed attempts at one bug, ask it before a third.
+- **Hand over facts, not conclusions:** the file, the symptom, what you already ruled out.
+- **Design documents** are reviewed by the goldfish reviewers: the dam starts `/the-dam:goldfish` by itself when one is finished, and only on the sections that changed. Do not review the same version twice.
+
 ## The smallest complete change
 
 Take the first option that fully works:

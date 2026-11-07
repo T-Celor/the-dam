@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.28.0
+
+- **The goldfish method is part of how every model works with the advisor and the workers.** Beaver's session rules (given to Claude Code, Codex and Copilot, and to subagents) have a new "Fresh eyes" section: broad reading and searching go to a `worker`; before calling a multi-file, security, money, data or migration change done, the `advisor` gets the task in one sentence, the changed paths and the test result, and nothing of the conversation, and its Blockers and Majors are fixed or answered; after two failed fixes it is asked before a third. The `advisor` agent now reviews as a goldfish (reads the code, not the summary, reports what is wrong first); the `worker` ends with what a reviewer should check first; the Codex `advisor` and `worker` files say the same.
+
 ## 0.27.0
 
 - **The goldfish review and the documents' upkeep now happen by themselves, and cost less.** A hook after each file write (`dam goldfish hook`, every host) notices a finished design document (a Markdown file named design, spec, rfc, proposal or architecture, or with an `## Implementation Plan`) and tells the agent once per version to run `/the-dam:goldfish` without asking. The review is limited to the sections changed since the last one (`dam goldfish prepare` lists them, `dam goldfish mark` records the reviewed version), so a small edit is a small review and an unchanged document costs nothing. `DAM_GOLDFISH=ask` makes it offer first, `off` stops it. At session start the dam says once, in a line, when the README or a document under `docs/` names a file that is gone (or moved, with where the map finds it); no model runs for it. The map is used, never created, for that check.
