@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.23.0
+
+- **Which Claude model does what (Claude Code).** Sonnet 5.5 for the session, Opus 5.5 as advisor, Haiku 5.5 for the workers. A plugin cannot set the session model or the advisor by itself (Claude Code only honours `agent` and `subagentStatusLine` in a plugin's settings), so the installation does it: the first session after the plugin is installed runs `dam te models install`, which writes `model` and `advisorModel` into your own `settings.json`, remembering what was there (once only; `/the-dam:models uninstall` puts it back and it stays undone, `/the-dam:models install` does it again) (a model you changed since is left alone; `--model` on the command line still wins). `/the-dam:models show` prints where things stand. The workers need no install: the module pins Claude Code's built-in subagents (general-purpose, Explore, Plan...) to Haiku 5.5 when the caller named no model, and leaves forks, named models and other agents as they are. The plugin also ships two agents, `worker` (Haiku 5.5) and `advisor` (Opus 5.5, read-only), for the main model to hand work to.
+
 ## 0.22.6
 
 - **Temporary folders no longer collide.** Their names came from the clock alone, so two threads starting at the same instant could get the same folder and one would delete the other's: tests failed now and then (git or `sh` "not found" on macOS). A counter now tells them apart and an existing folder is never taken.

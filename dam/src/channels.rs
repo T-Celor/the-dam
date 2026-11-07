@@ -56,6 +56,10 @@ fn home() -> PathBuf {
 }
 
 // `$NAME` when set, else `~/<dot>`: each host's own folder.
+pub fn claude_dir() -> PathBuf {
+    host_dir("CLAUDE_CONFIG_DIR", ".claude")
+}
+
 fn host_dir(var: &str, dot: &str) -> PathBuf {
     std::env::var(var).ok().filter(|dir| !dir.is_empty()).map_or_else(|| home().join(dot), PathBuf::from)
 }

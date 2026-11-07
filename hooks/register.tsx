@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
 import type { Gains, JournalEntry, Stats } from '../types'
-import { EMPTY, ICON, carryStep, economizerEntries, formatCount, gainNote, journalLine, journalView, projectFlow, reportOf, sessionFigures, signed, statusOf, totalLines } from './model'
+import { EMPTY, ICON, carryStep, economizerEntries, formatCount, gainNote, pinnedModel, journalLine, journalView, projectFlow, reportOf, sessionFigures, signed, statusOf, totalLines } from './model'
 import type { Located } from './tools'
 import {
   candidates,
@@ -112,6 +112,20 @@ async function installMissing($: Dollar) {
   if (missingNames(await locate($)).length === 0) return
   const failed = (await runSetup($)).split('\n').find(line => line.startsWith('Failed'))
   $.ui.toast(signed(failed ?? 'Tools installed. Restart Claude Code to load new plugins.'))
+}
+
+// Part of the installation: the first session after the plugin is installed sets the session model (Sonnet 5.5) and the advisor
+// (Opus 5.5) in the person's settings, as `dam te models install` does. Once only, so `/the-dam:models uninstall` stays undone.
+const MODELS_APPLIED = 'models-applied'
+
+async function applyModels($: Dollar) {
+  if (await $.store.get(MODELS_APPLIED)) return
+  const { squeezer } = await locate($)
+  if (!squeezer) return
+  const run = await attempt(() => $.process.run([squeezer, 'te', 'models', 'install'], { timeoutMs: 20_000 }))
+  if (run?.exitCode !== 0) return
+  await $.store.set(MODELS_APPLIED, true)
+  $.ui.toast(signed('Sonnet 5.5 for the session, Opus 5.5 as advisor, Haiku 5.5 for the workers. Restart Claude Code to apply; /the-dam:models uninstall undoes it.'))
 }
 
 const CHECK_AFTER_MS = 15_000
@@ -398,6 +412,7 @@ export const register: Register = on => {
     })
     void attempt(async () => {
       await installMissing($)
+      await applyModels($)
       await checkGains($)
       const { squeezer } = await locate($)
       const home = await homeOf($)
@@ -454,6 +469,13 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'the-dam-compress' }, async $ => ({ text: await toggleCompression($) }))
+
+  // Claude Code's built-in subagents (general-purpose, Explore, Plan, ...) are workers: they run on Haiku 5.5. A model the
+  // caller named, a fork (which shares the parent's context) and agents with a model of their own are left as they are.
+  on('agent.spawn', async ($, e, next) => {
+    const model = pinnedModel(e)
+    return next(model ? { ...e, model } : e)
+  })
 
   // Tells the model about the graph only where one exists, so other projects pay nothing.
   on('prompt.compose', async ($, e, next) => {

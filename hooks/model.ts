@@ -206,3 +206,15 @@ export function reportOf(s: Stats): string {
 
   return [signed('The dam'), `  Context ${context}`, ...rows.map(([name, [mark, detail]]) => `  ${mark} ${name}: ${detail}`)].join('\n')
 }
+
+// What the built-in subagents (general-purpose, Explore, Plan, ...) run on: they are workers (dam/src/models.rs holds the same id).
+export const WORKER_MODEL = 'claude-haiku-5-5'
+
+// The model a starting subagent is pinned to, or null to leave it. A model the caller named, a fork (it shares the parent's
+// context) and any agent that is not built in (it carries a model of its own) are left as they are.
+export function pinnedModel(spawn: { provider: { plugin: string }; subagentType: string; model?: string }): string | null {
+  const isBuiltIn = spawn.provider.plugin === 'engine' && spawn.subagentType !== 'fork'
+  const asked = Boolean(spawn.model) && spawn.model !== 'inherit'
+
+  return isBuiltIn && !asked ? WORKER_MODEL : null
+}

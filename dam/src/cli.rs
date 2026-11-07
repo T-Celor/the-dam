@@ -495,6 +495,27 @@ pub fn main(raw: &[String]) -> i32 {
             println!("{}", crate::journal::journal(host, &args.cwd()));
             0
         }
+        // Claude Code's models: Sonnet 5.5 for the session, Opus 5.5 as advisor; `install` and `uninstall` edit the person's settings.
+        "models" => match args.words.get(1).map(String::as_str) {
+            None | Some("show") => {
+                println!("{}", crate::models::show());
+                0
+            }
+            Some(word @ ("install" | "uninstall")) => match crate::models::set(word == "install") {
+                Ok(done) => {
+                    println!("{done}");
+                    0
+                }
+                Err(why) => {
+                    eprintln!("te models: {why}");
+                    1
+                }
+            },
+            Some(other) => {
+                eprintln!("te models: `{other}` is not show, install or uninstall");
+                2
+            }
+        },
         // Copilot's status line: its command prints the line; `install` and `uninstall` edit Copilot's settings.
         "statusline" => match (host, args.words.get(1).map(String::as_str)) {
             (crate::channels::Host::Copilot, Some(word @ ("install" | "uninstall"))) => match crate::journal::set_status_line(word == "install") {
@@ -563,7 +584,7 @@ pub fn main(raw: &[String]) -> i32 {
             2
         }
         _ => {
-            eprintln!("usage: te [--cwd DIR] [--host claude|codex|copilot] {{status,microskills,toolprune,config,fold,judge,doctor,repos,context,fallback,journal,statusline}} ...");
+            eprintln!("usage: te [--cwd DIR] [--host claude|codex|copilot] {{status,microskills,toolprune,config,fold,judge,doctor,repos,context,fallback,journal,statusline,models}} ...");
             2
         }
     }
