@@ -78,7 +78,7 @@ Codex cannot rewrite a tool's output, so the condensed one comes back as the hoo
 | `/the-dam` | The session's journal beside the chat, newest first, with its totals |
 | `/the-dam-compress` | Compression on or off |
 | `/the-dam:journal` | What the dam saved this session and since it was installed, in any host |
-| `/the-dam:models` | Claude Code only: the first session after installing sets Sonnet 5.5 as the session model and Opus 5.5 as advisor in your own settings (`/the-dam:models uninstall` puts back what was there, and it stays undone); the built-in subagents run on Haiku 5.5 through the plugin itself |
+| `/the-dam:models` | Claude Code and Codex. Claude Code: the first session after installing sets Sonnet 5.5 as the session model and Opus 5.5 as advisor in your own settings (`/the-dam:models uninstall` puts back what was there, and it stays undone); the built-in subagents run on Haiku 5.5 through the plugin itself. Codex: the first session sets `gpt-6.1-sol` for the session and `gpt-6-luna` for subagents in `~/.codex/config.toml` and adds an `advisor` agent (`gpt-6-astra`) and a `worker` agent (`gpt-6-luna`) |
 | `/the-dam:statusline install` | The 💧 counter in Copilot's status line (`uninstall` takes it out) |
 | `/the-dam:status` | What TokenEconomizer learned for this repository |
 | `/the-dam:toolprune` | The tools left out here; give one back or apply a waiting list |

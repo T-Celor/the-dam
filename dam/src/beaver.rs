@@ -299,6 +299,10 @@ fn activate() {
     set_level(&level);
     let host = host();
     let mut text = start_text(&level);
+    // Part of the installation: the first Codex session sets its models (Claude Code's module does that for itself).
+    if let Some(done) = crate::models::first_session(host) {
+        text = format!("{done}\n\n{text}");
+    }
     if host != Host::Claude {
         // Where `te doctor --host` tells a blocked start hook from one that never had a session.
         crate::channels::beat(&crate::channels::hooks_channel(host));

@@ -56,6 +56,10 @@ fn home() -> PathBuf {
 }
 
 // `$NAME` when set, else `~/<dot>`: each host's own folder.
+pub fn codex_dir() -> PathBuf {
+    host_dir("CODEX_HOME", ".codex")
+}
+
 pub fn claude_dir() -> PathBuf {
     host_dir("CLAUDE_CONFIG_DIR", ".claude")
 }

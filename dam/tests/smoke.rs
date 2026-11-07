@@ -169,3 +169,31 @@ fn a_repair_seen_in_three_sessions_becomes_a_note() {
     let notes = env.text(None, &["te", "--cwd", cwd, "microskills"], "");
     assert!(notes.contains("python -m pytest"), "{notes}");
 }
+
+// The first Codex session sets the models once; `uninstall` puts the person's own back. Everything happens in a throwaway home.
+#[test]
+fn the_first_codex_session_sets_the_models_once_and_uninstall_gives_them_back() {
+    let env = Env { home: TempDir::new("dam-smoke-").unwrap() };
+    let codex = env.home.0.join(".codex");
+    std::fs::create_dir_all(&codex).unwrap();
+    std::fs::write(codex.join("config.toml"), "model = \"gpt-5\"\n\n[projects.x]\ntrust_level = \"trusted\"\n").unwrap();
+    let start = json!({"session_id": "s1", "source": "startup", "hook_event_name": "SessionStart", "cwd": env.home.0.to_str().unwrap()}).to_string();
+
+    let first = env.text(None, &["beaver", "activate", "--host", "codex"], &start);
+    assert!(first.contains("gpt-6.1-sol"), "{first}");
+    let config = std::fs::read_to_string(codex.join("config.toml")).unwrap();
+    assert!(config.starts_with("model = \"gpt-6.1-sol\"") && config.contains("default_subagent_model = \"gpt-6-luna\"") && config.contains("trust_level"), "{config}");
+    assert!(std::fs::read_to_string(codex.join("agents").join("advisor.toml")).unwrap().contains("gpt-6-astra"));
+    assert!(std::fs::read_to_string(codex.join("agents").join("worker.toml")).unwrap().contains("gpt-6-luna"));
+
+    // Once only: a model the person sets afterwards is not taken back.
+    std::fs::write(codex.join("config.toml"), config.replace("gpt-6.1-sol", "gpt-6-astra")).unwrap();
+    assert!(!env.text(None, &["beaver", "activate", "--host", "codex"], &start).contains("set the models"));
+    assert!(std::fs::read_to_string(codex.join("config.toml")).unwrap().starts_with("model = \"gpt-6-astra\""));
+
+    // Uninstall leaves a changed model alone, removes the dam's own settings and agent files.
+    env.text(None, &["te", "models", "uninstall", "--host", "codex"], "");
+    let after = std::fs::read_to_string(codex.join("config.toml")).unwrap();
+    assert!(after.starts_with("model = \"gpt-6-astra\"") && !after.contains("gpt-6-luna") && after.contains("trust_level"), "{after}");
+    assert!(!codex.join("agents").join("advisor.toml").exists());
+}

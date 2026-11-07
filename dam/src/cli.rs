@@ -498,10 +498,10 @@ pub fn main(raw: &[String]) -> i32 {
         // Claude Code's models: Sonnet 5.5 for the session, Opus 5.5 as advisor; `install` and `uninstall` edit the person's settings.
         "models" => match args.words.get(1).map(String::as_str) {
             None | Some("show") => {
-                println!("{}", crate::models::show());
+                println!("{}", crate::models::show(host));
                 0
             }
-            Some(word @ ("install" | "uninstall")) => match crate::models::set(word == "install") {
+            Some(word @ ("install" | "uninstall")) => match crate::models::set(host, word == "install") {
                 Ok(done) => {
                     println!("{done}");
                     0
