@@ -436,9 +436,11 @@ fn prompt_facts(prompt: &str, cwd: &str) -> Option<String> {
 
 fn post_tool(host: Host, call: &Call, dir: &Path) -> Option<String> {
     let command = if matches!(call.kind, Kind::Shell) { call.command.as_deref() } else { None };
+    let mut saving = String::new();
     let condensed = condense(&call.text, command, dir).map(|(text, before, after)| {
         // What the status line and the journal count, as the mod counts it under Claude Code.
         crate::journal::add_saving(host, &call.session, before, after);
+        saving = format!("💧 The dam saved {} tokens on this output ({before} → {after}, -{}%)", before - after, (before - after) * 100 / before.max(1));
         text
     });
     // A search for one name also gets where the map says it is defined and who calls it.
@@ -452,7 +454,8 @@ fn post_tool(host: Host, call: &Call, dir: &Path) -> Option<String> {
     Some(match host {
         // Codex cannot rewrite the output: its block feedback replaces the tool result, so the condensed text is the reason.
         Host::Codex => match (condensed, facts) {
-            (Some(text), facts) => json!({"decision": "block", "reason": facts.map_or(text.clone(), |facts| format!("{text}\n\n{facts}"))}).to_string(),
+            // `systemMessage` is shown to the person, not the model.
+            (Some(text), facts) => json!({"decision": "block", "reason": facts.map_or(text.clone(), |facts| format!("{text}\n\n{facts}")), "systemMessage": saving}).to_string(),
             (None, facts) => json!({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": facts}}).to_string(),
         },
         _ => {

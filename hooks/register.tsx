@@ -222,6 +222,8 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>,
   const kept = persisted && !isInline ? ', too long to show: its saved file was condensed' : ''
   const did = isWeb ? `web page${url ? ` ${url}` : ''} turned into Markdown` : `${tool} output condensed`
   void attempt(() => note($, ICON.water, `${did} from ${formatCount(result.before)} to ${formatCount(result.after)} tokens${kept}`))
+  // Every saving is announced as it happens, with its share.
+  if (gain > 0) void attempt(() => $.ui.toast(signed(`${ICON.water} ${did}: ${formatCount(result.before)} → ${formatCount(result.after)} tokens (-${Math.round((gain * 100) / result.before)}%)`)))
   // A count that fails must not throw away the compression itself.
   await attempt(async () => {
     const key = await savedHereKey($)
@@ -314,7 +316,9 @@ let seen: { tools: string; level: string | null } | null = null
 async function noteChanges($: Dollar, gains: { pruned: number; pending: number }, level: string | null) {
   const tools = `${gains.pruned}+${gains.pending}`
   if (seen?.tools !== tools && (seen || gains.pruned + gains.pending > 0)) {
-    await note($, ICON.logs, `${gains.pruned} tools pruned in this repository${gains.pending > 0 ? `, ${gains.pending} waiting for it to be quiet` : ''}`)
+    const text = `${gains.pruned} tools pruned in this repository${gains.pending > 0 ? `, ${gains.pending} waiting for it to be quiet` : ''}`
+    await note($, ICON.logs, text)
+    await attempt(() => $.ui.toast(signed(`${ICON.logs} ${text}`)))
   }
   if (seen?.level !== level && (seen || level)) await note($, ICON.beaver, `Beaver ${level ?? 'off'}`)
   seen = { tools, level }
