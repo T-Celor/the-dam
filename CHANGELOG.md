@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.29.1
+
+- **The design review comes before the implementation, and is asked once per session.** The hook that flags a finished design document now says "before you implement anything from it", and flags a document once per session instead of after every edit (fixes made after a review are not a new draft). A real run of a billing change shows the whole chain: design, hook, four reviewers with the files the map found, implementation, Stop gate, advisor. README has the walk-through.
+
 ## 0.29.0
 
 - **The advisor's review is now mandatory where it matters.** A Stop hook (`dam goldfish gate`, Claude Code; Codex and Copilot get the same entry) reads the turn that is ending: when it changed three or more code files, or any file whose path names auth, security, crypto, passwords, secrets, tokens, payments, billing, migrations, permissions or SQL, and no `advisor` or goldfish reviewer was called in that turn, the agent is not allowed to finish. It is told to call the `advisor` with the task, the changed paths and the test result, fix the Blockers and Majors, then finish. Asked once per turn, never when a stop hook already continued the turn, so it cannot loop. Documents (md, txt...) do not count; work done inside subagents does not either. `DAM_REVIEW=off` turns it off. Tested in a real session: three files written, stop refused, advisor (Opus 5.5) called, then finished.

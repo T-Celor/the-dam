@@ -138,6 +138,7 @@ fn nudge_in(state_dir: &Path, input: &Value, mode: &str) -> Option<String> {
             other => paths_in(other, &mut paths),
         }
     }
+    let session = input["session_id"].as_str().or_else(|| input["sessionId"].as_str()).unwrap_or("");
     let mut lines = Vec::new();
     for path in paths {
         let doc = if Path::new(&path).is_absolute() { PathBuf::from(&path) } else { cwd.join(&path) };
@@ -147,17 +148,19 @@ fn nudge_in(state_dir: &Path, input: &Value, mode: &str) -> Option<String> {
         }
         let mut state = load(state_dir, &doc);
         let changed = changed_sections(&text, &state);
-        if changed.is_empty() || state["nudged"].as_str() == Some(digest(&text).as_str()) {
+        // Once per version, and once per document in a session: the fixes made after a review are not a new draft.
+        if changed.is_empty() || state["nudged"].as_str() == Some(digest(&text).as_str()) || (!session.is_empty() && state["session"].as_str() == Some(session)) {
             continue;
         }
         state["nudged"] = json!(digest(&text));
+        state["session"] = json!(session);
         save(&state_file(state_dir, &doc), &state);
         let name = doc.strip_prefix(&cwd).unwrap_or(&doc).to_string_lossy().replace('\\', "/");
         let what = if state["sections"].is_null() { "never reviewed".to_string() } else { format!("changed since its review: {}", changed.join(", ")) };
         lines.push(if mode == "ask" {
             format!("Design document {name} is written ({what}). Offer the user a goldfish review, /the-dam:goldfish {name}: it uses fresh sub-agents, so it costs tokens; only the changed sections are reviewed.")
         } else {
-            format!("Design document {name} is written ({what}). Run /the-dam:goldfish {name} now, without asking: it reviews only the changed sections (the rest was already reviewed) and records the result. Skip it only if the user said they are still drafting.")
+            format!("Design document {name} is written ({what}). Before you implement anything from it, run /the-dam:goldfish {name} now, without asking: it reviews only the changed sections (the rest was already reviewed). Skip it only if the user said they are still drafting.")
         });
     }
 
@@ -296,6 +299,11 @@ mod tests {
         mark_in(&home, doc.to_str().unwrap()).unwrap();
         let text = fs::read_to_string(&doc).unwrap().replace("Goal one.", "Goal one, changed.");
         fs::write(&doc, text).unwrap();
+        let again_same_session = nudge_in(&home, &json!({"cwd": dir.to_str().unwrap(), "session_id": "s1", "tool_input": {"file_path": doc.to_str().unwrap()}}), "ask");
+        assert!(again_same_session.is_some(), "a first note in session s1");
+        let text2 = fs::read_to_string(&doc).unwrap().replace("Goal one, changed.", "Goal one, changed twice.");
+        fs::write(&doc, text2).unwrap();
+        assert!(nudge_in(&home, &json!({"cwd": dir.to_str().unwrap(), "session_id": "s1", "tool_input": {"file_path": doc.to_str().unwrap()}}), "ask").is_none(), "not twice in one session");
         let again = nudge_in(&home, &input, "ask").expect("a note after an edit");
         assert!(again.contains("Goals") && !again.contains("Implementation Plan,") && again.contains("Offer the user"), "{again}");
         fs::remove_dir_all(&dir).ok();
