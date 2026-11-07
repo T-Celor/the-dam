@@ -30,6 +30,8 @@ pub mod hostgen;
 pub mod answers;
 pub mod journal;
 pub mod models;
+pub mod goldfish;
+pub mod upstream;
 
 // The plugin's folder: given by Claude Code to a hook, else found above the running program.
 pub fn plugin_root() -> Option<std::path::PathBuf> {

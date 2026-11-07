@@ -90,6 +90,7 @@ Codex cannot rewrite a tool's output, so the condensed one comes back as the hoo
 | `/beaver lite\|full\|ultra\|off` | Beaver's level for this session (`full` by default) |
 | `/the-dam:beaver-review`, `:beaver-audit` | Review of a change, or of the whole repository |
 | `/the-dam:beaver-debt` | Every `shortcut:` comment, as a ledger |
+| `/the-dam:design`, `:goldfish`, `:drift` | Idea to specification; review of a design by reviewers with none of the conversation (the map gives them the code it names); documents checked against the map |
 | `/the-dam:beaver-gain`, `:beaver-help` | Beaver's benchmark and reference card |
 
 ## Status line
@@ -216,6 +217,7 @@ On html-to-markdown's own test files, the conversion matches 75% of lines, setti
 | [html-to-markdown](https://github.com/JohannesKaufmann/html-to-markdown) | MIT | Escaping, table and layout rules, and its tests | `v2.5.2` |
 | [Readability](https://github.com/mozilla/readability), [Turndown](https://github.com/mixmark-io/turndown) | Apache 2.0, MIT | Main-content choice and Markdown rules | – |
 | [graphify](https://graphify.com) | – | The map's reference measurements; no code taken | `v0.9.99` |
+| [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model) | Apache 2.0 | The method of `design`, `goldfish` and `drift`; reviewers shortened, on the model ladder, using the map | `e9e1f06` |
 
 [NOTICE](NOTICE) credits each with its licence. None of their authors endorse this project.
 
@@ -223,7 +225,7 @@ On html-to-markdown's own test files, the conversion matches 75% of lines, setti
 
 | What | How |
 |---|---|
-| Upstream | [`UPSTREAM`](UPSTREAM) records the version followed for each project. Changes are compared and ported by hand (`git log` of each project from that point). |
+| Upstream | [`UPSTREAM`](UPSTREAM) records the version followed for each project. `dam upstream` lists what moved since (commits, and files under the ported paths with `gh`); you port by hand, then `dam upstream pin NAME`. A weekly workflow opens an issue when one moved. |
 | Tests | `cd dam && cargo test` (unit tests, the programs end to end, the Codex and Copilot packaging), `claude plugin test .`, `claude plugin validate .` |
 | Hosts | `.claude-plugin/plugin.json` and `hooks/hooks.json` are the one declaration. `dam hosts` writes the Codex and Copilot manifests, marketplaces and hook files from them, and the tests fail when those are out of date. |
 | Benchmarks | `benchmarks/` holds the scripts behind the figures above |

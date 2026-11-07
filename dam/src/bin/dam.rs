@@ -2,7 +2,7 @@
 // system to ship, sign and update. A process still runs one job, and pages in only that job's code.
 use std::io::{BufRead, Read, Write};
 
-const USAGE: &str = "usage: dam squeeze [--web URL | --html | --prune DIR KEEP | --decode] | dam graph update | query QUESTION | dam beaver activate | subagent | track | dam te ...";
+const USAGE: &str = "usage: dam squeeze [--web URL | --html | --prune DIR KEEP | --decode] | dam graph update | query QUESTION | dam beaver activate | subagent | track | dam goldfish prepare|drift | dam upstream | dam te ...";
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -25,6 +25,8 @@ fn main() -> std::io::Result<()> {
         Some("te" | "economizer" | "dam-economizer") => economizer(rest)?,
         // The Codex and Copilot files, written from the one declaration (or checked against it).
         Some("hosts") => std::process::exit(dam::hostgen::run(rest.first().map(String::as_str) == Some("--check"))),
+        Some("goldfish") => std::process::exit(dam::goldfish::run(rest)),
+        Some("upstream") => std::process::exit(dam::upstream::run(rest)),
         _ => {
             eprintln!("{USAGE}");
             std::process::exit(2);

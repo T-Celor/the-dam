@@ -483,6 +483,63 @@ pub fn refresh() -> bool {
     save(&build()).is_ok()
 }
 
+// What other programs of the dam ask the map: where a name is defined, where a file went, which name a renamed one became.
+pub struct Index {
+    pub(crate) files: Vec<String>,
+    // A name as the code spells it -> the files that define it.
+    pub(crate) defined: HashMap<String, Vec<usize>>,
+    // A name without case and underscores -> a spelling of it.
+    pub(crate) spelled: HashMap<String, String>,
+}
+
+fn squash(name: &str) -> String {
+    name.chars().filter(|c| *c != '_').flat_map(char::to_lowercase).collect()
+}
+
+impl Index {
+    pub fn defined_in(&self, name: &str) -> Vec<&str> {
+        self.defined.get(name).map(|ids| ids.iter().map(|&id| self.files[id].as_str()).collect()).unwrap_or_default()
+    }
+
+    pub fn knows(&self, name: &str) -> bool {
+        self.defined.contains_key(name)
+    }
+
+    // The file of the map with this file name, where the one a document names is gone (moved or renamed folder).
+    pub fn file_named(&self, path: &str) -> Option<&str> {
+        let base = graph_file_name(path);
+        let mut found = self.files.iter().filter(|file| graph_file_name(file) == base);
+        let first = found.next()?;
+
+        found.next().is_none().then_some(first.as_str())
+    }
+
+    // The spelling the code has now of a name written another way (`split_line` for `splitLine`).
+    pub fn spelled_as(&self, name: &str) -> Option<&str> {
+        self.spelled.get(&squash(name)).map(String::as_str).filter(|now| *now != name)
+    }
+}
+
+// The map of this folder, brought up to date, or built if there is none; None where nothing can be read.
+pub fn index() -> Option<Index> {
+    refresh();
+    let graph = load(GRAPH_FILE).ok().or_else(|| {
+        let graph = build();
+        save(&graph).ok().map(|()| graph)
+    })?;
+    let mut defined: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut spelled = HashMap::new();
+    for node in graph.nodes.iter().filter(|node| node.kind != Kind::File) {
+        let files = defined.entry(node.name.clone()).or_default();
+        if !files.contains(&node.file) {
+            files.push(node.file);
+        }
+        spelled.entry(squash(&node.name)).or_insert_with(|| node.name.clone());
+    }
+
+    Some(Index { files: graph.files, defined, spelled })
+}
+
 pub fn answer_from(path: &str, name: &str) -> Option<String> {
     load(path).ok().map(|graph| answer(&graph, name))
 }

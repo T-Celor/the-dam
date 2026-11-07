@@ -6,3 +6,4 @@ headroom          headroomlabs-ai/headroom     fc1ba891bff2d1e0cb53c4ffd4037f506
 graphify          Graphify-Labs/graphify       v0.9.99                                    -
 html-to-markdown  JohannesKaufmann/html-to-markdown  v2.5.2                           ESCAPING.md plugin/commonmark plugin/table
 markdowner        supermemoryai/markdowner     f8878349d74dc17dfb938479a68948a12c39b724   src/index.ts
+egm               google/elephant-goldfish-model  e9e1f06aa4e26e95cd4ed37210a0632202c429e9   agents skills resources

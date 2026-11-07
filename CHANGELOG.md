@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.25.0
+
+- **Goldfish review, from Google's Elephant-Goldfish Model.** `/the-dam:design` turns an idea into a concepts brief and a specification, step by step. `/the-dam:goldfish DOCUMENT` has the document reviewed by reviewers that get the document and its source files but none of the conversation: four plugin agents (`goldfish-simplicity`, `goldfish-reader` on Haiku 5.5, `goldfish-critic`, `goldfish-ready`), five stages, findings settled with you and the `advisor`. The Rust part, `dam goldfish prepare`, finds the specification/plan split, the linked files inside the folder and, from the map, the files that define the code the document names. `/the-dam:drift` (`dam goldfish drift`) checks the documents' code spans against the map: a file that is gone (with where it is now), a name that no code file has (with its current spelling).
+- **Follow the projects the dam builds on.** `dam upstream` reads `UPSTREAM`, asks each repository where it is now, lists the commits and the changed files under the ported paths (with `gh`), and `dam upstream pin NAME` records that you ported them. A weekly workflow opens an issue when one has moved. Elephant-Goldfish Model is now in `UPSTREAM` and `NOTICE`.
+
 ## 0.24.1
 
 - **Gaps closed.** The map is also rebuilt before the answers the Claude Code module asks for (names in your prompt, search hits), not only for `graph query` and the Codex and Copilot hooks. Codex gets its models even when Beaver is off. The module names the host when it sets the Claude Code models. The README no longer gives 24% as the compression figure for a whole session (about 2.6%).
