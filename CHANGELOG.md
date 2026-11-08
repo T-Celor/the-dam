@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.31.2
+
+- **Parallel tool calls no longer race on the dam's counters.** The pre-tool hook (map first, worker redirect, review before code) now takes a lock per session while it reads and rewrites its state, so two reads in one message cannot both read the old count. A lock left by a dead process is taken over after ten seconds, and a hook that has waited three seconds runs anyway: bookkeeping never holds the agent up. Tested with eight threads incrementing one counter.
+
 ## 0.31.1
 
 - **Fixes from the advisor's review of 0.31.0** (the Stop gate asked for it). The worker is now really read-only: a hook refuses any shell command of a worker that is not entirely a listing, a read, a search, a map query or `git status`/`log`/`diff`/`show` (`cat a; rm b`, `sed -i`, a redirect, `git commit` are refused). A read of code is counted as a look but never refused, since an edit needs the file read first. The module's redirect of Claude Code's Explore subagent to the worker is removed: it never ran in a live session and could have broken every Explore spawn. State files are written atomically. The Stop gate counts a file named in full by one tool and by its name alone by another once, not twice.

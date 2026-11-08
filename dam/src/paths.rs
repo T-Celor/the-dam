@@ -85,6 +85,35 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     }
 }
 
+// Runs `work` while holding the lock file `path` (created new, so only one process has it). Hooks of parallel tool calls
+// share files of state; each read-modify-write is kept apart this way. A lock older than ten seconds is a dead process's and is
+// taken over; after three seconds of waiting `work` runs anyway, because an agent is never held up for bookkeeping.
+pub fn with_lock<T>(path: &Path, work: impl FnOnce() -> T) -> T {
+    if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+        let _ = fs::create_dir_all(dir);
+    }
+    let started = std::time::Instant::now();
+    let mut held = false;
+    while started.elapsed() < std::time::Duration::from_secs(3) {
+        if fs::OpenOptions::new().write(true).create_new(true).open(path).is_ok() {
+            held = true;
+            break;
+        }
+        let stale = fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|at| at.elapsed().ok()).is_some_and(|age| age > std::time::Duration::from_secs(10));
+        if stale {
+            let _ = fs::remove_file(path);
+        } else {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+    let result = work();
+    if held {
+        let _ = fs::remove_file(path);
+    }
+
+    result
+}
+
 pub fn realpath(path: &Path) -> PathBuf {
     let whole = abspath(path);
     let mut existing = whole.as_path();
@@ -277,5 +306,46 @@ mod tests_upstream {
         for (label, want) in [("owner/repo", "owner__repo"), (".dotfiles", ".dotfiles"), (r"C:\Work\Repo", "C__Work__Repo"), ("a:b", "a__b"), ("trailing. ", "trailing"), ("...", "repo"), ("x<y>z|w?*", "x__y__z__w__")] {
             assert_eq!(repo_filename(label), want, "{label}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_lock {
+    use super::*;
+
+    #[test]
+    fn parallel_workers_take_turns_on_one_counter() {
+        let dir = std::env::temp_dir().join(format!("dam-lock-{}", std::process::id()));
+        let counter = dir.join("n.txt");
+        let lock = dir.join("n.lock");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&counter, "0").unwrap();
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    for _ in 0..10 {
+                        with_lock(&lock, || {
+                            let n: u32 = fs::read_to_string(&counter).unwrap().trim().parse().unwrap();
+                            fs::write(&counter, (n + 1).to_string()).unwrap();
+                        });
+                    }
+                });
+            }
+        });
+        assert_eq!(fs::read_to_string(&counter).unwrap(), "80");
+        assert!(!lock.exists(), "the lock is given back");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_dead_process_lock_does_not_hold_anyone_up() {
+        let dir = std::env::temp_dir().join(format!("dam-lock-stale-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("held.lock");
+        fs::write(&lock, "").unwrap();
+        let started = std::time::Instant::now();
+        let ran = with_lock(&lock, || true);
+        assert!(ran && started.elapsed() < std::time::Duration::from_secs(5));
+        fs::remove_dir_all(&dir).ok();
     }
 }

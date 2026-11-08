@@ -168,6 +168,12 @@ fn worker_decision(input: &Value, state_dir: &Path, tool: &str) -> Option<String
 
 // The refusal for a tool call, or None to let it run: the map first, then a worker for broad exploration.
 pub fn decide(input: &Value, state_dir: &Path) -> Option<String> {
+    // The state this reads and writes is shared by the hooks of parallel tool calls: one at a time per session.
+    let session: String = input["session_id"].as_str().or_else(|| input["sessionId"].as_str()).unwrap_or("session").chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+    crate::paths::with_lock(&state_dir.join("goldfish").join(format!("lock-{session}")), || decide_locked(input, state_dir))
+}
+
+fn decide_locked(input: &Value, state_dir: &Path) -> Option<String> {
     let tool = input["tool_name"].as_str()?.to_lowercase();
     // The worker is read-only: its shell may look, not change.
     let is_worker = input["agent_type"].as_str().is_some_and(|kind| kind.to_lowercase().contains("worker"));
