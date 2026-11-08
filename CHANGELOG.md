@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.31.0
+
+- **Workers are required for broad exploration, and carry far fewer tools.** After six looks of its own in one request (a Glob, a Grep, a read of code, `ls`, `cat`, `rg`) the main model is told to hand the next to a `worker`; handing over starts the count again; after five refusals the call goes through, so a host that cannot start a worker is never stuck. Sub-agents are not counted. The `worker` agent is now read-only with four tools (Read, Grep, Glob, Bash) instead of all of them and the MCP ones, and ends by saying what to check. In interactive sessions the module sends Claude Code's Explore subagent to this worker (the Haiku one before; its tool definitions are a fraction of Explore's). Tested in a real session: the model read five files itself, was refused twice, called the worker, and the request cost 0.35 $ instead of 0.44 $. `DAM_HOOK_DUMP=<file>` keeps the payloads of the pre-tool hook.
+
 ## 0.30.0
 
 - **A use case in, the right pieces called.** Each prompt is read (`dam usecase`): new feature, bug fix, refactor, review, documents or question, in English or French. The agent gets the playbook for it, once per change of case: which of the dam's pieces to use and in what order. `dam usecase show` lists them, `DAM_USECASE=off` stops it.

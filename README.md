@@ -171,7 +171,7 @@ One request, run for real in Claude Code (Sonnet 5.5 session): *"Charges and ref
 | 5. Gate | Five code files changed, two of them on billing: the turn cannot end. The Stop hook asks for the `advisor`. | hook (Rust) |
 | 6. Advisor | Given the task, the changed paths and the test result, and nothing else, it reads the code and reports. The turn ends. | Opus 5.5 |
 
-Workers (Haiku) take broad searches when the model delegates them; nothing forces that, since one `Grep` costs less than an agent. Each refusal is at most once or twice per session, so none can loop. Switches: `DAM_USECASE=off`, `DAM_MAPFIRST=off`, `DAM_GOLDFISH=ask|off`, `DAM_REVIEW=off`.
+Workers (Haiku, read-only, four tools) take broad exploration: after six looks of its own in one request the main model is told to hand the next to a worker, and the count starts again when it does (five refusals at most, so none can loop). In interactive sessions the module also sends Claude Code's Explore subagent to the same worker, which carries a fraction of Explore's tool definitions. Switches: `DAM_USECASE=off`, `DAM_MAPFIRST=off` (map and worker rules), `DAM_GOLDFISH=ask|off`, `DAM_REVIEW=off`.
 
 ## Gains
 

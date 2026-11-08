@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 
 // Searches answered from the map, and so refused once, in one session.
 const MOST_ANSWERED: usize = 3;
+// Looks and searches the main agent makes itself in one prompt before broad exploration goes to a worker.
+const MOST_DIRECT: i64 = 6;
+// Times a prompt's exploration is sent to a worker instead; after that the call goes through, so a host that cannot start one is never stuck.
+const MOST_SENT_TO_WORKER: i64 = 5;
 
 // The code names a search pattern holds: `post\(|charge_customer` has two.
 pub fn names_in(pattern: &str) -> Vec<String> {
@@ -31,7 +35,7 @@ fn seen_file(state_dir: &Path, session: &str) -> PathBuf {
 }
 
 // The map's answer to refuse this tool call with, or None to let it run.
-pub fn decide(input: &Value, state_dir: &Path) -> Option<String> {
+fn map_decision(input: &Value, state_dir: &Path) -> Option<String> {
     let tool = input["tool_name"].as_str()?.to_lowercase();
     // Code is not written from a design that was never sent to review.
     if matches!(tool.as_str(), "write" | "edit" | "multiedit") {
@@ -111,6 +115,66 @@ Use this. If it does not show what you need, run the same search again and it wi
 For where a name is defined and what calls it, run `\"{}\" graph query \"<name or question>\"`, then read only the files it points to. If you still need what you just asked for, repeat the call and it will run.", crate::channels::program()))
 }
 
+// Whether this tool call is the agent looking around: a listing, a search, a read of code, or `ls` / `cat` / `rg` in a shell.
+fn is_exploration(tool: &str, input: &Value) -> bool {
+    match tool {
+        "grep" | "glob" => true,
+        "read" => input["tool_input"]["file_path"].as_str().is_some_and(|path| crate::scan::lang_of(path).is_some()),
+        "bash" | "powershell" => is_exploring(input["tool_input"]["command"].as_str().unwrap_or("")),
+        _ => false,
+    }
+}
+
+// Broad exploration is a worker's job: past MOST_DIRECT looks in one prompt the main agent is sent to a worker (the smallest
+// model, read-only, returns facts and paths). Handing work to a worker starts the count again. Sub-agents are not counted.
+fn worker_decision(input: &Value, state_dir: &Path, tool: &str) -> Option<String> {
+    if input["agent_id"].as_str().is_some_and(|id| !id.is_empty()) {
+        return None;
+    }
+    let session: String = input["session_id"].as_str().or_else(|| input["sessionId"].as_str()).unwrap_or("session").chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+    let prompt = input["prompt_id"].as_str().unwrap_or("");
+    let file = state_dir.join("goldfish").join(format!("direct-{session}.json"));
+    let mut state: Value = fs::read_to_string(&file).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_else(|| json!({}));
+    if state["prompt"].as_str() != Some(prompt) {
+        state = json!({"prompt": prompt, "n": 0, "sent": 0});
+    }
+    let save = |state: &Value| {
+        if let Some(folder) = file.parent() {
+            let _ = fs::create_dir_all(folder);
+        }
+        let _ = fs::write(&file, state.to_string());
+    };
+    // Handing work to a worker (or an Explore agent) settles it for this prompt.
+    if matches!(tool, "agent" | "task") {
+        let kind = input["tool_input"]["subagent_type"].as_str().unwrap_or("").to_lowercase();
+        if kind.contains("worker") || kind.contains("explore") {
+            state["n"] = json!(0);
+            state["sent"] = json!(0);
+            save(&state);
+        }
+        return None;
+    }
+    if !is_exploration(tool, input) {
+        return None;
+    }
+    let looks = state["n"].as_i64().unwrap_or(0);
+    state["n"] = json!(looks + 1);
+    let sent = state["sent"].as_i64().unwrap_or(0);
+    let refuse = looks >= MOST_DIRECT && sent < MOST_SENT_TO_WORKER;
+    if refuse {
+        state["sent"] = json!(sent + 1);
+    }
+    save(&state);
+
+    refuse.then(|| format!("Not by yourself: that is {looks} looks and searches in this request. Broad exploration is a worker's job and is required here. Call Agent(subagent_type \"the-dam:worker\", prompt = one precise question and the paths to look at) now. It is read-only, runs on the smallest model, and returns facts and file:line, not file contents. Keep Read for the files you are about to edit. Then continue from what it reports."))
+}
+
+// The refusal for a tool call, or None to let it run: the map first, then a worker for broad exploration.
+pub fn decide(input: &Value, state_dir: &Path) -> Option<String> {
+    let tool = input["tool_name"].as_str()?.to_lowercase();
+    map_decision(input, state_dir).or_else(|| worker_decision(input, state_dir, &tool))
+}
+
 // Whether a shell command is only looking around (listing, reading, searching), as opposed to building or changing something.
 fn is_exploring(command: &str) -> bool {
     if command.contains('>') {
@@ -136,6 +200,13 @@ pub fn hook() {
     let mut bytes = Vec::new();
     let _ = std::io::stdin().read_to_end(&mut bytes);
     let text = String::from_utf8_lossy(&bytes);
+    // A debugging aid: DAM_HOOK_DUMP=<file> keeps each payload this hook receives.
+    if let Some(dump) = std::env::var_os("DAM_HOOK_DUMP") {
+        use std::io::Write;
+        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(dump) {
+            let _ = writeln!(file, "{}", text.trim());
+        }
+    }
     let Ok(input) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) else { return };
     let Some(reason) = decide(&input, &crate::economizer::state_root()) else { return };
     print!("{}", json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}));
@@ -154,6 +225,30 @@ mod tests {
         assert!(!is_exploring("python -m pytest -q"));
         assert!(!is_exploring("cat > docs/design.md <<EOF"));
         assert!(!is_exploring("git commit -m x"));
+    }
+
+    #[test]
+    fn broad_exploration_is_sent_to_a_worker_after_six_looks() {
+        let dir = std::env::temp_dir().join(format!("worker-first-{}", std::process::id()));
+        let look = |prompt: &str| json!({"tool_name": "Read", "session_id": "s", "prompt_id": prompt, "tool_input": {"file_path": "src/a.rs"}});
+        let looks = |n: usize, prompt: &str| (0..n).map(|_| worker_decision(&look(prompt), &dir, "read")).collect::<Vec<_>>();
+        assert!(looks(6, "p1").iter().all(Option::is_none), "six looks are free");
+        assert!(worker_decision(&look("p1"), &dir, "read").unwrap().contains("the-dam:worker"));
+        assert!((0..4).all(|_| worker_decision(&look("p1"), &dir, "read").is_some()), "asked five times in all");
+        assert!(worker_decision(&look("p1"), &dir, "read").is_none(), "then it goes through");
+        // A new request starts over; a sub-agent is not counted; a worker starts the count again.
+        assert!(looks(6, "p2").iter().all(Option::is_none));
+        let inside = json!({"tool_name": "Read", "session_id": "s", "prompt_id": "p2", "agent_id": "a1", "tool_input": {"file_path": "src/a.rs"}});
+        assert!(worker_decision(&inside, &dir, "read").is_none());
+        let hand_over = json!({"tool_name": "Agent", "session_id": "s", "prompt_id": "p2", "tool_input": {"subagent_type": "the-dam:worker"}});
+        assert!(worker_decision(&hand_over, &dir, "agent").is_none());
+        // Handing over starts the count again: six more looks are free, then it is the worker's turn again.
+        assert!(looks(6, "p2").iter().all(Option::is_none));
+        assert!(worker_decision(&look("p2"), &dir, "read").is_some());
+        // Documents are not code looks.
+        let doc = json!({"tool_name": "Read", "session_id": "t", "prompt_id": "q", "tool_input": {"file_path": "notes.md"}});
+        assert!((0..9).all(|_| worker_decision(&doc, &dir, "read").is_none()));
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
