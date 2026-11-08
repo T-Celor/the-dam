@@ -48,11 +48,7 @@ fn map_decision(input: &Value, state_dir: &Path) -> Option<String> {
             return Some(reason);
         }
     }
-    let explores = match tool.as_str() {
-        "grep" | "glob" => true,
-        "read" => input["tool_input"]["file_path"].as_str().is_some_and(|path| crate::scan::lang_of(path).is_some()),
-        _ => shell && is_exploring(command),
-    };
+    let explores = is_exploration(&tool, input);
     // Having asked the map is having complied: nothing more is owed for the session.
     if shell && (command.contains("graph query") || command.contains("graph facts")) {
         if let (Some(cwd), Some(session)) = (input["cwd"].as_str(), input["session_id"].as_str()) {
@@ -142,7 +138,7 @@ fn worker_decision(input: &Value, state_dir: &Path, tool: &str) -> Option<String
         if let Some(folder) = file.parent() {
             let _ = fs::create_dir_all(folder);
         }
-        let _ = fs::write(&file, state.to_string());
+        let _ = crate::paths::write_atomic(&file, state.to_string().as_bytes());
     };
     // Handing work to a worker (or an Explore agent) settles it for this prompt.
     if matches!(tool, "agent" | "task") {
@@ -160,20 +156,44 @@ fn worker_decision(input: &Value, state_dir: &Path, tool: &str) -> Option<String
     let looks = state["n"].as_i64().unwrap_or(0);
     state["n"] = json!(looks + 1);
     let sent = state["sent"].as_i64().unwrap_or(0);
-    let refuse = looks >= MOST_DIRECT && sent < MOST_SENT_TO_WORKER;
+    // A read is counted but never refused: an edit needs the file read first.
+    let refuse = tool != "read" && looks >= MOST_DIRECT && sent < MOST_SENT_TO_WORKER;
     if refuse {
         state["sent"] = json!(sent + 1);
     }
     save(&state);
 
-    refuse.then(|| format!("Not by yourself: that is {looks} looks and searches in this request. Broad exploration is a worker's job and is required here. Call Agent(subagent_type \"the-dam:worker\", prompt = one precise question and the paths to look at) now. It is read-only, runs on the smallest model, and returns facts and file:line, not file contents. Keep Read for the files you are about to edit. Then continue from what it reports."))
+    refuse.then(|| format!("Not by yourself: that is {looks} looks and searches in this request. Broad exploration is a worker's job and is required here. Call Agent(subagent_type \"the-dam:worker\", prompt = one precise question and the paths to look at) now. It is read-only, runs on the smallest model, and returns facts and file:line, not file contents. Reads of the files you are about to edit stay yours. Then continue from what it reports."))
 }
 
 // The refusal for a tool call, or None to let it run: the map first, then a worker for broad exploration.
 pub fn decide(input: &Value, state_dir: &Path) -> Option<String> {
     let tool = input["tool_name"].as_str()?.to_lowercase();
+    // The worker is read-only: its shell may look, not change.
+    let is_worker = input["agent_type"].as_str().is_some_and(|kind| kind.to_lowercase().contains("worker"));
+    if is_worker && matches!(tool.as_str(), "bash" | "powershell") && !only_looks(input["tool_input"]["command"].as_str().unwrap_or("")) {
+        return Some("A worker only looks: list, read, search, or query the map. It does not run builds or change files. Report what you found and let the main agent act.".to_string());
+    }
     map_decision(input, state_dir).or_else(|| worker_decision(input, state_dir, &tool))
 }
+
+// Whether every part of a shell command only looks (a listing, a read, a search, a map query, `git status`), nothing that builds or changes.
+fn only_looks(command: &str) -> bool {
+    if command.contains('>') || command.contains("sed -i") || command.contains("-delete") || command.contains("-exec") {
+        return false;
+    }
+    command.split(['&', ';', '|', '\n']).map(str::trim).filter(|part| !part.is_empty()).all(|part| {
+        if part.starts_with("cd ") || part.contains(" graph query") || part.contains(" graph facts") {
+            return true;
+        }
+        let mut words = part.split_whitespace();
+        let first = words.next().unwrap_or("").replace('\\', "/").to_lowercase();
+        let first = first.rsplit('/').next().unwrap_or("").to_string();
+        first == "git" && words.next().is_some_and(|sub| matches!(sub, "ls-files" | "grep" | "status" | "log" | "diff" | "show" | "blame")) || LOOK_COMMANDS.contains(&first.as_str())
+    })
+}
+
+const LOOK_COMMANDS: [&str; 17] = ["ls", "dir", "find", "tree", "cat", "type", "head", "tail", "wc", "grep", "rg", "egrep", "get-childitem", "gci", "get-content", "select-string", "sls"];
 
 // Whether a shell command is only looking around (listing, reading, searching), as opposed to building or changing something.
 fn is_exploring(command: &str) -> bool {
@@ -230,24 +250,45 @@ mod tests {
     #[test]
     fn broad_exploration_is_sent_to_a_worker_after_six_looks() {
         let dir = std::env::temp_dir().join(format!("worker-first-{}", std::process::id()));
-        let look = |prompt: &str| json!({"tool_name": "Read", "session_id": "s", "prompt_id": prompt, "tool_input": {"file_path": "src/a.rs"}});
-        let looks = |n: usize, prompt: &str| (0..n).map(|_| worker_decision(&look(prompt), &dir, "read")).collect::<Vec<_>>();
-        assert!(looks(6, "p1").iter().all(Option::is_none), "six looks are free");
-        assert!(worker_decision(&look("p1"), &dir, "read").unwrap().contains("the-dam:worker"));
-        assert!((0..4).all(|_| worker_decision(&look("p1"), &dir, "read").is_some()), "asked five times in all");
-        assert!(worker_decision(&look("p1"), &dir, "read").is_none(), "then it goes through");
-        // A new request starts over; a sub-agent is not counted; a worker starts the count again.
-        assert!(looks(6, "p2").iter().all(Option::is_none));
-        let inside = json!({"tool_name": "Read", "session_id": "s", "prompt_id": "p2", "agent_id": "a1", "tool_input": {"file_path": "src/a.rs"}});
-        assert!(worker_decision(&inside, &dir, "read").is_none());
-        let hand_over = json!({"tool_name": "Agent", "session_id": "s", "prompt_id": "p2", "tool_input": {"subagent_type": "the-dam:worker"}});
-        assert!(worker_decision(&hand_over, &dir, "agent").is_none());
-        // Handing over starts the count again: six more looks are free, then it is the worker's turn again.
-        assert!(looks(6, "p2").iter().all(Option::is_none));
-        assert!(worker_decision(&look("p2"), &dir, "read").is_some());
+        let read = |prompt: &str| json!({"tool_name": "Read", "session_id": "s", "prompt_id": prompt, "tool_input": {"file_path": "src/a.rs"}});
+        let grep = |prompt: &str| json!({"tool_name": "Grep", "session_id": "s", "prompt_id": prompt, "tool_input": {"pattern": "x"}});
+        let reads = |n: usize, prompt: &str| (0..n).map(|_| worker_decision(&read(prompt), &dir, "read")).collect::<Vec<_>>();
+        assert!(reads(6, "p1").iter().all(Option::is_none), "six looks are free");
+        // A read is counted and never refused (an edit needs it); a search past the sixth look is.
+        assert!(reads(3, "p1").iter().all(Option::is_none));
+        assert!(worker_decision(&grep("p1"), &dir, "grep").unwrap().contains("the-dam:worker"));
+        assert!((0..4).all(|_| worker_decision(&grep("p1"), &dir, "grep").is_some()), "asked five times in all");
+        assert!(worker_decision(&grep("p1"), &dir, "grep").is_none(), "then it goes through");
+        // A new request starts over; a sub-agent is not counted; handing over (a worker or Explore) starts the count again.
+        assert!(reads(6, "p2").iter().all(Option::is_none));
+        let inside = json!({"tool_name": "Grep", "session_id": "s", "prompt_id": "p2", "agent_id": "a1", "tool_input": {"pattern": "x"}});
+        assert!(worker_decision(&inside, &dir, "grep").is_none());
+        assert!(worker_decision(&grep("p2"), &dir, "grep").is_some());
+        for kind in ["the-dam:worker", "Explore"] {
+            let hand_over = json!({"tool_name": "Agent", "session_id": "s", "prompt_id": "p2", "tool_input": {"subagent_type": kind}});
+            assert!(worker_decision(&hand_over, &dir, "agent").is_none());
+            assert!(reads(6, "p2").iter().all(Option::is_none), "six more looks after {kind}");
+            assert!(worker_decision(&grep("p2"), &dir, "grep").is_some());
+        }
         // Documents are not code looks.
         let doc = json!({"tool_name": "Read", "session_id": "t", "prompt_id": "q", "tool_input": {"file_path": "notes.md"}});
         assert!((0..9).all(|_| worker_decision(&doc, &dir, "read").is_none()));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_worker_may_only_look() {
+        let dir = std::env::temp_dir().join(format!("worker-looks-{}", std::process::id()));
+        let run = |agent: &str, command: &str| json!({"tool_name": "Bash", "session_id": "s", "agent_type": agent, "tool_input": {"command": command}});
+        for allowed in ["ls -R app", "cd app && cat a.py | head", "git status", "rg -n post app", "cat a; ls", "\"x\" graph query \"post\""] {
+            assert!(only_looks(allowed), "{allowed}");
+        }
+        for refused in ["sed -i s/a/b/ a.py", "cat a; rm b", "git commit -m x", "python -m pytest", "echo hi > a.txt", "find . -delete"] {
+            assert!(!only_looks(refused), "{refused}");
+        }
+        assert!(decide(&run("the-dam:worker", "rm -rf app"), &dir).unwrap().contains("only looks"));
+        assert!(decide(&run("the-dam:worker", "ls app"), &dir).is_none());
+        assert!(decide(&run("", "rm -rf app"), &dir).is_none(), "the main agent is not a worker");
         fs::remove_dir_all(&dir).ok();
     }
 

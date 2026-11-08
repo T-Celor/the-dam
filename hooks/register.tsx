@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
 import type { Gains, JournalEntry, Stats } from '../types'
-import { EMPTY, ICON, carryStep, economizerEntries, formatCount, gainNote, leanAgent, pinnedModel, journalLine, journalView, projectFlow, reportOf, sessionFigures, signed, statusOf, totalLines } from './model'
+import { EMPTY, ICON, carryStep, economizerEntries, formatCount, gainNote, pinnedModel, journalLine, journalView, projectFlow, reportOf, sessionFigures, signed, statusOf, totalLines } from './model'
 import type { Located } from './tools'
 import {
   candidates,
@@ -474,8 +474,7 @@ export const register: Register = on => {
   // caller named, a fork (which shares the parent's context) and agents with a model of their own are left as they are.
   on('agent.spawn', async ($, e, next) => {
     const model = pinnedModel(e)
-    const agent = leanAgent(e)
-    return next({ ...e, ...(model ? { model } : {}), ...(agent ? { subagentType: agent } : {}) })
+    return next(model ? { ...e, model } : e)
   })
 
   // Tells the model about the graph only where one exists, so other projects pay nothing.

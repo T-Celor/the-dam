@@ -19,6 +19,11 @@ pub struct Turn {
     pub reviewed: bool,
 }
 
+// The file name of a path in either spelling: the same file is named in full by one tool and by its name alone by another.
+fn base_name(path: &str) -> String {
+    path.replace('\\', "/").rsplit('/').next().unwrap_or("").to_lowercase()
+}
+
 fn is_doc(name: &str) -> bool {
     name.rsplit_once('.').is_some_and(|(_, ext)| DOCS.iter().any(|doc| ext.eq_ignore_ascii_case(doc)))
 }
@@ -78,7 +83,7 @@ pub fn scan(transcript: &str) -> Turn {
                         turn.reviewed |= kind.contains("advisor") || kind.contains("goldfish");
                     } else if EDIT_TOOLS.contains(&tool.as_str()) || tool == "bash" {
                         for name in files_of(&tool, input) {
-                            if !is_doc(&name) && !turn.edited.contains(&name) {
+                            if !is_doc(&name) && !turn.edited.iter().any(|known| base_name(known) == base_name(&name)) {
                                 turn.edited.push(name);
                             }
                         }
@@ -196,6 +201,14 @@ mod tests {
         parts.push(user("next"));
         let fresh = scan(&lines(&parts));
         assert!(fresh.edited.is_empty() && !fresh.reviewed);
+    }
+
+    #[test]
+    fn one_file_named_two_ways_counts_once() {
+        let parts = [user("x"), tool("Edit", json!({"file_path": r"C:\repo\src\a.rs"})), tool("Bash", json!({"command": "sed -i s/a/b/ src/a.rs"})), tool("Edit", json!({"file_path": "/repo/src/b.rs"})), tool("Edit", json!({"file_path": "/repo/src/c.rs"}))];
+        assert_eq!(scan(&lines(&parts)).edited.len(), 3);
+        assert!(reason(&scan(&lines(&parts))).is_some());
+        assert!(reason(&scan(&lines(&parts[..4]))).is_none(), "two files, one of them named twice");
     }
 
     #[test]

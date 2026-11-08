@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, WORKER_MODEL, carryStep, leanAgent, LEAN_AGENT, pinnedModel, economizerEntries, projectFlow, savedOfSpent, formatCount, gainNote, journalLine, journalView, reportOf, sessionFigures, statusOf, totalLines } from './model'
+import { EMPTY, WORKER_MODEL, carryStep, pinnedModel, economizerEntries, projectFlow, savedOfSpent, formatCount, gainNote, journalLine, journalView, reportOf, sessionFigures, statusOf, totalLines } from './model'
 import { candidates, mcpText, withMcpText, graphNodes, graphQuestion, missingNames, parseEconomizer, setupSteps, squeezableField, savedPreview, standoutLines, worthGraphing } from './tools'
 
 const ALL = { squeezer: true, graphify: true, economizer: true, beaver: true }
@@ -93,7 +93,7 @@ test('a big output reaches the model condensed, with the path of the whole', asy
   })
   // `dam squeeze condense` decides and answers JSON; any other call (`--version`) just succeeds.
   const condensed = JSON.stringify({ text: 'short', note: '\n\n[condensed; original: {path}.]', before: 900, after: 2, url: null, web: false })
-  on('process.run', (_, e) => ({ value: { exitCode: 0, stdout: e.argv.includes('condense') ? condensed : 'dam 0.31.0', stderr: '' } }) as never)
+  on('process.run', (_, e) => ({ value: { exitCode: 0, stdout: e.argv.includes('condense') ? condensed : 'dam 0.31.1', stderr: '' } }) as never)
   on('clock.after', () => ({ value: {} }) as never)
   on('store.get', () => ({ value: undefined }) as never)
   on('store.set', () => ({ value: undefined }) as never)
@@ -210,8 +210,4 @@ test('built-in subagents are workers on Haiku; a named model, a fork and other p
   expect(pinnedModel({ provider: engine, subagentType: 'Explore', model: 'opus' })).toBe(null)
   expect(pinnedModel({ provider: engine, subagentType: 'fork' })).toBe(null)
   expect(pinnedModel({ provider: { plugin: 'the-dam' }, subagentType: 'advisor' })).toBe(null)
-  expect(leanAgent({ provider: engine, subagentType: 'Explore' })).toBe(LEAN_AGENT)
-  expect(leanAgent({ provider: engine, subagentType: 'Explore', model: 'opus' })).toBe(null)
-  expect(leanAgent({ provider: engine, subagentType: 'general-purpose' })).toBe(null)
-  expect(leanAgent({ provider: engine, subagentType: 'fork' })).toBe(null)
 })

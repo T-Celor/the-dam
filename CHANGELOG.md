@@ -1,8 +1,12 @@
 # Changelog
 
+## 0.31.1
+
+- **Fixes from the advisor's review of 0.31.0** (the Stop gate asked for it). The worker is now really read-only: a hook refuses any shell command of a worker that is not entirely a listing, a read, a search, a map query or `git status`/`log`/`diff`/`show` (`cat a; rm b`, `sed -i`, a redirect, `git commit` are refused). A read of code is counted as a look but never refused, since an edit needs the file read first. The module's redirect of Claude Code's Explore subagent to the worker is removed: it never ran in a live session and could have broken every Explore spawn. State files are written atomically. The Stop gate counts a file named in full by one tool and by its name alone by another once, not twice.
+
 ## 0.31.0
 
-- **Workers are required for broad exploration, and carry far fewer tools.** After six looks of its own in one request (a Glob, a Grep, a read of code, `ls`, `cat`, `rg`) the main model is told to hand the next to a `worker`; handing over starts the count again; after five refusals the call goes through, so a host that cannot start a worker is never stuck. Sub-agents are not counted. The `worker` agent is now read-only with four tools (Read, Grep, Glob, Bash) instead of all of them and the MCP ones, and ends by saying what to check. In interactive sessions the module sends Claude Code's Explore subagent to this worker (the Haiku one before; its tool definitions are a fraction of Explore's). Tested in a real session: the model read five files itself, was refused twice, called the worker, and the request cost 0.35 $ instead of 0.44 $. `DAM_HOOK_DUMP=<file>` keeps the payloads of the pre-tool hook.
+- **Workers are required for broad exploration, and carry far fewer tools.** After six looks of its own in one request (a Glob, a Grep, a read of code, `ls`, `cat`, `rg`) the main model is told to hand the next to a `worker`; handing over starts the count again; after five refusals the call goes through, so a host that cannot start a worker is never stuck. Sub-agents are not counted. The `worker` agent is now read-only with four tools (Read, Grep, Glob, Bash) instead of all of them and the MCP ones, and ends by saying what to check. Tested in a real session: the model made six looks itself, was refused twice, called the worker, and the request cost 0.35 $ against 0.44 $ in a run that did not delegate. (The Explore redirect and the "ends by saying what to check" line mentioned here were removed in 0.31.1.) `DAM_HOOK_DUMP=<file>` keeps the payloads of the pre-tool hook.
 
 ## 0.30.0
 

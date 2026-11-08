@@ -218,13 +218,3 @@ export function pinnedModel(spawn: { provider: { plugin: string }; subagentType:
 
   return isBuiltIn && !asked ? WORKER_MODEL : null
 }
-
-// The lean agent an Explore subagent is sent to: the plugin's read-only worker (Read, Grep, Glob, Bash on the smallest model)
-// carries a fraction of the tool definitions Explore does. Only Explore: it only reads, so nothing it could have done is lost. A
-// model the caller named is left as it is.
-export const LEAN_AGENT = 'the-dam:worker'
-export function leanAgent(spawn: { provider: { plugin: string }; subagentType: string; model?: string }): string | null {
-  const asked = Boolean(spawn.model) && spawn.model !== 'inherit'
-
-  return spawn.provider.plugin === 'engine' && spawn.subagentType === 'Explore' && !asked ? LEAN_AGENT : null
-}
