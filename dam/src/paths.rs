@@ -85,29 +85,33 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     }
 }
 
-// Runs `work` while holding the lock file `path` (created new, so only one process has it). Hooks of parallel tool calls
-// share files of state; each read-modify-write is kept apart this way. A lock older than ten seconds is a dead process's and is
-// taken over; after three seconds of waiting `work` runs anyway, because an agent is never held up for bookkeeping.
+// Runs `work` while holding the lock file `path` (created new, so only one process has it, and holding a token only this call
+// wrote). Hooks of parallel tool calls share files of state; each read-modify-write is kept apart this way. A lock older than
+// thirty seconds (more than a hook's own 25 s watchdog) is a dead process's and is taken over; after three seconds of waiting
+// `work` runs anyway, because an agent is never held up for bookkeeping. Only the lock this call made is given back.
 pub fn with_lock<T>(path: &Path, work: impl FnOnce() -> T) -> T {
+    use std::io::Write;
     if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         let _ = fs::create_dir_all(dir);
     }
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |at| at.as_nanos());
+    let token = format!("{}-{nanos:x}", std::process::id());
     let started = std::time::Instant::now();
     let mut held = false;
     while started.elapsed() < std::time::Duration::from_secs(3) {
-        if fs::OpenOptions::new().write(true).create_new(true).open(path).is_ok() {
+        if fs::OpenOptions::new().write(true).create_new(true).open(path).and_then(|mut file| file.write_all(token.as_bytes())).is_ok() {
             held = true;
             break;
         }
-        let stale = fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|at| at.elapsed().ok()).is_some_and(|age| age > std::time::Duration::from_secs(10));
-        if stale {
+        let age = fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|at| at.elapsed().ok());
+        if age.is_some_and(|age| age > std::time::Duration::from_secs(30)) {
             let _ = fs::remove_file(path);
         } else {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
     let result = work();
-    if held {
+    if held && fs::read_to_string(path).is_ok_and(|now| now == token) {
         let _ = fs::remove_file(path);
     }
 
@@ -338,14 +342,29 @@ mod tests_lock {
     }
 
     #[test]
-    fn a_dead_process_lock_does_not_hold_anyone_up() {
+    fn a_dead_process_lock_is_taken_over_at_once() {
         let dir = std::env::temp_dir().join(format!("dam-lock-stale-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let lock = dir.join("held.lock");
-        fs::write(&lock, "").unwrap();
+        fs::write(&lock, "dead-1").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        fs::OpenOptions::new().write(true).open(&lock).unwrap().set_modified(old).unwrap();
         let started = std::time::Instant::now();
-        let ran = with_lock(&lock, || true);
-        assert!(ran && started.elapsed() < std::time::Duration::from_secs(5));
+        assert!(with_lock(&lock, || true));
+        assert!(started.elapsed() < std::time::Duration::from_secs(1), "taken over, not waited out");
+        assert!(!lock.exists(), "and given back");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_lock_someone_else_took_is_not_removed() {
+        let dir = std::env::temp_dir().join(format!("dam-lock-other-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("busy.lock");
+        // Held for longer than the wait: the work runs anyway, and the other process's lock is left alone.
+        fs::write(&lock, "someone-else").unwrap();
+        assert!(with_lock(&lock, || true));
+        assert_eq!(fs::read_to_string(&lock).unwrap(), "someone-else");
         fs::remove_dir_all(&dir).ok();
     }
 }

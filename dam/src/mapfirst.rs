@@ -59,7 +59,7 @@ fn map_decision(input: &Value, state_dir: &Path) -> Option<String> {
                 if let Some(folder) = file.parent() {
                     let _ = fs::create_dir_all(folder);
                 }
-                let _ = fs::write(&file, format!("{seen}overview\n"));
+                let _ = crate::paths::write_atomic(&file, format!("{seen}overview\n").as_bytes());
             }
         }
         return None;
@@ -76,7 +76,7 @@ fn map_decision(input: &Value, state_dir: &Path) -> Option<String> {
         if let Some(folder) = file.parent() {
             let _ = fs::create_dir_all(folder);
         }
-        let _ = fs::write(&file, format!("{seen}{key}\n"));
+        let _ = crate::paths::write_atomic(&file, format!("{seen}{key}\n").as_bytes());
     };
     // A search for code names the map knows is answered by the map.
     if tool == "grep" {
@@ -170,6 +170,13 @@ fn worker_decision(input: &Value, state_dir: &Path, tool: &str) -> Option<String
 pub fn decide(input: &Value, state_dir: &Path) -> Option<String> {
     // The state this reads and writes is shared by the hooks of parallel tool calls: one at a time per session.
     let session: String = input["session_id"].as_str().or_else(|| input["sessionId"].as_str()).unwrap_or("session").chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+    // The map is built (or brought up to date) before the lock is taken: a rebuild can last longer than a lock is worth.
+    if let Some(cwd) = input["cwd"].as_str().filter(|cwd| !cwd.is_empty()) {
+        let tool = input["tool_name"].as_str().unwrap_or("").to_lowercase();
+        if is_exploration(&tool, input) && std::env::set_current_dir(cwd).is_ok() {
+            crate::graph::ensure_built();
+        }
+    }
     crate::paths::with_lock(&state_dir.join("goldfish").join(format!("lock-{session}")), || decide_locked(input, state_dir))
 }
 

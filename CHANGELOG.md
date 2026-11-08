@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.31.3
+
+- **The lock is sound, and covers the review state too** (the advisor's review of 0.31.2). The map is built or brought up to date before the lock is taken, so a long rebuild no longer outlasts it. A lock carries a token and only its owner removes it; one older than thirty seconds (past a hook's own 25 s limit) is a dead process's. The state of each design document (flagged, review begun, denied twice) is now written atomically and read-modified-written under its own lock, in the hook that flags it, in `prepare` and in `mark`, and in the refusal of code. The tests now backdate a lock to prove the takeover, and prove a lock held by someone else is left alone. The Stop gate no longer counts version bumps and lock files (`plugin.json`, `Cargo.toml`, `Cargo.lock`, ...) as code to review.
+
 ## 0.31.2
 
 - **Parallel tool calls no longer race on the dam's counters.** The pre-tool hook (map first, worker redirect, review before code) now takes a lock per session while it reads and rewrites its state, so two reads in one message cannot both read the old count. A lock left by a dead process is taken over after ten seconds, and a hook that has waited three seconds runs anyway: bookkeeping never holds the agent up. Tested with eight threads incrementing one counter.

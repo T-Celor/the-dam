@@ -24,8 +24,11 @@ fn base_name(path: &str) -> String {
     path.replace('\\', "/").rsplit('/').next().unwrap_or("").to_lowercase()
 }
 
+// Files a release bumps or a tool regenerates: a version number is not a change that wants a second pair of eyes.
+const BOOKKEEPING: [&str; 9] = ["cargo.toml", "cargo.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "plugin.json", "marketplace.json", ".gitignore", "go.sum"];
+
 fn is_doc(name: &str) -> bool {
-    name.rsplit_once('.').is_some_and(|(_, ext)| DOCS.iter().any(|doc| ext.eq_ignore_ascii_case(doc)))
+    BOOKKEEPING.contains(&base_name(name).as_str()) || name.rsplit_once('.').is_some_and(|(_, ext)| DOCS.iter().any(|doc| ext.eq_ignore_ascii_case(doc)))
 }
 
 fn patch_files(text: &str) -> Vec<String> {
@@ -201,6 +204,13 @@ mod tests {
         parts.push(user("next"));
         let fresh = scan(&lines(&parts));
         assert!(fresh.edited.is_empty() && !fresh.reviewed);
+    }
+
+    #[test]
+    fn a_version_bump_is_not_a_change_to_review() {
+        let parts = [user("x"), tool("Edit", json!({"file_path": ".claude-plugin/plugin.json"})), tool("Edit", json!({"file_path": "dam/Cargo.toml"})), tool("Edit", json!({"file_path": "dam/Cargo.lock"})), tool("Edit", json!({"file_path": "src/a.rs"}))];
+        assert_eq!(scan(&lines(&parts)).edited, vec!["src/a.rs"]);
+        assert!(reason(&scan(&lines(&parts))).is_none());
     }
 
     #[test]

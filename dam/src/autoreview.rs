@@ -57,7 +57,12 @@ fn save(file: &Path, state: &Value) {
     if let Some(folder) = file.parent() {
         let _ = fs::create_dir_all(folder);
     }
-    let _ = fs::write(file, state.to_string());
+    let _ = crate::paths::write_atomic(file, state.to_string().as_bytes());
+}
+
+// A document's state is read and rewritten by several hooks that may run at once: each takes this lock for its read-modify-write.
+fn lock_of(file: &Path) -> PathBuf {
+    file.with_extension("lock")
 }
 
 // The titles of the sections whose text is not what was last reviewed (all of them before a first review).
@@ -96,7 +101,8 @@ fn mark_in(state: &Path, doc: &str) -> Result<String, String> {
     let text = fs::read_to_string(path).map_err(|error| format!("could not read {doc}: {error}"))?;
     let all = sections(&text);
     let map: serde_json::Map<String, Value> = all.iter().map(|(title, sum)| (title.clone(), json!(sum))).collect();
-    save(&state_file(state, path), &json!({"path": doc, "sections": map, "nudged": digest(&text)}));
+    let file = state_file(state, path);
+    crate::paths::with_lock(&lock_of(&file), || save(&file, &json!({"path": doc, "sections": map, "nudged": digest(&text)})));
 
     Ok(format!("{doc}: {} sections recorded as reviewed\n", all.len()))
 }
@@ -155,21 +161,27 @@ fn nudge_in(state_dir: &Path, input: &Value, mode: &str) -> Option<String> {
         if !is_design(&doc, &text) {
             continue;
         }
-        let mut state = load(state_dir, &doc);
-        let changed = changed_sections(&text, &state);
-        // Once per version, and once per document in a session: the fixes made after a review are not a new draft.
-        if changed.is_empty() || state["nudged"].as_str() == Some(digest(&text).as_str()) || (!session.is_empty() && state["session"].as_str() == Some(session)) {
-            continue;
-        }
-        state["nudged"] = json!(digest(&text));
-        state["session"] = json!(session);
-        state["path"] = json!(doc.to_string_lossy());
-        // The review is owed until `prepare` (its first step) has run for this version.
-        state["started"] = json!(false);
-        state["denied"] = json!(0);
-        save(&state_file(state_dir, &doc), &state);
+        let file = state_file(state_dir, &doc);
+        let flagged = crate::paths::with_lock(&lock_of(&file), || {
+            let mut state = load(state_dir, &doc);
+            let changed = changed_sections(&text, &state);
+            // Once per version, and once per document in a session: the fixes made after a review are not a new draft.
+            if changed.is_empty() || state["nudged"].as_str() == Some(digest(&text).as_str()) || (!session.is_empty() && state["session"].as_str() == Some(session)) {
+                return None;
+            }
+            let what = if state["sections"].is_null() { "never reviewed".to_string() } else { format!("changed since its review: {}", changed.join(", ")) };
+            state["nudged"] = json!(digest(&text));
+            state["session"] = json!(session);
+            state["path"] = json!(doc.to_string_lossy());
+            // The review is owed until `prepare` (its first step) has run for this version.
+            state["started"] = json!(false);
+            state["denied"] = json!(0);
+            save(&file, &state);
+
+            Some(what)
+        });
+        let Some(what) = flagged else { continue };
         let name = doc.strip_prefix(&cwd).unwrap_or(&doc).to_string_lossy().replace('\\', "/");
-        let what = if state["sections"].is_null() { "never reviewed".to_string() } else { format!("changed since its review: {}", changed.join(", ")) };
         lines.push(if mode == "ask" {
             format!("Design document {name} is written ({what}). Offer the user a goldfish review, /the-dam:goldfish {name}: it uses fresh sub-agents, so it costs tokens; only the changed sections are reviewed.")
         } else {
@@ -183,12 +195,15 @@ fn nudge_in(state_dir: &Path, input: &Value, mode: &str) -> Option<String> {
 // The review of this document has begun: the goldfish skill ran `prepare`.
 pub fn review_started(doc: &Path) {
     let state_dir = crate::economizer::state_root();
-    let mut state = load(&state_dir, doc);
-    if state["path"].is_null() {
-        return;
-    }
-    state["started"] = json!(true);
-    save(&state_file(&state_dir, doc), &state);
+    let file = state_file(&state_dir, doc);
+    crate::paths::with_lock(&lock_of(&file), || {
+        let mut state = load(&state_dir, doc);
+        if state["path"].is_null() {
+            return;
+        }
+        state["started"] = json!(true);
+        save(&file, &state);
+    });
 }
 
 // Code may not be written from a design that was flagged in this session and has not been sent to review. Asked twice at
@@ -215,14 +230,19 @@ pub fn pending_review(input: &Value, state_dir: &Path, mode: &str) -> Option<Str
         if file.extension().is_none_or(|ext| ext != "json") {
             continue;
         }
-        let Some(mut state) = fs::read_to_string(&file).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) else { continue };
-        let doc = state["path"].as_str().map(PathBuf::from);
-        if state["session"].as_str() != Some(session) || state["started"].as_bool() != Some(false) || state["denied"].as_i64().unwrap_or(0) >= 2 || !doc.as_ref().is_some_and(|doc| doc.is_file()) {
-            continue;
-        }
-        state["denied"] = json!(state["denied"].as_i64().unwrap_or(0) + 1);
-        save(&file, &state);
-        let name = doc.map(|doc| doc.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).unwrap_or_default();
+        let owed = crate::paths::with_lock(&lock_of(&file), || {
+            let mut state = fs::read_to_string(&file).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok())?;
+            let doc = state["path"].as_str().map(PathBuf::from)?;
+            if state["session"].as_str() != Some(session) || state["started"].as_bool() != Some(false) || state["denied"].as_i64().unwrap_or(0) >= 2 || !doc.is_file() {
+                return None;
+            }
+            state["denied"] = json!(state["denied"].as_i64().unwrap_or(0) + 1);
+            save(&file, &state);
+
+            Some(doc)
+        });
+        let Some(doc) = owed else { continue };
+        let name = doc.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
 
         return Some(format!("Not yet: the design {name} has not been reviewed. Run /the-dam:goldfish on it first (it takes a minute and reviews only what changed), then write the code. If the review cannot run here, repeat the edit and it will go through."));
     }
