@@ -74,6 +74,23 @@ pub fn effective(usage: &Value) -> (Option<f64>, &'static str) {
     (Some(count(usage, "input_tokens") * weights[0] + count(usage, "cache_read_input_tokens") * weights[1] + count(usage, "cache_creation_input_tokens") * weights[2] + count(usage, "output_tokens") * weights[3]), priced_by)
 }
 
+// Dollars per million tokens (input, cache read, cache write, output), only for a model whose published API price was read:
+// the standard tier, up to 272K input tokens a request (beyond it the price is higher, so a long session reads low).
+// OpenAI's GPT-6.1 Sol: $2 / $0.10 / $2.50 / $10. No other model is priced in dollars here.
+const USD_PER_M: &[(&str, [f64; 4])] = &[("gpt-6.1-sol", [2.0, 0.10, 2.50, 10.0])];
+
+// The session's cost in dollars, or None for a model without a read price.
+pub fn usd(usage: &Value) -> Option<f64> {
+    let model = usage.get("model").and_then(Value::as_str)?;
+    let id = model.rsplit('/').next().unwrap_or(model).to_lowercase();
+    let (_, rate) = USD_PER_M.iter().find(|(name, _)| *name == id)?;
+    if usage.get("input_tokens").is_none_or(Value::is_null) {
+        return None;
+    }
+
+    Some((count(usage, "input_tokens") * rate[0] + count(usage, "cache_read_input_tokens") * rate[1] + count(usage, "cache_creation_input_tokens") * rate[2] + count(usage, "output_tokens") * rate[3]) / 1e6)
+}
+
 // About four characters a token.
 pub fn approx_tokens(text: &str) -> i64 {
     ((text.chars().count() / 4) as i64).max(1)
@@ -83,6 +100,13 @@ pub fn approx_tokens(text: &str) -> i64 {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_model_with_a_read_price_is_counted_in_dollars_and_others_are_not() {
+        let usage = |model: &str| json!({"input_tokens": 1_000_000, "cache_read_input_tokens": 1_000_000, "cache_creation_input_tokens": 0, "output_tokens": 100_000, "model": model});
+        assert_eq!(usd(&usage("gpt-6.1-sol")), Some(2.0 + 0.10 + 1.0));
+        assert_eq!(usd(&usage("claude-opus-5")), None);
+    }
 
     #[test]
     fn a_model_is_priced_by_its_own_id() {

@@ -153,6 +153,10 @@ pub fn status_text(host: Host, session: Option<&str>, cwd: &Path, transcript: Op
 fn session_cost(host: Host, transcript: Option<&Path>) -> String {
     let usage = transcript.filter(|path| path.exists()).map(|path| crate::hosts::session_usage(host, path));
 
+    if let Some(dollars) = usage.as_ref().and_then(crate::pricing::usd) {
+        return format!("${dollars:.2}");
+    }
+
     usage.and_then(|usage| crate::pricing::effective(&usage).0).map_or("–".to_string(), |cost| count(cost as u64))
 }
 

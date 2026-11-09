@@ -2,6 +2,7 @@
 
 ## 0.32.0
 
+- **Dollars on Codex when the price is known.** `💸 $1.23` for GPT-6.1 Sol (OpenAI API price $2 / $0.10 cached / $2.50 cache write / $10 output per million, standard tier up to 272K input, so a very long request reads low); other Codex models keep the token pricing until their price is added to `pricing.rs`. Copilot stays in premium requests: GitHub moved to credits in June 2026, so a dollar figure from requests would be wrong for some plans.
 - **Copilot's own cost.** Its status line shows the session's premium requests from its payload (`cost.total_premium_requests`; not checked against a live payload), as `💸 3 req`; without them the token pricing stays. Codex gives no cost to hooks, so it keeps the token pricing.
 
 - **The session's cost, on all three hosts: `💸`.** Priced as fresh-input tokens (input 1, cache read 0.1, cache write 1.25, output 5; `pricing.rs`), not dollars, as no host gives a session's price and the dam holds no price list: from each request's usage under Claude Code (its status line and report), from the rollout under Codex, from the session log under Copilot (which writes usage only when the session ends, so `–` until then).
