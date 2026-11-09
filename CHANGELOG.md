@@ -1,7 +1,8 @@
 # Changelog
 
 ## 0.32.0
-- **Copilot's own cost.** Its status line shows the session's premium requests from its payload (`cost.total_premium_requests`, or `ai_used` when a number), as `💸 3 req`; without them the token pricing stays. Codex gives no cost to hooks, so it keeps the token pricing.
+
+- **Copilot's own cost.** Its status line shows the session's premium requests from its payload (`cost.total_premium_requests`; not checked against a live payload), as `💸 3 req`; without them the token pricing stays. Codex gives no cost to hooks, so it keeps the token pricing.
 
 - **The session's cost, on all three hosts: `💸`.** Priced as fresh-input tokens (input 1, cache read 0.1, cache write 1.25, output 5; `pricing.rs`), not dollars, as no host gives a session's price and the dam holds no price list: from each request's usage under Claude Code (its status line and report), from the rollout under Codex, from the session log under Copilot (which writes usage only when the session ends, so `–` until then).
 - **The same event log on Codex and Copilot.** `dam te journal --host codex|copilot` (the `journal` skill) now lists the latest session's events, newest first, as Claude Code's panel does: 💧 outputs condensed, 🗺️ map answers and overview, 🧭 use-case playbooks, 📐 designs sent to review, 🦫 mode changes. `/beaver off` is now kept as `off`, so the status line stops showing the default level; Copilot's status line is re-pointed at the current binary on each start.

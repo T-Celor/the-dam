@@ -165,9 +165,10 @@ pub fn status_line(host: Host, payload: &str) -> String {
     let session = text(&["sessionId", "session_id"]);
     let log = session.as_ref().map(|id| crate::hosts::copilot_home().join("session-state").join(id).join("events.jsonl"));
 
-    // Copilot counts in premium requests, and its status line payload carries the session's: `cost.total_premium_requests`
-    // (older), or `ai_used` when a number. Unverified against a live payload; without them the token pricing shows.
-    let requests = payload["cost"]["total_premium_requests"].as_f64().or_else(|| payload["ai_used"].as_f64());
+    // Copilot counts in premium requests, and its status line payload carries the session's in `cost.total_premium_requests`
+    // (per third-party status lines, not checked against a live payload; `ai_used`, whose unit is unknown, is not read).
+    // Without it the token pricing shows.
+    let requests = payload["cost"]["total_premium_requests"].as_f64();
     let native = requests.map(|n| format!("{} req", if n.fract() == 0.0 { format!("{n:.0}") } else { format!("{n:.1}") }));
 
     status_text(host, session.as_deref(), &cwd, log.as_deref(), native)
