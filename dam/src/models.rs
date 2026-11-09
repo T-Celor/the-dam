@@ -169,7 +169,7 @@ pub fn show(host: Host) -> String {
             let value = |key: &str| text.lines().find(|line| sets(line, key)).and_then(|line| line.split_once('=')).map_or("not set".to_string(), |(_, v)| v.trim().trim_matches('"').to_string());
             format!("session model   {} (wanted: {CODEX_MAIN})\nsubagents       {} (wanted: {CODEX_WORKER})\nadvisor         the `advisor` agent, {CODEX_ADVISOR}; the `worker` agent is {CODEX_WORKER}\nconfig          {}", value("model"), value("default_subagent_model"), path.display())
         }
-        Host::Copilot => "Copilot CLI: not set up. Its settings key for the model is not documented well enough to edit safely; use `--model` or `/model`.".to_string(),
+        Host::Copilot => "Copilot CLI: the plugin's `advisor` and `worker` custom agents ship with it (agents/, Opus 5.5 and Haiku 5.5). The session model's settings key is not documented well enough to edit safely; use `--model` or `/model`.".to_string(),
         Host::Claude => {
             let doc: Value = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or(Value::Null);
             let now = |key: &str| doc[key].as_str().unwrap_or("not set").to_string();

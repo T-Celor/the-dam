@@ -250,6 +250,11 @@ pub fn pending_review(input: &Value, state_dir: &Path, mode: &str) -> Option<Str
     None
 }
 
+// Whether a (normalized) tool call writes: an edit tool, a patch, or a shell command.
+pub fn writes(input: &Value) -> bool {
+    matches!(input["tool_name"].as_str().unwrap_or("").to_lowercase().as_str(), "write" | "edit" | "multiedit" | "apply_patch" | "bash" | "powershell")
+}
+
 pub fn mode() -> String {
     std::env::var("DAM_GOLDFISH").ok().map(|value| value.to_lowercase()).filter(|value| matches!(value.as_str(), "auto" | "ask" | "off")).unwrap_or_else(|| "auto".to_string())
 }
@@ -261,8 +266,13 @@ pub fn hook() {
     let _ = std::io::stdin().read_to_end(&mut bytes);
     let text = String::from_utf8_lossy(&bytes);
     let Ok(input) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) else { return };
+    // Codex and Copilot run this after every tool: only a write counts (a read of a design is not a draft of it).
+    let host = crate::beaver::host();
+    if host != crate::beaver::Host::Claude && !writes(&crate::hosts::normalize(host, Some("PostToolUse"), &input)) {
+        return;
+    }
     let Some(note) = nudge(&input, &mode()) else { return };
-    let out = match crate::beaver::host() {
+    let out = match host {
         crate::beaver::Host::Copilot => json!({"additionalContext": note}),
         _ => json!({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": note}}),
     };

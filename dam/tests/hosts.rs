@@ -22,7 +22,7 @@ fn matches(pattern: &str, text: &str) -> bool {
 // From developers.openai.com/codex/hooks and docs.github.com/copilot/reference/copilot-cli-reference/cli-hooks-reference.
 const CODEX_EVENTS: [&str; 14] = ["SessionStart", "SessionEnd", "SubagentStart", "SubagentStop", "PreToolUse", "PermissionRequest", "PostToolUse", "PreModelRequest", "PostModelRequest", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "Interrupt"];
 const COPILOT_EVENTS: [&str; 14] = ["sessionStart", "sessionEnd", "userPromptSubmitted", "userPromptTransformed", "preToolUse", "postToolUse", "postToolUseFailure", "errorOccurred", "agentStop", "subagentStart", "subagentStop", "preCompact", "permissionRequest", "notification"];
-const SUBCOMMANDS: [&str; 4] = ["beaver", "te", "graph", "squeeze"];
+const SUBCOMMANDS: [&str; 5] = ["beaver", "te", "graph", "squeeze", "goldfish"];
 
 #[test]
 fn the_codex_and_copilot_files_are_what_dam_hosts_writes_from_the_one_declaration() {
@@ -85,7 +85,7 @@ fn the_codex_hooks_use_codex_events_and_reach_the_programs_from_plugin_root() {
             let timeout = handler["timeout"].as_u64().unwrap();
             assert!((1..=600).contains(&timeout));
             let command = handler["command"].as_str().unwrap();
-            assert!(matches(r#"^"\$PLUGIN_ROOT/scripts/dam-run" (beaver|te|graph|squeeze) [a-z]+ --host codex$"#, command), "{command}");
+            assert!(matches(r#"^"\$PLUGIN_ROOT/scripts/dam-run" (beaver|te|graph|squeeze|goldfish) [a-z]+ --host codex$"#, command), "{command}");
             // For `%COMSPEC% /C`: built-ins first, so neither a `cmd.exe` nor a `dam.exe` from the project ever runs.
             let windows = handler["commandWindows"].as_str().unwrap();
             assert!(matches(r#"^set NoDefaultCurrentDirectoryInExePath=1&& set "PATH=%PLUGIN_ROOT%\\bin\\windows-x64;%PATH%"&& dam\.exe [a-z]+ [a-z]+ --host codex$"#, windows), "{windows}");
@@ -104,7 +104,7 @@ fn the_copilot_hooks_are_version_1_camel_case_events_with_bash_and_powershell() 
             assert_eq!(handler["type"], "command");
             assert!(handler["timeoutSec"].as_u64().unwrap() > 0);
             let bash = handler["bash"].as_str().unwrap();
-            assert!(matches(&format!(r#"PLUGIN_ROOT.*/scripts/dam-run" (beaver|te|graph|squeeze) [a-z]+ --host copilot --event {event} \|\| exit 0$"#), bash), "{bash}");
+            assert!(matches(&format!(r#"PLUGIN_ROOT.*/scripts/dam-run" (beaver|te|graph|squeeze|goldfish) [a-z]+ --host copilot --event {event} \|\| exit 0$"#), bash), "{bash}");
             let powershell = handler["powershell"].as_str().unwrap();
             assert!(matches(r"bin/windows-x64/dam\.exe'.*& \$exe [a-z]+ [a-z]+ --host copilot --event [a-zA-Z]+ \}$", powershell), "{powershell}");
         }

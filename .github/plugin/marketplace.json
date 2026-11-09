@@ -9,10 +9,11 @@
     {
       "name": "the-dam",
       "description": "Spend fewer tokens without losing a line: lossless output compression, a local code graph, a loop guard and lazy-senior-dev rules, in one plugin.",
-      "version": "0.31.3",
+      "version": "0.32.0",
       "source": "./",
       "category": "productivity",
       "skills": "skills/",
+      "agents": "agents/",
       "hooks": "hooks/copilot.json"
     }
   ]

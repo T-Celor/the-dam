@@ -39,9 +39,18 @@ struct Handler {
 // Copilot ignores what its prompt hook prints, so its map answers for a prompt go through the later
 // userPromptTransformed, which may rewrite what the model receives.
 fn mod_hooks() -> Vec<Handler> {
-    let hook = |event: &str, matcher: Option<&str>, codex: bool, copilot: bool| Handler { event: event.into(), matcher: matcher.map(Into::into), words: "squeeze hook".into(), timeout: json!(30), status: None, codex, copilot };
+    let hook = |words: &str, event: &str, matcher: Option<&str>, codex: bool, copilot: bool| Handler { event: event.into(), matcher: matcher.map(Into::into), words: words.into(), timeout: json!(30), status: None, codex, copilot };
 
-    vec![hook("PostToolUse", Some("Bash|mcp__.*"), true, true), hook("UserPromptSubmit", None, true, false), hook("UserPromptTransformed", None, false, true)]
+    vec![
+        hook("squeeze hook", "PostToolUse", Some("Bash|mcp__.*"), true, true),
+        hook("squeeze hook", "UserPromptSubmit", None, true, false),
+        hook("squeeze hook", "UserPromptTransformed", None, false, true),
+        // The map first, as under Claude Code: a search or listing is answered from it, once. Codex looks through its shell and
+        // Copilot through grep/glob/view, which the hook tells apart itself.
+        hook("graph first", "PreToolUse", Some("Bash"), true, true),
+        // A finished design document is sent to review (Codex writes files through apply_patch or its shell).
+        hook("goldfish hook", "PostToolUse", Some("apply_patch|Bash"), true, true),
+    ]
 }
 
 // Each portable handler of hooks/hooks.json, then the mod's.
@@ -173,14 +182,15 @@ pub fn files(root: &Path) -> Result<Vec<(&'static str, Value)>, String> {
                 },
             })),
         ),
-        (".github/plugin/plugin.json", with(json!({"category": "productivity", "skills": "skills/", "hooks": "hooks/copilot.json"}))),
+        // `agents/` holds the advisor, the worker and the goldfish reviewers: Copilot reads them as custom agents.
+        (".github/plugin/plugin.json", with(json!({"category": "productivity", "skills": "skills/", "agents": "agents/", "hooks": "hooks/copilot.json"}))),
         (
             ".github/plugin/marketplace.json",
             json!({
                 "name": name,
                 "description": description,
                 "owner": plugin["author"],
-                "plugins": [{"name": name, "description": description, "version": version, "source": "./", "category": "productivity", "skills": "skills/", "hooks": "hooks/copilot.json"}],
+                "plugins": [{"name": name, "description": description, "version": version, "source": "./", "category": "productivity", "skills": "skills/", "agents": "agents/", "hooks": "hooks/copilot.json"}],
             }),
         ),
         (

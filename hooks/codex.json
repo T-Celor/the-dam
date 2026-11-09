@@ -79,6 +79,17 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "apply_patch|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$PLUGIN_ROOT/scripts/dam-run\" goldfish hook --host codex",
+            "commandWindows": "set NoDefaultCurrentDirectoryInExePath=1&& set \"PATH=%PLUGIN_ROOT%\\bin\\windows-x64;%PATH%\"&& dam.exe goldfish hook --host codex",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "Stop": [
@@ -114,6 +125,19 @@
             "commandWindows": "set NoDefaultCurrentDirectoryInExePath=1&& set \"PATH=%PLUGIN_ROOT%\\bin\\windows-x64;%PATH%\"&& dam.exe beaver subagent --host codex",
             "timeout": 15,
             "statusMessage": "Waking the beaver..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$PLUGIN_ROOT/scripts/dam-run\" graph first --host codex",
+            "commandWindows": "set NoDefaultCurrentDirectoryInExePath=1&& set \"PATH=%PLUGIN_ROOT%\\bin\\windows-x64;%PATH%\"&& dam.exe graph first --host codex",
+            "timeout": 30
           }
         ]
       }

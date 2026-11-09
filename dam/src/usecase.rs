@@ -88,6 +88,10 @@ fn mode() -> String {
     std::env::var("DAM_USECASE").ok().map(|value| value.to_lowercase()).unwrap_or_default()
 }
 
+pub fn enabled() -> bool {
+    !matches!(mode().as_str(), "off" | "0")
+}
+
 // The playbook to give for this prompt in this session, or None: not twice in a row for the same case.
 pub fn note(input: &Value, state_dir: &std::path::Path) -> Option<String> {
     let prompt = input["prompt"].as_str().or_else(|| input["user_prompt"].as_str())?;
@@ -108,7 +112,7 @@ pub fn note(input: &Value, state_dir: &std::path::Path) -> Option<String> {
 // `dam usecase hook`: a UserPromptSubmit payload on stdin; the playbook as context on stdout, or nothing.
 pub fn hook() {
     crate::watchdog(25);
-    if matches!(mode().as_str(), "off" | "0") {
+    if !enabled() {
         return;
     }
     let mut bytes = Vec::new();

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.32.0
+
+- **Codex and Copilot see the project through the map, as Claude Code does.** `dam graph first` now answers them: the first look around a session (a listing, `rg`, `cat`) is met by the map's overview once, and a search for code names is answered from the map before it runs (Copilot's `grep`/`glob`/`view` and Codex's shell, in each host's own refusal shape). The use-case playbook (feature, bugfix, refactor, review, docs) is added to the prompt, with the map's facts, on Codex's `UserPromptSubmit` and Copilot's `userPromptTransformed`. A finished design document is sent to the goldfish review on both. Not there: the worker requirement and the Stop gate (they need Claude Code's sub-agent and transcript shapes).
+- **The advisor/worker pair ships by default on Copilot too.** The plugin manifest now declares `agents/` (advisor on Opus 5.5, worker on Haiku 5.5, the goldfish reviewers). Claude Code and Codex already had it set up on first session. Not checked in a real Copilot session: its agent file naming and model ids, and that its worker is held to looking only (its payload names no agent type).
+
 ## 0.31.3
 
 - **The lock is sound, and covers the review state too** (the advisor's review of 0.31.2). The map is built or brought up to date before the lock is taken, so a long rebuild no longer outlasts it. A lock carries a token and only its owner removes it; one older than thirty seconds (past a hook's own 25 s limit) is a dead process's. The state of each design document (flagged, review begun, denied twice) is now written atomically and read-modified-written under its own lock, in the hook that flags it, in `prepare` and in `mark`, and in the refusal of code. The tests now backdate a lock to prove the takeover, and prove a lock held by someone else is left alone. The Stop gate no longer counts version bumps and lock files (`plugin.json`, `Cargo.toml`, `Cargo.lock`, ...) as code to review.

@@ -168,6 +168,11 @@ fn worker_decision(input: &Value, state_dir: &Path, tool: &str) -> Option<String
 
 // The refusal for a tool call, or None to let it run: the map first, then a worker for broad exploration.
 pub fn decide(input: &Value, state_dir: &Path) -> Option<String> {
+    decide_for(input, state_dir, true)
+}
+
+// `workers` false: the map's answers only. Codex and Copilot name their sub-agents differently, so a worker is not required there.
+pub fn decide_for(input: &Value, state_dir: &Path, workers: bool) -> Option<String> {
     // The state this reads and writes is shared by the hooks of parallel tool calls: one at a time per session.
     let session: String = input["session_id"].as_str().or_else(|| input["sessionId"].as_str()).unwrap_or("session").chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
     // The map is built (or brought up to date) before the lock is taken: a rebuild can last longer than a lock is worth.
@@ -177,17 +182,17 @@ pub fn decide(input: &Value, state_dir: &Path) -> Option<String> {
             crate::graph::ensure_built();
         }
     }
-    crate::paths::with_lock(&state_dir.join("goldfish").join(format!("lock-{session}")), || decide_locked(input, state_dir))
+    crate::paths::with_lock(&state_dir.join("goldfish").join(format!("lock-{session}")), || decide_locked(input, state_dir, workers))
 }
 
-fn decide_locked(input: &Value, state_dir: &Path) -> Option<String> {
+fn decide_locked(input: &Value, state_dir: &Path, workers: bool) -> Option<String> {
     let tool = input["tool_name"].as_str()?.to_lowercase();
     // The worker is read-only: its shell may look, not change.
     let is_worker = input["agent_type"].as_str().is_some_and(|kind| kind.to_lowercase().contains("worker"));
     if is_worker && matches!(tool.as_str(), "bash" | "powershell") && !only_looks(input["tool_input"]["command"].as_str().unwrap_or("")) {
         return Some("A worker only looks: list, read, search, or query the map. It does not run builds or change files. Report what you found and let the main agent act.".to_string());
     }
-    map_decision(input, state_dir).or_else(|| worker_decision(input, state_dir, &tool))
+    map_decision(input, state_dir).or_else(|| if workers { worker_decision(input, state_dir, &tool) } else { None })
 }
 
 // Whether every part of a shell command only looks (a listing, a read, a search, a map query, `git status`), nothing that builds or changes.
@@ -224,9 +229,7 @@ fn is_exploring(command: &str) -> bool {
 // `dam graph first`: a PreToolUse payload (Grep, Glob, Write, Edit) on stdin; a refusal with the map's answer on stdout, or nothing.
 pub fn hook() {
     crate::watchdog(25);
-    if crate::beaver::host() != crate::beaver::Host::Claude {
-        return;
-    }
+    let host = crate::beaver::host();
     if std::env::var("DAM_MAPFIRST").is_ok_and(|value| matches!(value.to_lowercase().as_str(), "off" | "0")) {
         return;
     }
@@ -240,9 +243,25 @@ pub fn hook() {
             let _ = writeln!(file, "{}", text.trim());
         }
     }
-    let Ok(input) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) else { return };
-    let Some(reason) = decide(&input, &crate::economizer::state_root()) else { return };
-    print!("{}", json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}));
+    let Ok(mut input) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) else { return };
+    let claude = host == crate::beaver::Host::Claude;
+    if !claude {
+        input = crate::hosts::normalize(host, Some("PreToolUse"), &input);
+        // Copilot's editors name the file `path`.
+        if let Some(path) = input["tool_input"]["path"].as_str().map(String::from).filter(|_| input["tool_input"]["file_path"].is_null()) {
+            input["tool_input"]["file_path"] = json!(path);
+        }
+    }
+    let Some(reason) = decide_for(&input, &crate::economizer::state_root(), claude) else { return };
+    print!("{}", deny_output(host, &reason));
+}
+
+// A refusal in the host's own shape: Copilot's preToolUse takes it at the top level.
+fn deny_output(host: crate::beaver::Host, reason: &str) -> Value {
+    match host {
+        crate::beaver::Host::Copilot => json!({"permissionDecision": "deny", "permissionDecisionReason": reason}),
+        _ => json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}),
+    }
 }
 
 #[cfg(test)]
@@ -250,7 +269,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_refusal_comes_in_the_hosts_own_shape() {
+        use crate::beaver::Host;
+        assert_eq!(deny_output(Host::Copilot, "why")["permissionDecision"], "deny");
+        assert_eq!(deny_output(Host::Codex, "why")["hookSpecificOutput"]["permissionDecisionReason"], "why");
+        let copilot = crate::hosts::normalize(Host::Copilot, Some("PreToolUse"), &json!({"sessionId": "s", "cwd": "/r", "toolName": "grep", "toolArgs": "{\"pattern\":\"charge_customer\"}"}));
+        assert_eq!((copilot["tool_name"].as_str(), copilot["tool_input"]["pattern"].as_str(), copilot["session_id"].as_str()), (Some("Grep"), Some("charge_customer"), Some("s")));
+    }
+
+    #[test]
     fn only_looking_around_counts_as_exploring() {
+        // (a read of a design is not a write of it: the goldfish hook ignores it on Copilot)
+        let read = crate::hosts::normalize(crate::beaver::Host::Copilot, Some("PostToolUse"), &json!({"toolName": "view", "toolArgs": "{\"path\":\"a-design.md\"}"}));
+        assert!(!crate::autoreview::writes(&read));
         assert!(is_exploring("ls -R app"));
         assert!(is_exploring("cd app && cat billing/*.py"));
         assert!(is_exploring("git ls-files | head"));

@@ -41,6 +41,12 @@
         "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" squeeze hook --host copilot --event postToolUse || exit 0",
         "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe squeeze hook --host copilot --event postToolUse }",
         "timeoutSec": 30
+      },
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" goldfish hook --host copilot --event postToolUse || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe goldfish hook --host copilot --event postToolUse }",
+        "timeoutSec": 30
       }
     ],
     "postToolUseFailure": [
@@ -80,6 +86,14 @@
         "type": "command",
         "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" squeeze hook --host copilot --event userPromptTransformed || exit 0",
         "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe squeeze hook --host copilot --event userPromptTransformed }",
+        "timeoutSec": 30
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" graph first --host copilot --event preToolUse || exit 0",
+        "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe graph first --host copilot --event preToolUse }",
         "timeoutSec": 30
       }
     ]
