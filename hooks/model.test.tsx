@@ -24,7 +24,7 @@ test('the status line and the report state the real figures', () => {
   expect(statusOf({ ...s, level: 'full' })).toBe('🦫 full · 💧 5k/95k (5.0%) · 💸 120k · 🪵 2+4 · 🌀 1 · 🧠 3 · 🗺️ 400 · 🌊 31%')
   expect(statusOf(EMPTY)).toBe('🦫 off · 💧 0 · 💸 – · 🪵 0 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
   expect([usdOf(1.5), usdOf({ usd: 2 }), usdOf({ x: 1 }), usdOf('3'), usdOf(null)]).toEqual([1.5, 2, null, null, null])
-  expect(statusOf({ ...EMPTY, session: { saved: 0, seen: 0, spent: 0, cost: 900, costUsd: 0.42 } })).toContain('💸 0.42')
+  expect(statusOf({ ...EMPTY, session: { saved: 0, seen: 0, spent: 0, cost: 900, costUsd: 0.42 } })).toContain('💸 $0.42')
   expect(stepCost({ input_tokens: 10, cache_read_input_tokens: 100, cache_creation_input_tokens: 4, output_tokens: 2 })).toBe(35)
   expect(statusOf({ ...EMPTY, session: { saved: 1_500, seen: 0, spent: 0 }, pruned: 2 })).toBe('🦫 off · 💧 1.5k · 💸 – · 🪵 2 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
   expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Compression: 5k/95k (5.0%) tokens saved in this session, 12k/228k (5.0%) in this project, 90k in all\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ Map: 400 places\n  ✓ Beaver: active')

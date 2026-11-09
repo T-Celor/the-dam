@@ -36,7 +36,7 @@ export function usdOf(cost: unknown): number | null {
   return null
 }
 
-export const formatUsd = (usd: number) => (usd < 10 ? usd.toFixed(2) : usd.toFixed(1))
+export const formatUsd = (usd: number) => '$' + (usd < 10 ? usd.toFixed(2) : usd.toFixed(1))
 
 // One request priced as fresh-input tokens, as dam/src/pricing.rs weighs the Claude models: input 1, cache read 0.1, cache write 1.25, output 5.
 export function stepCost(u?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | null): number {
