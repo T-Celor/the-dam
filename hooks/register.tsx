@@ -198,7 +198,7 @@ async function flows($: Dollar) {
   const [records, session, root] = await Promise.all([Promise.all(keys.map(key => $.store.get(key) as Promise<FlowRecord | null | undefined>)), $.session.id(), $.session.root()])
   const here = records[keys.indexOf(`flow:${session}`)]
 
-  return { session: { saved: Number(here?.saved ?? 0), seen: Number(here?.seen ?? 0), spent: Number(here?.spent ?? 0), avoided: Number(here?.avoided ?? 0), cost: Number(here?.cost ?? 0), costUsd: sessionUsd }, project: projectFlow(records, root) }
+  return { session: { saved: Number(here?.saved ?? 0), seen: Number(here?.seen ?? 0), spent: Number(here?.spent ?? 0), avoided: Number(here?.avoided ?? 0), cost: Number(here?.cost ?? 0) }, project: projectFlow(records, root) }
 }
 
 async function savedTotal($: Dollar) {
@@ -325,7 +325,7 @@ async function readContext($: Dollar): Promise<Stats['context']> {
 
 async function refreshContext($: Dollar) {
   const context = await readContext($)
-  if (context) await change($, now => ({ ...now, context }))
+  if (context) await change($, now => ({ ...now, context, session: { ...now.session, costUsd: sessionUsd } }))
 }
 
 // What changed since the last reading, in the journal: the first reading says where the session starts from.
@@ -401,6 +401,8 @@ async function refresh($: Dollar) {
     hasGraph: graph !== null,
     level,
     ...(flow ?? {}),
+    // Read once `readContext` has finished, so it is this refresh's.
+    session: { ...(flow?.session ?? current.session), costUsd: sessionUsd },
   }))
 }
 

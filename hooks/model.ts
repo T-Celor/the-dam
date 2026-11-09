@@ -26,7 +26,8 @@ export const ICON = { beaver: '🦫', water: '💧', cost: '💸', logs: '🪵',
 export function usdOf(cost: unknown): number | null {
   if (typeof cost === 'number' && Number.isFinite(cost)) return cost
   if (cost && typeof cost === 'object') {
-    for (const key of ['totalUsd', 'total_cost_usd', 'usd', 'total', 'costUsd', 'amount']) {
+    // Names that can only be dollars: a bare `total` could be a token count.
+    for (const key of ['totalUsd', 'total_cost_usd', 'usd', 'costUsd']) {
       const value = (cost as Record<string, unknown>)[key]
       if (typeof value === 'number' && Number.isFinite(value)) return value
     }
