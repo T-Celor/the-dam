@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, WORKER_MODEL, carryStep, pinnedModel, economizerEntries, projectFlow, savedOfSpent, formatCount, gainNote, journalLine, journalView, reportOf, sessionFigures, statusOf, totalLines } from './model'
+import { EMPTY, WORKER_MODEL, stepCost, carryStep, pinnedModel, economizerEntries, projectFlow, savedOfSpent, formatCount, gainNote, journalLine, journalView, reportOf, sessionFigures, statusOf, totalLines } from './model'
 import { candidates, mcpText, withMcpText, graphNodes, graphQuestion, missingNames, parseEconomizer, setupSteps, squeezableField, savedPreview, standoutLines, worthGraphing } from './tools'
 
 const ALL = { squeezer: true, graphify: true, economizer: true, beaver: true }
@@ -19,11 +19,12 @@ test('a check announces only what is new', () => {
 
 test('the status line and the report state the real figures', () => {
   const context = { percent: 31, total: 310_000, max: 1_000_000 }
-  const session = { saved: 5_000, seen: 20_000, spent: 95_000 }
+  const session = { saved: 5_000, seen: 20_000, spent: 95_000, cost: 120_000 }
   const s = { ...EMPTY, tools: ALL, context, saved: 90_000, session, project: { saved: 12_000, seen: 30_000, spent: 228_000 }, pruned: 2, pending: 4, facts: 3, loops: 1, overhead: 10_500, nodes: 400, hasGraph: true }
-  expect(statusOf({ ...s, level: 'full' })).toBe('🦫 full · 💧 5k/95k (5.0%) · 🪵 2+4 · 🌀 1 · 🧠 3 · 🗺️ 400 · 🌊 31%')
-  expect(statusOf(EMPTY)).toBe('🦫 off · 💧 0 · 🪵 0 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
-  expect(statusOf({ ...EMPTY, session: { saved: 1_500, seen: 0, spent: 0 }, pruned: 2 })).toBe('🦫 off · 💧 1.5k · 🪵 2 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
+  expect(statusOf({ ...s, level: 'full' })).toBe('🦫 full · 💧 5k/95k (5.0%) · 💸 120k · 🪵 2+4 · 🌀 1 · 🧠 3 · 🗺️ 400 · 🌊 31%')
+  expect(statusOf(EMPTY)).toBe('🦫 off · 💧 0 · 💸 – · 🪵 0 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
+  expect(stepCost({ input_tokens: 10, cache_read_input_tokens: 100, cache_creation_input_tokens: 4, output_tokens: 2 })).toBe(35)
+  expect(statusOf({ ...EMPTY, session: { saved: 1_500, seen: 0, spent: 0 }, pruned: 2 })).toBe('🦫 off · 💧 1.5k · 💸 – · 🪵 2 · 🌀 0 · 🧠 0 · 🗺️ – · 🌊 –')
   expect(reportOf(s)).toBe('🦫 The dam\n  Context 31% (310k of 1M tokens)\n  ✓ Compression: 5k/95k (5.0%) tokens saved in this session, 12k/228k (5.0%) in this project, 90k in all\n  ✓ TokenEconomizer: 2 tools pruned (4 pending), 3 facts learned, 1 loops stopped, 10.5k tokens spent\n  ✓ Map: 400 places\n  ✓ Beaver: active')
   expect(reportOf({ ...s, hasGraph: false })).toContain('… Map: not for this folder')
   expect(reportOf({ ...s, isCompressing: false })).toContain('✗ Compression: 5k/95k (5.0%) tokens saved in this session')

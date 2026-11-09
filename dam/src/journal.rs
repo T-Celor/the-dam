@@ -53,6 +53,40 @@ pub fn add_saving(host: Host, session: &str, before: usize, after: usize) {
     add_at(&abspath(&state_root()), host, session, before, after);
 }
 
+fn events_file(root: &Path, host: Host) -> PathBuf {
+    root.join("hosts").join(host_name(host)).join("events.jsonl")
+}
+
+const MOST_EVENT_LINES: usize = 300;
+
+// One thing the dam did, for `te journal`: what Claude Code's module lists beside the chat. Claude Code keeps its own, so
+// nothing is written there. Never fails the hook.
+pub fn event(host: Host, session: &str, icon: &str, text: &str) {
+    if host == Host::Claude {
+        return;
+    }
+    let path = events_file(&abspath(&state_root()), host);
+    let line = json!({"at": now(), "session": session, "icon": icon, "text": text}).to_string();
+    let mut lines: Vec<String> = fs::read_to_string(&path).map(|old| old.lines().map(String::from).collect()).unwrap_or_default();
+    lines.push(line);
+    let from = lines.len().saturating_sub(MOST_EVENT_LINES);
+    if let Some(folder) = path.parent() {
+        let _ = fs::create_dir_all(folder);
+    }
+    let _ = crate::paths::write_atomic(&path, format!("{}\n", lines[from..].join("\n")).as_bytes());
+}
+
+// The latest session's events, newest first, as `HH:MM  icon text` (UTC).
+fn event_lines(root: &Path, host: Host, most: usize) -> Vec<String> {
+    let events: Vec<Value> = fs::read_to_string(events_file(root, host)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str(line).ok()).collect();
+    let session = events.last().and_then(|e| e["session"].as_str()).unwrap_or("").to_string();
+
+    events.iter().rev().filter(|e| e["session"].as_str() == Some(session.as_str())).take(most).map(|e| {
+        let at = e["at"].as_u64().unwrap_or(0) % 86_400;
+        format!("{:02}:{:02}  {} {}", at / 3600, at % 3600 / 60, e["icon"].as_str().unwrap_or(""), e["text"].as_str().unwrap_or(""))
+    }).collect()
+}
+
 // The session's count, and the host's since it was first counted.
 fn totals(root: &Path, host: Host, session: Option<&str>) -> (Flow, Flow, Option<String>) {
     let dir = flow_dir(root, host);
@@ -105,13 +139,21 @@ fn map_places(cwd: &Path) -> Option<usize> {
 
 // The status line as Claude Code's module draws it, for the hosts that cannot run the module:
 // `🦫 full · 💧 5k/20k (25%) · 🧠 3 · 🗺️ 400`.
-pub fn status_text(host: Host, session: Option<&str>, cwd: &Path) -> String {
+pub fn status_text(host: Host, session: Option<&str>, cwd: &Path, transcript: Option<&Path>) -> String {
     let (flow, _, name) = totals(&abspath(&state_root()), host, session);
     let level = crate::beaver::level_of(&session.map(str::to_string).or(name).unwrap_or_default());
     let saved = if flow.seen == 0 { format!("💧 {}", count(flow.saved)) } else { format!("💧 {}/{} ({:.1}%)", count(flow.saved), count(flow.seen), flow.saved as f64 * 100.0 / flow.seen as f64) };
     let places = map_places(cwd).map_or("–".to_string(), |n| n.to_string());
 
-    format!("🦫 {level} · {saved} · 🧠 {} · 🗺️ {places}", facts_in(cwd))
+    format!("🦫 {level} · {saved} · 💸 {} · 🧠 {} · 🗺️ {places}", session_cost(host, transcript), facts_in(cwd))
+}
+
+// What the session's requests cost, priced as fresh-input tokens (pricing.rs), from the host's own log; `–` before it has any.
+// Copilot's log carries usage only when the session ends.
+fn session_cost(host: Host, transcript: Option<&Path>) -> String {
+    let usage = transcript.filter(|path| path.exists()).map(|path| crate::hosts::session_usage(host, path));
+
+    usage.and_then(|usage| crate::pricing::effective(&usage).0).map_or("–".to_string(), |cost| count(cost as u64))
 }
 
 // `dam te statusline --host copilot`: Copilot's status line command, its JSON payload on stdin.
@@ -120,7 +162,10 @@ pub fn status_line(host: Host, payload: &str) -> String {
     let text = |keys: &[&str]| keys.iter().find_map(|key| payload.get(*key).and_then(Value::as_str)).map(str::to_string);
     let cwd = text(&["cwd", "workingDirectory"]).map_or_else(|| std::env::current_dir().unwrap_or_default(), PathBuf::from);
 
-    status_text(host, text(&["sessionId", "session_id"]).as_deref(), &cwd)
+    let session = text(&["sessionId", "session_id"]);
+    let log = session.as_ref().map(|id| crate::hosts::copilot_home().join("session-state").join(id).join("events.jsonl"));
+
+    status_text(host, session.as_deref(), &cwd, log.as_deref())
 }
 
 // The first Copilot session after the install: its status line is set once, as Claude Code's is by the module.
@@ -130,6 +175,10 @@ pub fn first_session(host: Host) -> Option<String> {
     }
     let flag = state_root().join("hosts").join("copilot").join("statusline-applied");
     if flag.exists() {
+        // Ours already: kept pointing at this binary, which an update or a move of the plugin may have changed. Removed: left removed.
+        if fs::read_to_string(copilot_settings()).is_ok_and(|text| text.contains("\" te statusline --host copilot")) {
+            let _ = set_status_line(true);
+        }
         return None;
     }
     let done = set_status_line(true);
@@ -148,6 +197,11 @@ pub fn journal(host: Host, cwd: &Path) -> String {
     lines.push(format!("  this session   {}", line(&session, &crate::beaver::level_of(name.as_deref().unwrap_or("")), facts_in(cwd))));
     let share = if all.seen == 0 { String::new() } else { format!(" ({:.0}% of what they printed)", all.saved as f64 * 100.0 / all.seen as f64) };
     lines.push(format!("  all sessions   {} tokens saved on {} output(s){share}", count(all.saved), all.outputs));
+    let events = event_lines(&abspath(&state_root()), host, 20);
+    if !events.is_empty() {
+        lines.push("  events, newest first (UTC):".to_string());
+        lines.extend(events.into_iter().map(|line| format!("    {line}")));
+    }
 
     lines.join("\n")
 }
@@ -231,6 +285,17 @@ mod tests {
         assert!(with_status_line("{\"statusLine\": {\"type\": \"command\", \"command\": \"mine.sh\"}}", Some("x")).is_err());
         assert!(with_status_line("{ not json", Some("x")).is_err());
         assert!(with_status_line("", Some("x")).unwrap().contains("statusLine"));
+    }
+
+    #[test]
+    fn the_journal_lists_the_latest_sessions_events_newest_first() {
+        let root = std::env::temp_dir().join(format!("dam-events-{}", std::process::id()));
+        let file = events_file(&root, Host::Codex);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "{\"at\":3600,\"session\":\"old\",\"icon\":\"💧\",\"text\":\"x\"}\n{\"at\":3660,\"session\":\"s\",\"icon\":\"🗺️\",\"text\":\"first\"}\nnot json\n{\"at\":7260,\"session\":\"s\",\"icon\":\"🦫\",\"text\":\"second\"}\n").unwrap();
+        assert_eq!(event_lines(&root, Host::Codex, 5), vec!["02:01  🦫 second", "01:01  🗺️ first"]);
+        assert_eq!(event_lines(&root, Host::Copilot, 5), Vec::<String>::new());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

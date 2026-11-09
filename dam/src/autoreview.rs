@@ -272,6 +272,7 @@ pub fn hook() {
         return;
     }
     let Some(note) = nudge(&input, &mode()) else { return };
+    crate::journal::event(host, input["session_id"].as_str().or_else(|| input["sessionId"].as_str()).unwrap_or(""), "📐", "design document flagged for goldfish review");
     let out = match host {
         crate::beaver::Host::Copilot => json!({"additionalContext": note}),
         _ => json!({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": note}}),

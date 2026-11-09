@@ -12,4 +12,4 @@ Run the dam's `te` program with `statusline <argument>`, adding `--host <agent>`
 - In a POSIX shell (Git Bash on Windows): `"<plugin folder>/scripts/te" statusline <argument> --host <agent>`
 - In PowerShell: `& "<plugin folder>\bin\windows-x64\dam.exe" te statusline <argument> --host <agent>`
 
-Show the output verbatim in a code block. It changes Copilot's `settings.json` only when the user typed `install` or `uninstall`; never choose it yourself.
+Show the output verbatim in a code block. It changes Copilot's `settings.json` when the user typed `install` or `uninstall`; the dam also sets it once on the first Copilot session, and never replaces a status line of the user's own.

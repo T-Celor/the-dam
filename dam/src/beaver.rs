@@ -437,7 +437,9 @@ fn track() {
     let prompt = json::field(&read_stdin(), "prompt").unwrap_or_default();
     match answer_prompt(&prompt, live_level().as_deref(), &default_level()) {
         Some(PromptAction::Off) => {
-            clear_level();
+            // Kept as "off", not deleted: a deleted file would read as the default level in a status line.
+            set_level("off");
+            crate::journal::event(host(), SESSION.get().map_or("", String::as_str), "🦫", "Beaver off");
             print!("BEAVER MODE OFF");
         }
         Some(PromptAction::Default(level)) => {
@@ -447,6 +449,7 @@ fn track() {
         Some(PromptAction::Report(level)) => print!("BEAVER MODE ACTIVE — level: {level}"),
         Some(PromptAction::Set(level)) => {
             set_level(&level);
+            crate::journal::event(host(), SESSION.get().map_or("", String::as_str), "🦫", &format!("Beaver set to {level}"));
             print!("BEAVER MODE CHANGED — level: {level}");
         }
         None => {}

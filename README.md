@@ -66,7 +66,7 @@ In Codex, trust the plugin's hooks with `/hooks` before they run.
 | Loop guard, learned facts | ✅ | ✅ | ✅ |
 | Beaver, skills, `doctor`, `fallback` | ✅ | ✅ | ✅ |
 | Tool pruning | ✅ deny list | ✅ capabilities in `.codex/config.toml` | ✅ MCP servers in `.github/copilot/settings.local.json` |
-| 💧 counter: status line | ✅ | ❌ built-in items only | ✅ `/the-dam:statusline install` |
+| 🦫 mode · 💧 counter: status line | ✅ | ✅ shown with each prompt (its status line takes built-in items only) | ✅ set on the first session (`/the-dam:statusline uninstall` removes it) |
 | 💧 counter: on demand | `/the-dam` pane | `/the-dam:journal` | `/the-dam:journal` |
 
 Codex cannot rewrite a tool's output, so the condensed one comes back as the hook's feedback, which Codex gives the model in its place. Copilot drops what its prompt hook prints, so the map's answer for a prompt goes into the prompt the model receives (`userPromptTransformed`). The loop guard's judge runs through the host's own CLI (`claude -p`, `codex exec` in a read-only sandbox, `copilot -p` with every tool denied).
@@ -79,7 +79,7 @@ Codex cannot rewrite a tool's output, so the condensed one comes back as the hoo
 | `/the-dam-compress` | Compression on or off |
 | `/the-dam:journal` | What the dam saved this session and since it was installed, in any host |
 | `/the-dam:models` | Claude Code and Codex. Claude Code: the first session after installing sets Sonnet 5.5 as the session model and Opus 5.5 as advisor in your own settings (`/the-dam:models uninstall` puts back what was there, and it stays undone); the built-in subagents run on Haiku 5.5 through the plugin itself. Codex: the first session sets `gpt-6.1-sol` for the session and `gpt-6-luna` for subagents in `~/.codex/config.toml` and adds an `advisor` agent (`gpt-6-astra`) and a `worker` agent (`gpt-6-luna`) |
-| `/the-dam:statusline install` | The 💧 counter in Copilot's status line (`uninstall` takes it out) |
+| `/the-dam:statusline uninstall` | Takes the dam's counter out of Copilot's status line (`install` puts it back; it is set on the first session) |
 | `/the-dam:status` | What TokenEconomizer learned for this repository |
 | `/the-dam:toolprune` | The tools left out here; give one back or apply a waiting list |
 | `/the-dam:config` | Each TokenEconomizer mechanism on, off or tuned |

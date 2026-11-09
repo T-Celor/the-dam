@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
 import type { Gains, JournalEntry, Stats } from '../types'
-import { EMPTY, ICON, carryStep, economizerEntries, formatCount, gainNote, pinnedModel, journalLine, journalView, projectFlow, reportOf, sessionFigures, signed, statusOf, totalLines } from './model'
+import { EMPTY, ICON, carryStep, economizerEntries, formatCount, gainNote, pinnedModel, stepCost, journalLine, journalView, projectFlow, reportOf, sessionFigures, signed, statusOf, totalLines } from './model'
 import type { Located } from './tools'
 import {
   candidates,
@@ -176,18 +176,18 @@ const SAVED = 'saved'
 const savedHereKey = async ($: Dollar) => `saved:${await $.session.id()}`
 
 // What the tools printed and what compression took out, as one record per session with its project, written in turn.
-type FlowRecord = { project: string; saved: number; seen: number; spent?: number; avoided?: number; carry?: number; messages?: number }
+type FlowRecord = { project: string; saved: number; seen: number; spent?: number; avoided?: number; cost?: number; carry?: number; messages?: number }
 let flowing: Promise<unknown> = Promise.resolve()
 
 // `step` is a main-loop request: its message count, and the pruned tools' schemas it did not carry.
-function addFlow($: Dollar, seen: number, saved: number, spent = 0, step?: { messages: number; pruned: number }) {
+function addFlow($: Dollar, seen: number, saved: number, spent = 0, step?: { messages: number; pruned: number }, cost = 0) {
   flowing = flowing.then(async () => {
     const key = `flow:${await $.session.id()}`
     const was = ((await $.store.get(key)) ?? null) as FlowRecord | null
     const project = was?.project ?? (await $.session.root())
     const before = { carry: (was?.carry ?? 0) + saved, avoided: was?.avoided ?? 0, messages: was?.messages ?? 0 }
     const carried = step ? carryStep(before, step.messages, step.pruned) : before
-    await $.store.set(key, { project, saved: (was?.saved ?? 0) + saved, seen: (was?.seen ?? 0) + seen, spent: (was?.spent ?? 0) + spent, ...carried })
+    await $.store.set(key, { project, saved: (was?.saved ?? 0) + saved, seen: (was?.seen ?? 0) + seen, spent: (was?.spent ?? 0) + spent, cost: (was?.cost ?? 0) + cost, ...carried })
   }).catch(() => undefined)
 
   return flowing
@@ -198,7 +198,7 @@ async function flows($: Dollar) {
   const [records, session, root] = await Promise.all([Promise.all(keys.map(key => $.store.get(key) as Promise<FlowRecord | null | undefined>)), $.session.id(), $.session.root()])
   const here = records[keys.indexOf(`flow:${session}`)]
 
-  return { session: { saved: Number(here?.saved ?? 0), seen: Number(here?.seen ?? 0), spent: Number(here?.spent ?? 0), avoided: Number(here?.avoided ?? 0) }, project: projectFlow(records, root) }
+  return { session: { saved: Number(here?.saved ?? 0), seen: Number(here?.seen ?? 0), spent: Number(here?.spent ?? 0), avoided: Number(here?.avoided ?? 0), cost: Number(here?.cost ?? 0) }, project: projectFlow(records, root) }
 }
 
 async function savedTotal($: Dollar) {
@@ -506,7 +506,7 @@ export const register: Register = on => {
     const spent = (u?.input_tokens ?? 0) + (u?.output_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0)
     // A subagent's requests carry none of the main loop's outputs.
     const mainStep = e.agentId ? undefined : { messages: e.messageCount, pruned: prunedTokens }
-    if (spent > 0) void addFlow($, 0, 0, spent, mainStep).then(() => checkSoon($))
+    if (spent > 0) void addFlow($, 0, 0, spent, mainStep, stepCost(u)).then(() => checkSoon($))
 
     return step
   })

@@ -427,7 +427,7 @@ pub fn respond(host: Host, input: &str, dir: &Path) -> Option<String> {
             "PostToolUse" => post_tool(host, &codex_call(&input)?, dir),
             "UserPromptSubmit" => {
                 let (cwd, session) = (input["cwd"].as_str().unwrap_or("."), input["session_id"].as_str().unwrap_or(""));
-                let mut out = json!({"systemMessage": crate::journal::status_text(host, Some(session).filter(|s| !s.is_empty()), Path::new(cwd))});
+                let mut out = json!({"systemMessage": crate::journal::status_text(host, Some(session).filter(|s| !s.is_empty()), Path::new(cwd), input["transcript_path"].as_str().map(Path::new))});
                 // Codex has no status line of its own to fill: the line is shown to the person with each prompt, as `systemMessage`.
                 if let Some(facts) = prompt_facts(input["prompt"].as_str()?, cwd, session) {
                     out["hookSpecificOutput"] = json!({"hookEventName": "UserPromptSubmit", "additionalContext": facts});
@@ -456,6 +456,12 @@ fn prompt_facts(prompt: &str, cwd: &str, session: &str) -> Option<String> {
     }
     let playbook = crate::usecase::enabled().then(|| crate::usecase::note(&json!({"prompt": prompt, "session_id": session}), &crate::economizer::state_root())).flatten();
     let facts = ask_graph(Path::new(cwd), &code_names(prompt));
+    if playbook.is_some() {
+        crate::journal::event(host(), session, "🧭", "use-case playbook added to the prompt");
+    }
+    if facts.is_some() {
+        crate::journal::event(host(), session, "🗺️", "map answered for the names in your prompt");
+    }
 
     match (playbook, facts) {
         (Some(playbook), Some(facts)) => Some(format!("{playbook}\n\n{facts}")),
@@ -469,6 +475,7 @@ fn post_tool(host: Host, call: &Call, dir: &Path) -> Option<String> {
     let condensed = condense(&call.text, command, dir).map(|(text, before, after)| {
         // What the status line and the journal count, as the mod counts it under Claude Code.
         crate::journal::add_saving(host, &call.session, before, after);
+        crate::journal::event(host, &call.session, "💧", &format!("output condensed: {before} → {after} tokens"));
         saving = format!("💧 The dam saved {} tokens on this output ({before} → {after}, -{}%)", before - after, (before - after) * 100 / before.max(1));
         text
     });
@@ -477,6 +484,9 @@ fn post_tool(host: Host, call: &Call, dir: &Path) -> Option<String> {
         (Kind::Mcp, _) | (_, None) => None,
         (_, Some(pattern)) => grep_name(pattern).and_then(|name| ask_graph(Path::new(&call.cwd), &[name])),
     };
+    if let (Some(_), Some(pattern)) = (&facts, &call.pattern) {
+        crate::journal::event(host, &call.session, "🗺️", &format!("map answered for {pattern} in a search"));
+    }
     if condensed.is_none() && facts.is_none() {
         return None;
     }

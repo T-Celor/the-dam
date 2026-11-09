@@ -253,6 +253,8 @@ pub fn hook() {
         }
     }
     let Some(reason) = decide_for(&input, &crate::economizer::state_root(), claude) else { return };
+    let what = if reason.starts_with("The map first") { "map overview given before the first look" } else if reason.starts_with("Answered from the map") { "search answered from the map" } else { "code held back until the design is reviewed" };
+    crate::journal::event(host, input["session_id"].as_str().unwrap_or(""), "🗺️", what);
     print!("{}", deny_output(host, &reason));
 }
 

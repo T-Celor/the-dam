@@ -539,7 +539,7 @@ pub fn main(raw: &[String]) -> i32 {
                 0
             }
             (crate::channels::Host::Codex, _) => {
-                println!("Codex's status line takes its built-in items only (openai/codex#17827); the dam shows the same line (`🦫 mode · 💧 · 🧠 · 🗺️`) with each prompt instead. {}", crate::journal::status_text(host, None, &args.cwd()));
+                println!("Codex's status line takes its built-in items only (openai/codex#17827); the dam shows the same line (`🦫 mode · 💧 · 🧠 · 🗺️`) with each prompt instead. {}", crate::journal::status_text(host, None, &args.cwd(), None));
                 0
             }
             (_, Some(other)) => {
