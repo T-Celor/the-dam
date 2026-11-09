@@ -5,7 +5,7 @@
 <h1 align="center">The dam</h1>
 
 <p align="center">
-  <strong>Spend fewer tokens in Claude Code without losing a line.</strong>
+  <strong>Spend fewer tokens in Claude Code, Codex and Copilot without losing a line.</strong>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
     <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: reduce)" srcset="assets/intro-dark.png">
     <source media="(prefers-reduced-motion: reduce)" srcset="assets/intro.png">
     <source media="(prefers-color-scheme: dark)" srcset="assets/intro-dark.gif">
-    <img src="assets/intro.gif" width="100%" alt="The dam in a few seconds: a beaver on its log dam, then seven cards. Compression, every line kept (up to 24% fewer tokens on repetitive output, about 2.6% over a whole session). Web pages, 99% less of a page, HTML to Markdown. Map, 2,112 files mapped in 1.5 s. Tool pruning, fewer tools on every request. Loop guard, one nudge out of a loop. Learned facts, remembered across sessions. Beaver, 45% less output. Then the install command.">
+    <img src="assets/intro.gif" width="100%" alt="The dam in a few seconds: a beaver on its log dam, for Claude Code, Codex and Copilot, then eight cards. Compression, every line kept (up to 24% fewer tokens on repetitive output, about 2.6% over a whole session). Web pages, 99% less of a page, HTML to Markdown. Map, 2,112 files mapped in 1.5 s. Tool pruning, fewer tools on every request. Loop guard, one nudge out of a loop. Learned facts, remembered across sessions. Beaver, 45% less output. Goldfish, fresh reviewers on the sections that changed. Then the install command.">
   </picture>
 </p>
 
@@ -66,8 +66,13 @@ In Codex, trust the plugin's hooks with `/hooks` before they run.
 | Loop guard, learned facts | ✅ | ✅ | ✅ |
 | Beaver, skills, `doctor`, `fallback` | ✅ | ✅ | ✅ |
 | Tool pruning | ✅ deny list | ✅ capabilities in `.codex/config.toml` | ✅ MCP servers in `.github/copilot/settings.local.json` |
-| 🦫 mode · 💧 counter: status line | ✅ | ✅ shown with each prompt (its status line takes built-in items only) | ✅ set on the first session (`/the-dam:statusline uninstall` removes it) |
-| 💧 counter: on demand | `/the-dam` pane | `/the-dam:journal` | `/the-dam:journal` |
+| Use-case playbook (feature, bugfix, refactor, review, docs) added to the prompt | ✅ | ✅ | ✅ |
+| Map first: the first look is met by the map's overview, a search for code names is answered by it | ✅ | ✅ through the shell | ✅ `grep`, `glob`, `view` |
+| A finished design is sent to review, code waits for it | ✅ | ✅ nudge | ✅ nudge |
+| Advisor and worker, on the model ladder | ✅ Opus 5.5 / Haiku 5.5, set on the first session | ✅ `gpt-6-astra` / `gpt-6-luna` agents, set on the first session | ✅ agents declared by the plugin |
+| Worker required after six looks of the main agent; advisor required before a turn of 3+ code files ends | ✅ | – needs Claude Code's sub-agent and transcript shapes | – |
+| 🦫 mode · 💧 counter · 💸 cost: status line | ✅ | ✅ shown with each prompt (its status line takes built-in items only) | ✅ set on the first session (`/the-dam:statusline uninstall` removes it) |
+| Journal of what the dam did, with its events | `/the-dam` pane | `/the-dam:journal` | `/the-dam:journal` |
 
 Codex cannot rewrite a tool's output, so the condensed one comes back as the hook's feedback, which Codex gives the model in its place. Copilot drops what its prompt hook prints, so the map's answer for a prompt goes into the prompt the model receives (`userPromptTransformed`). The loop guard's judge runs through the host's own CLI (`claude -p`, `codex exec` in a read-only sandbox, `copilot -p` with every tool denied).
 
@@ -78,7 +83,7 @@ Codex cannot rewrite a tool's output, so the condensed one comes back as the hoo
 | `/the-dam` | The session's journal beside the chat, newest first, with its totals |
 | `/the-dam-compress` | Compression on or off |
 | `/the-dam:journal` | What the dam saved this session and since it was installed, in any host |
-| `/the-dam:models` | Claude Code and Codex. Claude Code: the first session after installing sets Sonnet 5.5 as the session model and Opus 5.5 as advisor in your own settings (`/the-dam:models uninstall` puts back what was there, and it stays undone); the built-in subagents run on Haiku 5.5 through the plugin itself. Codex: the first session sets `gpt-6.1-sol` for the session and `gpt-6-luna` for subagents in `~/.codex/config.toml` and adds an `advisor` agent (`gpt-6-astra`) and a `worker` agent (`gpt-6-luna`) |
+| `/the-dam:models` | Claude Code, Codex and Copilot (whose `advisor` and `worker` agents ship with the plugin; its session model is yours). Claude Code: the first session after installing sets Sonnet 5.5 as the session model and Opus 5.5 as advisor in your own settings (`/the-dam:models uninstall` puts back what was there, and it stays undone); the built-in subagents run on Haiku 5.5 through the plugin itself. Codex: the first session sets `gpt-6.1-sol` for the session and `gpt-6-luna` for subagents in `~/.codex/config.toml` and adds an `advisor` agent (`gpt-6-astra`) and a `worker` agent (`gpt-6-luna`) |
 | `/the-dam:statusline uninstall` | Takes the dam's counter out of Copilot's status line (`install` puts it back; it is set on the first session) |
 | `/the-dam:status` | What TokenEconomizer learned for this repository |
 | `/the-dam:toolprune` | The tools left out here; give one back or apply a waiting list |
@@ -96,13 +101,16 @@ Codex cannot rewrite a tool's output, so the condensed one comes back as the hoo
 ## Status line
 
 ```
-🦫 full · 💧 412k/12.4M (3.2%) · 🪵 27 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
+🦫 full · 💧 412k/12.4M (3.2%) · 💸 $0.42 · 🪵 27 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
 ```
+
+Codex and Copilot show the same line without 🪵, 🌀 and 🌊.
 
 | Icon | Figure |
 |---|---|
 | 🦫 | Beaver's level |
 | 💧 | Tokens the session's requests did not carry, out of all they counted. A token taken out of a tool output counts once for each later request, since each would have re-read it, until a compaction. A pruned MCP tool's schema counts once per request. |
+| 💸 | The session's cost. Claude Code: what `/cost` shows (`cost.usd`, in dollars). Copilot: its premium requests. Codex: dollars for GPT-6.1 Sol at OpenAI's API price (standard tier), else the requests priced as fresh-input tokens (input 1, cache read 0.1, cache write 1.25, output 5). |
 | 🪵 | Tools left out, `+n` waiting |
 | 🌀 | Loops stopped |
 | 🧠 | Facts given to the model |
@@ -157,11 +165,35 @@ Ponytail's rules, rewritten: make the smallest change that fully solves the task
 
 Several sessions can run at once. Each keeps its own level, originals and counts.
 
-### Design review
+### Goldfish: reviewers with a fresh mind
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-goldfish-dark.gif"><img src="assets/part-goldfish.gif" width="600" alt="A design document of ten lines in four sections: the two that changed go to four fresh reviewers, who each come back with a verdict"></picture>
 
-A finished design document is reviewed by four reviewers that start with none of the conversation (the [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model), rewritten in Rust): one for simplicity, a cold reader, a critic, one for readiness. Only the sections that changed since the last review are read; `/the-dam:resolve` settles what they report, and `dam goldfish drift` lists what a document says that the code no longer backs.
+The [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model) reviews a document with readers that start with none of the conversation, so they see what its author stopped seeing. All of its skills are ported, rewritten in Rust and Markdown, and run on every host:
+
+| EGM | the dam | What it does here |
+|---|---|---|
+| Brainstorm, Draft | `/the-dam:design` | Tests the idea, writes a concepts brief, then the specification, one step at a time, each approved. The map gives what already exists. |
+| Review | `/the-dam:goldfish` | Four fresh reviewers: simplicity, a cold reader (Haiku 5.5), a critic, readiness of the plan. Only the sections that changed since the last review are read (a hash per `##` section); the map gives them the files the document names. |
+| Resolve | `/the-dam:resolve` | Contests what is wrong, escalates what only you know, proposes fixes and applies the ones you accept. |
+| Review loop | `/the-dam:goldfish-loop` | Review and resolve again, on one document or section, until two clean rounds in a row. |
+| Bootstrap | `/the-dam:bootstrap` | A README per folder, written as a contract (what it exposes, assumes, touches) from the map, then checked against the code. |
+| Drift report | `/the-dam:drift`, `dam goldfish drift` | What a document says that the code no longer backs: files gone or moved, names renamed or removed. Reported once at session start for the README and `docs/`. |
+| Following EGM | `dam upstream` | Records the version followed, lists what moved since; a weekly workflow opens an issue. |
+
+What the dam adds: a finished design document is noticed by a hook and sent to review by itself, code is held back until the review has begun, and the reviewers run on the cheapest model that can do each job. `DAM_GOLDFISH=ask|off` changes that.
+
+### Advisor and workers
+
+The model that runs the session is not the one that reviews or explores. Three roles on one ladder in each host:
+
+| | Claude Code | Codex | Copilot |
+|---|---|---|---|
+| Session | Sonnet 5.5 | `gpt-6.1-sol` | your model |
+| `advisor`: fresh reviewer, read-only, decides what is hard to reverse | Opus 5.5 | `gpt-6-astra` | agent declared by the plugin |
+| `worker`: broad reading and searching, read-only, a shell that may only look, answers in 8 lines | Haiku 5.5 | `gpt-6-luna` | agent declared by the plugin |
+
+Set once on the first session (`/the-dam:models uninstall` puts back what was there). Under Claude Code the hooks make it the rule rather than advice: after six looks of its own in one request the main agent is sent to a `worker` (five refusals at most, so none can loop), a turn that changed 3 or more code files, or a sensitive one (auth, money, data, migrations), cannot end before the `advisor` has reviewed it (once per turn), and a worker's shell is refused anything that changes something. `DAM_MAPFIRST=off` and `DAM_REVIEW=off` turn those off.
 
 ## A walk-through
 
@@ -239,7 +271,7 @@ On html-to-markdown's own test files, the conversion matches 75% of lines, setti
 | [html-to-markdown](https://github.com/JohannesKaufmann/html-to-markdown) | MIT | Escaping, table and layout rules, and its tests | `v2.5.2` |
 | [Readability](https://github.com/mozilla/readability), [Turndown](https://github.com/mixmark-io/turndown) | Apache 2.0, MIT | Main-content choice and Markdown rules | – |
 | [graphify](https://graphify.com) | – | The map's reference measurements; no code taken | `v0.9.99` |
-| [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model) | Apache 2.0 | The method of `design`, `goldfish` and `drift`; reviewers shortened, on the model ladder, using the map | `e9e1f06` |
+| [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model) | Apache 2.0 | All its skills: `design` (Brainstorm, Draft), `goldfish` (Review), `goldfish-loop` (Review loop), `resolve`, `bootstrap`, `drift` (Drift report); reviewers shortened, on the model ladder, using the map, with section-level re-review | `e9e1f06` |
 
 [NOTICE](NOTICE) credits each with its licence. None of their authors endorse this project.
 
@@ -247,7 +279,8 @@ On html-to-markdown's own test files, the conversion matches 75% of lines, setti
 
 | What | How |
 |---|---|
-| Mandatory review | A turn that changed 3 or more code files, or a sensitive one, cannot end before the `advisor` has reviewed it (once per turn). `DAM_REVIEW=off` disables. Claude Code transcripts only: Codex and Copilot get the hook, not a tested effect. |
+| Mandatory review and workers | A turn that changed 3 or more code files, or a sensitive one, cannot end before the `advisor` has reviewed it (once per turn); broad exploration past six looks goes to a `worker`. `DAM_REVIEW=off`, `DAM_MAPFIRST=off` disable. Claude Code only: they need its sub-agent and transcript shapes. |
+| Switches | `DAM_USECASE=off` (playbooks), `DAM_MAPFIRST=off` (map first and worker rules), `DAM_GOLDFISH=ask\|off`, `DAM_REVIEW=off`, `DAM_HOOK_DUMP=<file>` (keeps each payload a hook receives, for debugging) |
 | Automatic review | A finished design document is reviewed by itself (/the-dam:goldfish, changed sections only). `DAM_GOLDFISH=ask` asks first, `off` disables. Documents that name missing files are reported once at session start. |
 | Upstream | [`UPSTREAM`](UPSTREAM) records the version followed for each project. `dam upstream` lists what moved since (commits, and files under the ported paths with `gh`); you port by hand, then `dam upstream pin NAME`. A weekly workflow opens an issue when one moved. |
 | Tests | `cd dam && cargo test` (unit tests, the programs end to end, the Codex and Copilot packaging), `claude plugin test .`, `claude plugin validate .` |

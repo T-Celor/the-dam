@@ -2,6 +2,7 @@
 
 ## 0.32.0
 
+- **The README and the pictures follow.** The intro GIF now says Claude Code, Codex and Copilot and has an eighth card for Goldfish (and its still poster, light and dark). The README lists every EGM skill ported (Brainstorm and Draft as `design`, Review, Resolve, Review loop, Bootstrap, Drift report, following upstream), describes the advisor and worker pattern on each host, and its host table, status line and switches match what runs.
 - **A GIF for the design review**, in the same style as the others (`assets/part-goldfish.gif`, with its dark twin), under "How it works" in the README.
 - **Dollars on Codex when the price is known.** `💸 $1.23` for GPT-6.1 Sol (OpenAI API price $2 / $0.10 cached / $2.50 cache write / $10 output per million, standard tier up to 272K input, so a very long request reads low); other Codex models keep the token pricing until their price is added to `pricing.rs`. Copilot stays in premium requests: GitHub moved to credits in June 2026, so a dollar figure from requests would be wrong for some plans.
 - **Copilot's own cost.** Its status line shows the session's premium requests from its payload (`cost.total_premium_requests`; not checked against a live payload), as `💸 3 req`; without them the token pricing stays. Codex gives no cost to hooks, so it keeps the token pricing.
