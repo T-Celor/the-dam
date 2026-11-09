@@ -26,8 +26,8 @@ export const ICON = { beaver: '🦫', water: '💧', cost: '💸', logs: '🪵',
 export function usdOf(cost: unknown): number | null {
   if (typeof cost === 'number' && Number.isFinite(cost)) return cost
   if (cost && typeof cost === 'object') {
-    // Names that can only be dollars: a bare `total` could be a token count.
-    for (const key of ['totalUsd', 'total_cost_usd', 'usd', 'costUsd']) {
+    // The field Claude Code gives: `cost.usd` (read the same way by martijnwip/token-cost).
+    for (const key of ['usd']) {
       const value = (cost as Record<string, unknown>)[key]
       if (typeof value === 'number' && Number.isFinite(value)) return value
     }
@@ -36,7 +36,7 @@ export function usdOf(cost: unknown): number | null {
   return null
 }
 
-export const formatUsd = (usd: number) => `$${usd < 10 ? usd.toFixed(2) : usd.toFixed(1)}`
+export const formatUsd = (usd: number) => (usd < 10 ? usd.toFixed(2) : usd.toFixed(1))
 
 // One request priced as fresh-input tokens, as dam/src/pricing.rs weighs the Claude models: input 1, cache read 0.1, cache write 1.25, output 5.
 export function stepCost(u?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | null): number {
