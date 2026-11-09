@@ -157,6 +157,12 @@ Ponytail's rules, rewritten: make the smallest change that fully solves the task
 
 Several sessions can run at once. Each keeps its own level, originals and counts.
 
+### Design review
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-goldfish-dark.gif"><img src="assets/part-goldfish.gif" width="600" alt="A design document of ten lines in four sections: the two that changed go to four fresh reviewers, who each come back with a verdict"></picture>
+
+A finished design document is reviewed by four reviewers that start with none of the conversation (the [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model), rewritten in Rust): one for simplicity, a cold reader, a critic, one for readiness. Only the sections that changed since the last review are read; `/the-dam:resolve` settles what they report, and `dam goldfish drift` lists what a document says that the code no longer backs.
+
 ## A walk-through
 
 One request, run for real in Claude Code (Sonnet 5.5 session): *"Charges and refunds can be sent twice when the network drops. Add idempotency keys to `charge_customer` and `refund_customer`. Write a short design first, then implement everything it says."*
