@@ -2,6 +2,8 @@
 
 ## 0.32.0
 
+- **Codex and Copilot get the mode and the status line.** Beaver's modes (`lite`, `full`, `ultra`, `off`) already ran on both through `beaver track`. The status line is now Claude Code's, `🦫 full · 💧 5k/20k (25%) · 🧠 3 · 🗺️ 400`: Copilot's is set once on its first session (`dam te statusline uninstall --host copilot` removes it), and Codex, whose status line takes built-in items only, shows it as a message with each prompt.
+
 - **Codex and Copilot see the project through the map, as Claude Code does.** `dam graph first` now answers them: the first look around a session (a listing, `rg`, `cat`) is met by the map's overview once, and a search for code names is answered from the map before it runs (Copilot's `grep`/`glob`/`view` and Codex's shell, in each host's own refusal shape). The use-case playbook (feature, bugfix, refactor, review, docs) is added to the prompt, with the map's facts, on Codex's `UserPromptSubmit` and Copilot's `userPromptTransformed`. A finished design document is sent to the goldfish review on both. Not there: the worker requirement and the Stop gate (they need Claude Code's sub-agent and transcript shapes).
 - **The advisor/worker pair ships by default on Copilot too.** The plugin manifest now declares `agents/` (advisor on Opus 5.5, worker on Haiku 5.5, the goldfish reviewers). Claude Code and Codex already had it set up on first session. Not checked in a real Copilot session: its agent file naming and model ids, and that its worker is held to looking only (its payload names no agent type).
 

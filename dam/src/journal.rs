@@ -96,15 +96,46 @@ fn line(session: &Flow, level: &str, facts: usize) -> String {
     format!("{saved} · 🦫 {level} · 🧠 {facts} fact(s)")
 }
 
+// The places the map holds for `cwd` (the node lines of its graph), as the status line under Claude Code counts them.
+fn map_places(cwd: &Path) -> Option<usize> {
+    let text = fs::read_to_string(cwd.join(".dam-graph").join("graph.tsv")).ok()?;
+
+    Some(text.lines().filter(|line| line.starts_with("N\t")).count())
+}
+
+// The status line as Claude Code's module draws it, for the hosts that cannot run the module:
+// `🦫 full · 💧 5k/20k (25%) · 🧠 3 · 🗺️ 400`.
+pub fn status_text(host: Host, session: Option<&str>, cwd: &Path) -> String {
+    let (flow, _, name) = totals(&abspath(&state_root()), host, session);
+    let level = crate::beaver::level_of(&session.map(str::to_string).or(name).unwrap_or_default());
+    let saved = if flow.seen == 0 { format!("💧 {}", count(flow.saved)) } else { format!("💧 {}/{} ({:.1}%)", count(flow.saved), count(flow.seen), flow.saved as f64 * 100.0 / flow.seen as f64) };
+    let places = map_places(cwd).map_or("–".to_string(), |n| n.to_string());
+
+    format!("🦫 {level} · {saved} · 🧠 {} · 🗺️ {places}", facts_in(cwd))
+}
+
 // `dam te statusline --host copilot`: Copilot's status line command, its JSON payload on stdin.
 pub fn status_line(host: Host, payload: &str) -> String {
     let payload: Value = serde_json::from_str(payload).unwrap_or(Value::Null);
     let text = |keys: &[&str]| keys.iter().find_map(|key| payload.get(*key).and_then(Value::as_str)).map(str::to_string);
-    let session = text(&["sessionId", "session_id"]);
     let cwd = text(&["cwd", "workingDirectory"]).map_or_else(|| std::env::current_dir().unwrap_or_default(), PathBuf::from);
-    let (flow, _, name) = totals(&abspath(&state_root()), host, session.as_deref());
 
-    line(&flow, &crate::beaver::level_of(&session.or(name).unwrap_or_default()), facts_in(&cwd))
+    status_text(host, text(&["sessionId", "session_id"]).as_deref(), &cwd)
+}
+
+// The first Copilot session after the install: its status line is set once, as Claude Code's is by the module.
+pub fn first_session(host: Host) -> Option<String> {
+    if host != Host::Copilot {
+        return None;
+    }
+    let flag = state_root().join("hosts").join("copilot").join("statusline-applied");
+    if flag.exists() {
+        return None;
+    }
+    let done = set_status_line(true);
+    let _ = crate::paths::write_atomic(&flag, b"1");
+
+    done.ok().map(|done| format!("The dam set Copilot's status line: {done}. `dam te statusline uninstall --host copilot` removes it."))
 }
 
 // `dam te journal`: what the dam did in this host's latest session and since it was installed.

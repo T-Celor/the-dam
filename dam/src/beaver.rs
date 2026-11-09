@@ -295,7 +295,7 @@ fn activate() {
     let host = host();
     // Part of the installation: the first Codex session sets its models, whatever Beaver's level (Claude Code's module does
     // that for itself).
-    let models = crate::models::first_session(host);
+    let models = crate::models::first_session(host).or_else(|| crate::journal::first_session(host));
     if level == "off" {
         clear_level();
         return;

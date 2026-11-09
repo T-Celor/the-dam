@@ -425,7 +425,15 @@ pub fn respond(host: Host, input: &str, dir: &Path) -> Option<String> {
         Host::Claude => None,
         Host::Codex => match input["hook_event_name"].as_str()? {
             "PostToolUse" => post_tool(host, &codex_call(&input)?, dir),
-            "UserPromptSubmit" => prompt_facts(input["prompt"].as_str()?, input["cwd"].as_str().unwrap_or("."), input["session_id"].as_str().unwrap_or("")).map(|facts| json!({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": facts}}).to_string()),
+            "UserPromptSubmit" => {
+                let (cwd, session) = (input["cwd"].as_str().unwrap_or("."), input["session_id"].as_str().unwrap_or(""));
+                let mut out = json!({"systemMessage": crate::journal::status_text(host, Some(session).filter(|s| !s.is_empty()), Path::new(cwd))});
+                // Codex has no status line of its own to fill: the line is shown to the person with each prompt, as `systemMessage`.
+                if let Some(facts) = prompt_facts(input["prompt"].as_str()?, cwd, session) {
+                    out["hookSpecificOutput"] = json!({"hookEventName": "UserPromptSubmit", "additionalContext": facts});
+                }
+                Some(out.to_string())
+            }
             _ => None,
         },
         // Copilot ignores what userPromptSubmitted prints; userPromptTransformed may rewrite what the model receives.
@@ -706,8 +714,11 @@ mod tests {
         let out: Value = serde_json::from_str(&respond(Host::Codex, &payload("who calls apply_deny() ?"), &dir).unwrap()).unwrap();
         assert_eq!(out["hookSpecificOutput"]["hookEventName"], "UserPromptSubmit");
         assert!(out["hookSpecificOutput"]["additionalContext"].as_str().unwrap().contains("called by: run()"));
-        assert!(respond(Host::Codex, &payload("thanks, ok"), &dir).is_none());
-        assert!(respond(Host::Codex, &payload("/review apply_deny()"), &dir).is_none());
+        // Nothing to add to the context, but the status line is shown to the person.
+        for prompt in ["thanks, ok", "/review apply_deny()"] {
+            let out: Value = serde_json::from_str(&respond(Host::Codex, &payload(prompt), &dir).unwrap()).unwrap();
+            assert!(out.get("hookSpecificOutput").is_none() && out["systemMessage"].as_str().unwrap().starts_with("🦫 "), "{out}");
+        }
         assert!(respond(Host::Codex, "not json", &dir).is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
