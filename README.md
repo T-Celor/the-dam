@@ -20,7 +20,7 @@
     <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: reduce)" srcset="assets/intro-dark.png">
     <source media="(prefers-reduced-motion: reduce)" srcset="assets/intro.png">
     <source media="(prefers-color-scheme: dark)" srcset="assets/intro-dark.gif">
-    <img src="assets/intro.gif" width="100%" alt="The dam in a few seconds: a beaver on its log dam, for Claude Code, Codex and Copilot, then eight cards. Compression, every line kept (up to 24% fewer tokens on repetitive output, about 2.6% over a whole session). Web pages, 99% less of a page, HTML to Markdown. Map, 2,112 files mapped in 1.5 s. Tool pruning, fewer tools on every request. Loop guard, one nudge out of a loop. Learned facts, remembered across sessions. Beaver, 45% less output. Goldfish, fresh reviewers on the sections that changed. Then the install command.">
+    <img src="assets/intro.gif" width="100%" alt="The dam in a few seconds: a beaver on its log dam, for Claude Code, Codex and Copilot, then nine cards. Compression, every line kept (up to 24% fewer tokens on repetitive output, about 2.6% over a whole session). Web pages, 99% less of a page, HTML to Markdown. Map, 2,112 files mapped in 1.5 s. Tool pruning, fewer tools on every request. Loop guard, one nudge out of a loop. Learned facts, remembered across sessions. Beaver, 45% less output. Goldfish, fresh reviewers on the sections that changed. Advisor, Opus reviews while Haiku workers explore. Then the install command.">
   </picture>
 </p>
 
@@ -183,7 +183,35 @@ The [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model)
 
 What the dam adds: a finished design document is noticed by a hook and sent to review by itself, code is held back until the review has begun, and the reviewers run on the cheapest model that can do each job. `DAM_GOLDFISH=ask|off` changes that.
 
+### Design
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-design-dark.gif"><img src="assets/part-design.gif" width="600" alt="An idea becomes a concepts brief, then a specification, each marked approved"></picture>
+
+`/the-dam:design "idempotency keys"` goes from an idea to a specification in three steps (brainstorm, concepts brief, specification), and waits for your approval after each. The map tells it what already exists, so it reuses before it proposes.
+
+### Resolve and the review loop
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-resolve-dark.gif"><img src="assets/part-resolve.gif" width="600" alt="Five findings: three fixed, one contested, one passed to the user"></picture>
+
+`/the-dam:resolve` takes each finding and either contests it (the reviewer was wrong), passes it to you (only you know), or fixes it. Nothing is changed that you did not accept.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-goldfish-loop-dark.gif"><img src="assets/part-goldfish-loop.gif" width="600" alt="Five review rounds with 5, 3, 1, 0 and 0 findings: two clean rounds in a row end the loop"></picture>
+
+`/the-dam:goldfish-loop` repeats review and resolve on a document, or one section, until two clean rounds in a row. Each round reviews only what the last one changed.
+
+### Bootstrap and drift
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-bootstrap-dark.gif"><img src="assets/part-bootstrap.gif" width="600" alt="Four folders each get a README that says what it exposes, assumes and touches"></picture>
+
+`/the-dam:bootstrap` writes a README for each folder as a contract (what it exposes, what it assumes, what it touches) from the map, then checks it against the code.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-drift-dark.gif"><img src="assets/part-drift.gif" width="600" alt="Six lines of a README checked against the code: two fail, a file that is gone and a name that was renamed"></picture>
+
+`/the-dam:drift` (or `dam goldfish drift README.md`) lists what a document says that the code no longer backs: files gone or moved, names renamed or removed. The README and `docs/` are checked once at each session start.
+
 ### Advisor and workers
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-advisor-dark.gif"><img src="assets/part-advisor.gif" width="600" alt="The session makes six looks of its own, then a Haiku worker reads five files and returns facts; the session writes the change and an Opus advisor reviews it: zero blockers"></picture>
 
 The model that runs the session is not the one that reviews or explores. Three roles on one ladder in each host:
 
