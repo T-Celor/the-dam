@@ -427,7 +427,7 @@ pub fn respond(host: Host, input: &str, dir: &Path) -> Option<String> {
             "PostToolUse" => post_tool(host, &codex_call(&input)?, dir),
             "UserPromptSubmit" => {
                 let (cwd, session) = (input["cwd"].as_str().unwrap_or("."), input["session_id"].as_str().unwrap_or(""));
-                let mut out = json!({"systemMessage": crate::journal::status_text(host, Some(session).filter(|s| !s.is_empty()), Path::new(cwd), input["transcript_path"].as_str().map(Path::new))});
+                let mut out = json!({"systemMessage": crate::journal::status_text(host, Some(session).filter(|s| !s.is_empty()), Path::new(cwd), input["transcript_path"].as_str().map(Path::new), None)});
                 // Codex has no status line of its own to fill: the line is shown to the person with each prompt, as `systemMessage`.
                 if let Some(facts) = prompt_facts(input["prompt"].as_str()?, cwd, session) {
                     out["hookSpecificOutput"] = json!({"hookEventName": "UserPromptSubmit", "additionalContext": facts});

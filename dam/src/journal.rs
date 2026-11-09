@@ -139,13 +139,13 @@ fn map_places(cwd: &Path) -> Option<usize> {
 
 // The status line as Claude Code's module draws it, for the hosts that cannot run the module:
 // `🦫 full · 💧 5k/20k (25%) · 🧠 3 · 🗺️ 400`.
-pub fn status_text(host: Host, session: Option<&str>, cwd: &Path, transcript: Option<&Path>) -> String {
+pub fn status_text(host: Host, session: Option<&str>, cwd: &Path, transcript: Option<&Path>, native: Option<String>) -> String {
     let (flow, _, name) = totals(&abspath(&state_root()), host, session);
     let level = crate::beaver::level_of(&session.map(str::to_string).or(name).unwrap_or_default());
     let saved = if flow.seen == 0 { format!("💧 {}", count(flow.saved)) } else { format!("💧 {}/{} ({:.1}%)", count(flow.saved), count(flow.seen), flow.saved as f64 * 100.0 / flow.seen as f64) };
     let places = map_places(cwd).map_or("–".to_string(), |n| n.to_string());
 
-    format!("🦫 {level} · {saved} · 💸 {} · 🧠 {} · 🗺️ {places}", session_cost(host, transcript), facts_in(cwd))
+    format!("🦫 {level} · {saved} · 💸 {} · 🧠 {} · 🗺️ {places}", native.unwrap_or_else(|| session_cost(host, transcript)), facts_in(cwd))
 }
 
 // What the session's requests cost, priced as fresh-input tokens (pricing.rs), from the host's own log; `–` before it has any.
@@ -165,7 +165,12 @@ pub fn status_line(host: Host, payload: &str) -> String {
     let session = text(&["sessionId", "session_id"]);
     let log = session.as_ref().map(|id| crate::hosts::copilot_home().join("session-state").join(id).join("events.jsonl"));
 
-    status_text(host, session.as_deref(), &cwd, log.as_deref())
+    // Copilot counts in premium requests, and its status line payload carries the session's: `cost.total_premium_requests`
+    // (older), or `ai_used` when a number. Unverified against a live payload; without them the token pricing shows.
+    let requests = payload["cost"]["total_premium_requests"].as_f64().or_else(|| payload["ai_used"].as_f64());
+    let native = requests.map(|n| format!("{} req", if n.fract() == 0.0 { format!("{n:.0}") } else { format!("{n:.1}") }));
+
+    status_text(host, session.as_deref(), &cwd, log.as_deref(), native)
 }
 
 // The first Copilot session after the install: its status line is set once, as Claude Code's is by the module.
@@ -303,5 +308,17 @@ mod tests {
         assert_eq!(count(999), "999");
         assert_eq!(count(12_345), "12.3k");
         assert_eq!(count(2_500_000), "2.5M");
+    }
+}
+
+#[cfg(test)]
+mod native_cost {
+    use super::*;
+
+    #[test]
+    fn copilots_own_premium_requests_show_as_its_cost() {
+        let line = status_line(Host::Copilot, r#"{"sessionId":"x","cwd":".","cost":{"total_premium_requests":3}}"#);
+        assert!(line.contains("💸 3 req"), "{line}");
+        assert!(status_line(Host::Copilot, r#"{"sessionId":"x","cwd":"."}"#).contains("💸 –"));
     }
 }
