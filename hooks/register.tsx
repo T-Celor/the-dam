@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
 import type { Gains, JournalEntry, Stats } from '../types'
-import { EMPTY, ICON, carryStep, economizerEntries, formatCount, gainNote, pinnedModel, stepCost, journalLine, journalView, projectFlow, reportOf, sessionFigures, signed, statusOf, totalLines } from './model'
+import { EMPTY, ICON, carryStep, economizerEntries, formatCount, gainNote, pinnedModel, stepCost, usdOf, journalLine, journalView, projectFlow, reportOf, sessionFigures, signed, statusOf, totalLines } from './model'
 import type { Located } from './tools'
 import {
   candidates,
@@ -198,7 +198,7 @@ async function flows($: Dollar) {
   const [records, session, root] = await Promise.all([Promise.all(keys.map(key => $.store.get(key) as Promise<FlowRecord | null | undefined>)), $.session.id(), $.session.root()])
   const here = records[keys.indexOf(`flow:${session}`)]
 
-  return { session: { saved: Number(here?.saved ?? 0), seen: Number(here?.seen ?? 0), spent: Number(here?.spent ?? 0), avoided: Number(here?.avoided ?? 0), cost: Number(here?.cost ?? 0) }, project: projectFlow(records, root) }
+  return { session: { saved: Number(here?.saved ?? 0), seen: Number(here?.seen ?? 0), spent: Number(here?.spent ?? 0), avoided: Number(here?.avoided ?? 0), cost: Number(here?.cost ?? 0), costUsd: sessionUsd }, project: projectFlow(records, root) }
 }
 
 async function savedTotal($: Dollar) {
@@ -309,11 +309,15 @@ async function askGraph($: Dollar, flag: '--prompt' | '--grep', text: string) {
 let isGraphable: Promise<boolean> = Promise.resolve(false)
 const GRAPH_WAIT_MS = 3_000
 
+let sessionUsd: number | null = null
+
 async function readContext($: Dollar): Promise<Stats['context']> {
   const usage = await attempt(() => $.session.usage({ breakdown: 'summary' }))
   const breakdown = usage?.context.breakdown
   const percent = usage?.context.percent ?? breakdown?.percentage
   if (!usage || percent === undefined) return null
+  // What /cost shows, when the session reports it.
+  sessionUsd = usdOf((usage as { cost?: unknown }).cost)
   await attempt(() => rememberToolSizes($, breakdown?.mcpTools ?? []))
 
   return { percent, total: breakdown?.totalTokens ?? usage.context.tokens ?? 0, max: usage.context.window }

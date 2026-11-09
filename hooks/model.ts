@@ -21,6 +21,22 @@ export const EMPTY: Stats = {
 // One element of the dam per tool, shown with its figure.
 export const ICON = { beaver: '🦫', water: '💧', cost: '💸', logs: '🪵', whirl: '🌀', memory: '🧠', map: '🗺️', level: '🌊' } as const
 
+// The session's own cost as the host reports it (what /cost shows), in USD: a bare number, or an object holding one under a usual name.
+// Unverified shape (the engine's types were not available): anything else reads as unknown, and the status line keeps its token pricing.
+export function usdOf(cost: unknown): number | null {
+  if (typeof cost === 'number' && Number.isFinite(cost)) return cost
+  if (cost && typeof cost === 'object') {
+    for (const key of ['totalUsd', 'total_cost_usd', 'usd', 'total', 'costUsd', 'amount']) {
+      const value = (cost as Record<string, unknown>)[key]
+      if (typeof value === 'number' && Number.isFinite(value)) return value
+    }
+  }
+
+  return null
+}
+
+export const formatUsd = (usd: number) => `$${usd < 10 ? usd.toFixed(2) : usd.toFixed(1)}`
+
 // One request priced as fresh-input tokens, as dam/src/pricing.rs weighs the Claude models: input 1, cache read 0.1, cache write 1.25, output 5.
 export function stepCost(u?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | null): number {
   return (u?.input_tokens ?? 0) + (u?.cache_read_input_tokens ?? 0) * 0.1 + (u?.cache_creation_input_tokens ?? 0) * 1.25 + (u?.output_tokens ?? 0) * 5
@@ -114,7 +130,7 @@ export function statusOf(s: Stats): string {
   const parts: Array<[string, string]> = [
     [ICON.beaver, s.level ?? 'off'],
     [ICON.water, savedOfSpent(s.session)],
-    [ICON.cost, s.session.cost ? formatCount(s.session.cost) : '–'],
+    [ICON.cost, s.session.costUsd != null ? formatUsd(s.session.costUsd) : s.session.cost ? formatCount(s.session.cost) : '–'],
     [ICON.logs, `${s.pruned}${s.pending > 0 ? `+${s.pending}` : ''}`],
     [ICON.whirl, String(s.loops)],
     [ICON.memory, String(s.facts)],
@@ -190,7 +206,7 @@ export function totalLines(s: Stats, here: SessionFigures): string[] {
   return [
     `${ICON.water} ${savedOfSpent(s.session)} tokens kept out of this session's requests: ${formatCount(s.session.saved)} taken out of tool outputs${percentOf(s.session) ? ` (${percentOf(s.session)} of what they printed)` : ''}, then not re-read`,
     `   this project ${withShare(s.project)}, every project ${formatCount(s.saved)}`,
-    `${ICON.cost} ${s.session.cost ? formatCount(s.session.cost) : 'not counted yet'} cost of this session, in fresh-input tokens (cache read 0.1, cache write 1.25, output 5)`,
+    s.session.costUsd != null ? `${ICON.cost} ${formatUsd(s.session.costUsd)} cost of this session (as /cost)` : `${ICON.cost} ${s.session.cost ? formatCount(s.session.cost) : 'not counted yet'} cost of this session, in fresh-input tokens (cache read 0.1, cache write 1.25, output 5)`,
     `${ICON.logs} ${s.pruned} tools left out of this session${s.pending > 0 ? `, ${s.pending} more waiting` : ''}`,
     `${ICON.whirl} ${here.loops} loops stopped`,
     `${ICON.memory} ${here.facts} learned facts added`,

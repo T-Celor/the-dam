@@ -196,7 +196,7 @@ fn codex_gets_the_map_condensing_and_the_rules_as_plain_context_at_session_start
     assert!(!out.contains("\" squeeze"));
     assert!(out.contains("BEAVER MODE ACTIVE — level: full"));
     // The full rules from skills/beaver, not the one-line stand-in for a plugin folder not found.
-    assert!(out.contains("## Find before you read"));
+    assert!(out.contains("## Work"));
 }
 
 #[test]
@@ -204,7 +204,7 @@ fn copilot_gets_the_same_as_additional_context_json() {
     let out: Value = serde_json::from_str(&run("copilot", &["beaver", "activate"], json!({"sessionId": "s1", "timestamp": 1, "cwd": ".", "source": "new"}))).unwrap();
     assert_eq!(out.as_object().unwrap().keys().collect::<Vec<_>>(), ["additionalContext"]);
     let text = out["additionalContext"].as_str().unwrap();
-    assert!(text.contains("A map of this project") && text.contains("## Find before you read"));
+    assert!(text.contains("A map of this project") && text.contains("## Work"));
 }
 
 // A level is live only after a start in the same session, as in a real one.
