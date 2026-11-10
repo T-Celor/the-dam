@@ -669,8 +669,9 @@ impl Hook {
                 guard.after_nudge();
                 doc["nudges"] = json!(doc.get("nudges").and_then(Value::as_i64).unwrap_or(0) + 1);
                 self.log("nudge", json!({"reason": reason, "tool_calls": guard.cum_turns, "envelope": envelope}))?;
-                let session = Some(self.text("session_id")).filter(|id| !id.is_empty()).unwrap_or_else(|| self.text("sessionId"));
-                crate::journal::event(crate::hosts::current(), &session, "🌀", &format!("loop redirected ({short}), after {} tool calls", guard.cum_turns));
+                if !self.config.shadow {
+                    crate::journal::event(crate::hosts::current(), &self.session, "🌀", &format!("loop redirected ({short}), after {} tool calls", guard.cum_turns));
+                }
                 if !self.config.shadow {
                     out = merge_context(&event, Some(&body), Some(&format!("TokenEconomizer nudged this turn ({short}): the same failure kept recurring.")));
                 }

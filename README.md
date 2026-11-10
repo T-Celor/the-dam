@@ -104,7 +104,7 @@ Codex cannot rewrite a tool's output, so the condensed one comes back as the hoo
 🦫 full · 💧 412k/12.4M (3.2%) · 💸 $0.42 · 🪵 27 · 🌀 1 · 🧠 5 · 🗺️ 2.2k · 🌊 31%
 ```
 
-Codex and Copilot show the same line without 🪵, 🌀 and 🌊.
+Codex and Copilot show the same eight slots; 🪵 stays `–` there (tool pruning is Claude Code's) and 🌊 shows when the host's payload carries it.
 
 | Icon | Figure |
 |---|---|

@@ -149,16 +149,35 @@ pub fn status_text_with(host: Host, session: Option<&str>, cwd: &Path, transcrip
     let (flow, _, name) = totals(&abspath(&state_root()), host, session);
     let id = session.map(str::to_string).or(name).unwrap_or_default();
     let level = crate::beaver::level_of(&id);
-    let saved = if flow.seen == 0 { count(flow.saved) } else { format!("{}/{} ({:.1}%)", count(flow.saved), count(flow.seen), flow.saved as f64 * 100.0 / (flow.saved + flow.seen) as f64) };
+    let saved = share(flow.saved, flow.seen);
     let places = map_places(cwd).map_or("–".to_string(), |n| n.to_string());
-    let loops = event_lines_of(&abspath(&state_root()), host, &id).iter().filter(|e| e["icon"].as_str() == Some("🌀")).count();
+    // The loop guard's own count for the session, as Claude Code's module reads it.
+    let doc = Ctx::for_cwd(cwd).store.read(&format!("sessions/{id}.json")).unwrap_or_default();
+    let loops = doc.get("nudges").and_then(Value::as_u64).unwrap_or(0) + doc.get("aborts").and_then(Value::as_u64).unwrap_or(0);
     let fill = context.map_or("–".to_string(), |p| format!("{}%", p.round()));
 
     format!("🦫 {level} · 💧 {saved} · 💸 {} · 🪵 – · 🌀 {loops} · 🧠 {} · 🗺️ {places} · 🌊 {fill}", native.unwrap_or_else(|| session_cost(host, transcript)), facts_in(cwd))
 }
 
-fn event_lines_of(root: &Path, host: Host, session: &str) -> Vec<Value> {
-    fs::read_to_string(events_file(root, host)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|e| e["session"].as_str() == Some(session)).collect()
+// `saved/spent (share)` as Claude Code's module writes it: `seen` is what the outputs weighed before condensing, so what was
+// spent is `seen - saved` and the share is `saved/seen`.
+fn share(saved: u64, seen: u64) -> String {
+    if seen == 0 {
+        return count(saved);
+    }
+
+    format!("{}/{} ({:.1}%)", count(saved), count(seen.saturating_sub(saved)), saved as f64 * 100.0 / seen as f64)
+}
+
+#[cfg(test)]
+mod share_tests {
+    use super::*;
+
+    #[test]
+    fn the_share_is_saved_over_what_the_outputs_weighed() {
+        assert_eq!(share(1000, 1500), "1.0k/500 (66.7%)");
+        assert_eq!(share(0, 0), "0");
+    }
 }
 
 // What the session's requests cost, priced as fresh-input tokens (pricing.rs), from the host's own log; `–` before it has any.

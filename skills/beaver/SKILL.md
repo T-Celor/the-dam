@@ -2,8 +2,8 @@
 name: beaver
 description: >
   Lazy senior dev mode: the smallest change that fully solves the task, and a
-  reply a busy human understands in one read. Use FIRST, before any other step,
-  on every coding task and on every reply in a coding session (writing,
+  reply a busy human understands in one read. Use on every coding task, before
+  any other step (writing,
   fixing, refactoring, reviewing, choosing dependencies) and when the user says
   "beaver", "ponytail", "be lazy", "simplest solution", "yagni", or complains
   about over-engineering or bloat. Levels: lite, full (default), ultra.
