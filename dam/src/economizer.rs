@@ -526,6 +526,12 @@ impl Hook {
                 None => format!("nothing changes until you run `{command} apply`."),
             };
             out.push(json!({"systemMessage": format!("TokenEconomizer: {} {unit}(s) went unused in this repository's recent sessions ({}). Review with `{command}`; {how}", proposal.len(), few(&proposal))}));
+            // Under `propose` the person decides: the agent asks once, and applies only on a yes.
+            if !auto && refused.is_none() && !self.is_headless() {
+                let names = proposal.join(" ");
+                let dam = std::env::var("CLAUDE_PLUGIN_ROOT").map_or_else(|_| "dam".to_string(), |root| format!("{}/scripts/dam-run", root.replace('\\', "/")));
+                out.push(merge_context("SessionStart", Some(&format!("Before your first answer, ask the user (one short question, with the AskUserQuestion tool where you have it) whether to remove these {} unused {unit}(s) from this repository's sessions, to save tokens on every request: {}. Only on a yes, run `\"{dam}\" te toolprune apply {names}` in the shell. On a no, do nothing and do not ask again.", proposal.len(), proposal.join(", "))), None));
+            }
             seen.insert("untool".to_string(), json!(proposal.join(",")));
         }
 
@@ -601,8 +607,14 @@ impl Hook {
         // Contexts and notices concatenate, as the Python's merge_outputs does.
         let notices: Vec<&str> = outputs.iter().filter_map(|output| output.get("systemMessage").and_then(Value::as_str)).collect();
         let mut answer = Map::new();
-        if let Some(context) = outputs.iter().find_map(|output| output.get("hookSpecificOutput")) {
-            answer.insert("hookSpecificOutput".to_string(), context.clone());
+        let contexts: Vec<&Value> = outputs.iter().filter_map(|output| output.get("hookSpecificOutput")).collect();
+        if let Some(first) = contexts.first() {
+            let mut joined = (*first).clone();
+            let texts: Vec<&str> = contexts.iter().filter_map(|context| context.get("additionalContext").and_then(Value::as_str)).collect();
+            if texts.len() > 1 {
+                joined["additionalContext"] = json!(texts.join("\n\n"));
+            }
+            answer.insert("hookSpecificOutput".to_string(), joined);
         }
         if !notices.is_empty() {
             answer.insert("systemMessage".to_string(), json!(notices.join("\n")));

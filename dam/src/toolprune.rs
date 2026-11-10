@@ -845,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unused_tool_is_proposed_after_enough_sessions_and_held_for_auto() {
+    fn an_unused_tool_is_proposed_after_enough_sessions_and_not_held_under_propose() {
         let dir = std::env::temp_dir().join(format!("dam-toolprune-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let run = dir.join("run");
@@ -860,7 +860,8 @@ mod tests {
             last = fold_session(&ctx, &run, "s", None, &dir, Some(1));
         }
         assert_eq!(last["proposal"], json!(["Foo"]));
-        assert_eq!(last["pending"], json!(true));
+        // The default is `propose`: nothing waits to be written without the person's yes.
+        assert_eq!(last["pending"], json!(false));
         let doc = ctx.store.read("untool.json").unwrap();
         assert_eq!(doc["sessions"], 5);
         assert_eq!(doc["streaks"]["Foo"], 5);
@@ -904,7 +905,7 @@ mod tests {
             }
         }
         assert_eq!(last["proposal"], json!(["collaboration", "goals"]));
-        assert_eq!(last["pending"], json!(true));
+        assert_eq!(last["pending"], json!(false));
         let doc = ctx.store.read("untool.json").unwrap();
         assert_eq!((doc["sessions"].as_i64(), doc["catalog_source"].as_str()), (Some(5), Some("capabilities")));
         assert_eq!(doc["capabilities"]["image_media"]["used"], true);

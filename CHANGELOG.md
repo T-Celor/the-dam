@@ -2,6 +2,8 @@
 
 ## 0.32.0
 
+- **Tool pruning asks first.** The default is now `propose`: when tools went unused, the agent asks you at session start and removes them only on a yes (`TE_TOOLPRUNE=auto` keeps the old automatic removal).
+
 - **The same band on Copilot and Codex.** Eight slots in Claude Code's order (🦫 💧 💸 🪵 🌀 🧠 🗺️ 🌊): loops come from the loop guard's journal events, the context fill from the payload when it carries one, `–` where there is nothing to measure. The 💧 share is now saved over saved plus spent, as under Claude Code.
 - **Beaver and EGM skills are called more under Claude Code.** Each use-case playbook now tells the model which skill to call (`the-dam:beaver` first, then design, goldfish, resolve, bootstrap, drift, beaver-review, beaver-audit), spec and design wording leads to the documentation playbook, and the skills' descriptions say when to use them unprompted.
 

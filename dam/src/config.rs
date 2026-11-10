@@ -170,7 +170,7 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Self {
-        let rest = json!({"microskills": "envfacts+distiller", "microskills_max_facts": 4, "microskills_max_tokens": 150, "microskills_propose_every": 3, "toolprune": "auto", "toolprune_evidence": 10, "toolprune_min_sessions": 2, "toolprune_sessions": 5, "toolprune_quiet_minutes": 60, "toolprune_protect": [], "repomap_tokens": 2048, "repomap_python": "", "repomap_timeout": 8, "paid_model": "", "vocabulary": "auto"});
+        let rest = json!({"microskills": "envfacts+distiller", "microskills_max_facts": 4, "microskills_max_tokens": 150, "microskills_propose_every": 3, "toolprune": "propose", "toolprune_evidence": 10, "toolprune_min_sessions": 2, "toolprune_sessions": 5, "toolprune_quiet_minutes": 60, "toolprune_protect": [], "repomap_tokens": 2048, "repomap_python": "", "repomap_timeout": 8, "paid_model": "", "vocabulary": "auto"});
         let Value::Object(rest) = rest else { unreachable!("an object above") };
 
         Config { enabled: true, mode: "auto".to_string(), loopguard: "nudge".to_string(), aggr: "default".to_string(), nudges: 1, thresholds: Map::new(), repomap: "off".to_string(), shadow: false, rest, warnings: Vec::new() }

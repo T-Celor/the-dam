@@ -143,7 +143,7 @@ When a command fetches a page (`curl`, `wget`, `Invoke-WebRequest`), `dam squeez
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="assets/part-pruning-dark.gif"><img src="assets/part-pruning.gif" width="600" alt="Twelve tools, the six never used here left out"></picture>
 
-A tool unused over 10 prompts in 2 sessions, or over 5 sessions, is left out of later sessions once the repository has been idle for an hour. Every request is then shorter. `/the-dam:toolprune` gives any tool back.
+A tool unused over 10 prompts in 2 sessions, or over 5 sessions, is proposed for removal: at session start the agent asks you, and only a yes removes it from later sessions (`TE_TOOLPRUNE=auto` removes them without asking, once the repository has been idle for an hour). Every request is then shorter. `/the-dam:toolprune` gives any tool back.
 
 ### Loop guard
 
