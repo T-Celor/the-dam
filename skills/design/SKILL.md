@@ -1,6 +1,6 @@
 ---
 name: design
-description: "Turn an idea into a design document in steps the user approves: test the idea, write a concepts brief, then the specification. Use for /the-dam:design IDEA, 'design this', 'write a spec for'. Then run /the-dam:goldfish on it."
+description: "Turn an idea into a design document in steps the user approves: test the idea, write a concepts brief, then the specification. Use proactively before implementing a feature that spans several files or needs a choice, and for /the-dam:design IDEA, 'design this', 'write a spec for'. Then run /the-dam:goldfish on it."
 argument-hint: "<idea or feature>"
 ---
 

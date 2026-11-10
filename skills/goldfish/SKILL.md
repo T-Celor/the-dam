@@ -1,6 +1,6 @@
 ---
 name: goldfish
-description: "Review a design document with fresh reviewers that have none of the conversation (goldfish), then settle the findings with the user. Use for /the-dam:goldfish DOCUMENT, 'review this design', 'have it challenged'. Needs a subagent tool."
+description: "Review a design document with fresh reviewers that have none of the conversation (goldfish), then settle the findings with the user. Use proactively as soon as you have written or changed a design, spec, plan or architecture document, before implementing it, and for /the-dam:goldfish DOCUMENT, 'review this design', 'have it challenged'. Needs a subagent tool."
 argument-hint: "<design document> [feature | plan]"
 ---
 

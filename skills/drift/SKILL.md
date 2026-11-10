@@ -1,6 +1,6 @@
 ---
 name: drift
-description: "Find what documents say that the code no longer backs: files that are gone or moved, names that were renamed or removed. Use for /the-dam:drift DOCUMENT..., 'are the docs out of date', 'check the README against the code'."
+description: "Find what documents say that the code no longer backs: files that are gone or moved, names that were renamed or removed. Use proactively after you write or edit a README or any document that names files or code, and for /the-dam:drift DOCUMENT..., 'are the docs out of date', 'check the README against the code'."
 argument-hint: "<document>..."
 ---
 

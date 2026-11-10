@@ -1,6 +1,6 @@
 ---
 name: bootstrap
-description: "Write or repair a README.md for each folder of a codebase, as a contract (what it exposes, what it assumes, what it touches), built from the map, then checked against the code. Use for /the-dam:bootstrap [folder]."
+description: "Write or repair a README.md for each folder of a codebase, as a contract (what it exposes, what it assumes, what it touches), built from the map, then checked against the code. Use proactively when a folder has no README or a stale one, when documenting a codebase, and for /the-dam:bootstrap [folder]."
 argument-hint: "[folder]"
 ---
 

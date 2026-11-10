@@ -71,7 +71,7 @@ In Codex, trust the plugin's hooks with `/hooks` before they run.
 | A finished design is sent to review, code waits for it | ✅ | ✅ nudge | ✅ nudge |
 | Advisor and worker, on the model ladder | ✅ Opus 5.5 / Haiku 5.5, set on the first session | ✅ `gpt-6-astra` / `gpt-6-luna` agents, set on the first session | ✅ agents declared by the plugin |
 | Worker required after six looks of the main agent; advisor required before a turn of 3+ code files ends | ✅ | – needs Claude Code's sub-agent and transcript shapes | – |
-| 🦫 mode · 💧 counter · 💸 cost: status line | ✅ | ✅ shown with each prompt (its status line takes built-in items only) | ✅ set on the first session (`/the-dam:statusline uninstall` removes it) |
+| 🦫 mode · 💧 counter · 💸 cost · 🪵 · 🌀 · 🧠 · 🗺️ · 🌊: status line, the same eight slots (`–` where the host has nothing to measure: 🪵 tool pruning is Claude Code's) | ✅ | ✅ shown with each prompt (its status line takes built-in items only) | ✅ set on the first session (`/the-dam:statusline uninstall` removes it) |
 | Journal of what the dam did, with its events | `/the-dam` pane | `/the-dam:journal` | `/the-dam:journal` |
 
 Codex cannot rewrite a tool's output, so the condensed one comes back as the hook's feedback, which Codex gives the model in its place. Copilot drops what its prompt hook prints, so the map's answer for a prompt goes into the prompt the model receives (`userPromptTransformed`). The loop guard's judge runs through the host's own CLI (`claude -p`, `codex exec` in a read-only sandbox, `copilot -p` with every tool denied).

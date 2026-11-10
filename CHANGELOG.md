@@ -2,6 +2,9 @@
 
 ## 0.32.0
 
+- **The same band on Copilot and Codex.** Eight slots in Claude Code's order (🦫 💧 💸 🪵 🌀 🧠 🗺️ 🌊): loops come from the loop guard's journal events, the context fill from the payload when it carries one, `–` where there is nothing to measure. The 💧 share is now saved over saved plus spent, as under Claude Code.
+- **Beaver and EGM skills are called more under Claude Code.** Each use-case playbook now tells the model which skill to call (`the-dam:beaver` first, then design, goldfish, resolve, bootstrap, drift, beaver-review, beaver-audit), spec and design wording leads to the documentation playbook, and the skills' descriptions say when to use them unprompted.
+
 - **More pictures.** A GIF for the advisor and worker pattern and one for each EGM skill (design, resolve, review loop, bootstrap, drift), light and dark, each under its own heading in the README; the intro has a ninth card, Advisor.
 - **The README and the pictures follow.** The intro GIF now says Claude Code, Codex and Copilot and has an eighth card for Goldfish (and its still poster, light and dark). The README lists every EGM skill ported (Brainstorm and Draft as `design`, Review, Resolve, Review loop, Bootstrap, Drift report, following upstream), describes the advisor and worker pattern on each host, and its host table, status line and switches match what runs.
 - **A GIF for the design review**, in the same style as the others (`assets/part-goldfish.gif`, with its dark twin), under "How it works" in the README.

@@ -140,12 +140,25 @@ fn map_places(cwd: &Path) -> Option<usize> {
 // The status line as Claude Code's module draws it, for the hosts that cannot run the module:
 // `🦫 full · 💧 5k/20k (25%) · 🧠 3 · 🗺️ 400`.
 pub fn status_text(host: Host, session: Option<&str>, cwd: &Path, transcript: Option<&Path>, native: Option<String>) -> String {
-    let (flow, _, name) = totals(&abspath(&state_root()), host, session);
-    let level = crate::beaver::level_of(&session.map(str::to_string).or(name).unwrap_or_default());
-    let saved = if flow.seen == 0 { format!("💧 {}", count(flow.saved)) } else { format!("💧 {}/{} ({:.1}%)", count(flow.saved), count(flow.seen), flow.saved as f64 * 100.0 / flow.seen as f64) };
-    let places = map_places(cwd).map_or("–".to_string(), |n| n.to_string());
+    status_text_with(host, session, cwd, transcript, native, None)
+}
 
-    format!("🦫 {level} · {saved} · 💸 {} · 🧠 {} · 🗺️ {places}", native.unwrap_or_else(|| session_cost(host, transcript)), facts_in(cwd))
+// The same eight slots, in the same order, as Claude Code's module: 🦫 level · 💧 saved/spent · 💸 cost · 🪵 tools pruned ·
+// 🌀 loops · 🧠 facts · 🗺️ places · 🌊 context. `–` where the host has nothing to measure (tool pruning is Claude Code's).
+pub fn status_text_with(host: Host, session: Option<&str>, cwd: &Path, transcript: Option<&Path>, native: Option<String>, context: Option<f64>) -> String {
+    let (flow, _, name) = totals(&abspath(&state_root()), host, session);
+    let id = session.map(str::to_string).or(name).unwrap_or_default();
+    let level = crate::beaver::level_of(&id);
+    let saved = if flow.seen == 0 { count(flow.saved) } else { format!("{}/{} ({:.1}%)", count(flow.saved), count(flow.seen), flow.saved as f64 * 100.0 / (flow.saved + flow.seen) as f64) };
+    let places = map_places(cwd).map_or("–".to_string(), |n| n.to_string());
+    let loops = event_lines_of(&abspath(&state_root()), host, &id).iter().filter(|e| e["icon"].as_str() == Some("🌀")).count();
+    let fill = context.map_or("–".to_string(), |p| format!("{}%", p.round()));
+
+    format!("🦫 {level} · 💧 {saved} · 💸 {} · 🪵 – · 🌀 {loops} · 🧠 {} · 🗺️ {places} · 🌊 {fill}", native.unwrap_or_else(|| session_cost(host, transcript)), facts_in(cwd))
+}
+
+fn event_lines_of(root: &Path, host: Host, session: &str) -> Vec<Value> {
+    fs::read_to_string(events_file(root, host)).unwrap_or_default().lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|e| e["session"].as_str() == Some(session)).collect()
 }
 
 // What the session's requests cost, priced as fresh-input tokens (pricing.rs), from the host's own log; `–` before it has any.
@@ -175,7 +188,10 @@ pub fn status_line(host: Host, payload: &str) -> String {
     let requests = payload["cost"]["total_premium_requests"].as_f64();
     let native = requests.map(|n| format!("{} req", if n.fract() == 0.0 { format!("{n:.0}") } else { format!("{n:.1}") }));
 
-    status_text(host, session.as_deref(), &cwd, log.as_deref(), native)
+    // The context window's fill, if the payload carries it (per third-party status lines, not checked live).
+    let context = payload["context_window"]["used_percentage"].as_f64();
+
+    status_text_with(host, session.as_deref(), &cwd, log.as_deref(), native, context)
 }
 
 // The first Copilot session after the install: its status line is set once, as Claude Code's is by the module.
