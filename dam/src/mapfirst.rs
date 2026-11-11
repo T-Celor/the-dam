@@ -202,8 +202,9 @@ fn only_looks(command: &str) -> bool {
         return false;
     }
     // What a quoted word holds (a search pattern) is data: only the command's own words are checked.
-    let flat = flatten(command);
-    if flat.contains('>') || flat.contains('#') {
+    let Some(flat) = flatten(command) else { return false };
+    // Redirections, comments, grouping and process substitution are not looking.
+    if flat.contains(['>', '<', '#', '(', ')']) {
         return false;
     }
     // Options that make a looking command write or run something.
@@ -212,6 +213,10 @@ fn only_looks(command: &str) -> bool {
         let words: Vec<&str> = part.split_whitespace().collect();
         let name = |word: &str| word.trim_matches(['"', '\'']).replace('\\', "/").to_lowercase().rsplit('/').next().unwrap_or("").to_string();
         let first = name(words[0]);
+        // An option with quotes inside it (`-de''lete`) is not what it looks like.
+        if words.iter().any(|word| word.starts_with('-') && word.contains('Q')) {
+            return false;
+        }
         if words.iter().any(|word| WRITES.iter().any(|w| *word == *w || word.starts_with(&format!("{w}="))) || (first == "tree" && *word == "-o") || (first == "git" && (word.starts_with("-O") || word.starts_with("--open-files-in-pager")))) {
             return false;
         }
@@ -219,10 +224,13 @@ fn only_looks(command: &str) -> bool {
             return true;
         }
         if first == "git" {
-            // Past git's own options (`--no-pager`, `-C dir`, `-c key=value`) to the subcommand.
+            // Past git's harmless options (`--no-pager`, `-C dir`) to the subcommand; `-c` and `--exec-path` can run programs.
             let mut rest = words[1..].iter();
             while let Some(word) = rest.next() {
-                if matches!(*word, "-C" | "-c") {
+                if matches!(*word, "-c" | "--exec-path") || word.starts_with("--config-env") || word.starts_with("--exec-path=") {
+                    return false;
+                }
+                if *word == "-C" {
                     rest.next();
                 } else if !word.starts_with('-') {
                     return matches!(*word, "ls-files" | "grep" | "status" | "log" | "diff" | "show" | "blame");
@@ -234,32 +242,47 @@ fn only_looks(command: &str) -> bool {
     })
 }
 
-// The command with each quoted span replaced by `Q`, except one that starts a part (a quoted program path).
-fn flatten(command: &str) -> String {
+// The command with each quoted span replaced by `Q`, except one that starts a part (a quoted program path, its spaces
+// made `_`). None when it cannot be read with certainty: a backslash outside quotes (it can hide a quote), or a quoted
+// word that starts with `-` (a quoted option).
+fn flatten(command: &str) -> Option<String> {
     let mut out = String::new();
     let mut chars = command.chars();
     while let Some(c) = chars.next() {
+        if c == '\\' {
+            return None;
+        }
         if c != '"' && c != '\'' {
             out.push(c);
             continue;
         }
         let mut inner = String::new();
-        for d in chars.by_ref() {
+        while let Some(d) = chars.next() {
             if d == c {
                 break;
             }
+            // Inside double quotes a backslash escapes the next character.
+            if d == '\\' && c == '"' {
+                inner.push(d);
+                inner.extend(chars.next());
+                continue;
+            }
             inner.push(d);
         }
-        if out.trim_end_matches([' ', '\t']).chars().last().is_none_or(|last| matches!(last, '&' | ';' | '|' | '\n')) {
+        let before = out.trim_end_matches([' ', '\t']);
+        if before.chars().last().is_none_or(|last| matches!(last, '&' | ';' | '|' | '\n')) {
             out.push(c);
-            out.push_str(&inner);
+            out.push_str(&inner.replace(' ', "_"));
             out.push(c);
         } else {
+            if inner.starts_with('-') && out.ends_with([' ', '\t']) {
+                return None;
+            }
             out.push('Q');
         }
     }
 
-    out
+    Some(out)
 }
 
 const LOOK_COMMANDS: [&str; 17] = ["ls", "dir", "find", "tree", "cat", "type", "head", "tail", "wc", "grep", "rg", "egrep", "get-childitem", "gci", "get-content", "select-string", "sls"];
@@ -377,10 +400,10 @@ mod tests {
     fn a_worker_may_only_look() {
         let dir = std::env::temp_dir().join(format!("worker-looks-{}", std::process::id()));
         let run = |agent: &str, command: &str| json!({"tool_name": "Bash", "session_id": "s", "agent_type": agent, "tool_input": {"command": command}});
-        for allowed in ["ls -R app", "cd app && cat a.py | head", "git status", "rg -n post app", "cat a; ls", "\"/p/scripts/dam-run\" graph query \"post\"", "rg -n \"fn (a|b)|#\\[test\\]\" src", "rg \"-> Result\" src", "git --no-pager log --pretty=oneline", "git -C d status", "dam graph query \"C# parser\""] {
+        for allowed in ["ls -R app", "cd app && cat a.py | head", "git status", "rg -n post app", "cat a; ls", "\"/p/scripts/dam-run\" graph query \"post\"", "rg -n \"fn (a|b)|#\\[test\\]\" src", "rg -e \"fn x\" src", "\"C:/Users/A B/p/scripts/dam-run\" graph query x", "git --no-pager log --pretty=oneline", "git -C d status", "dam graph query \"C# parser\""] {
             assert!(only_looks(allowed), "{allowed}");
         }
-        for refused in ["sed -i s/a/b/ a.py", "cat a; rm b", "git commit -m x", "python -m pytest", "echo hi > a.txt", "find . -delete", "ls $(rm -rf app)", "rm -rf app # graph query", "ls `rm a`", "find . -fprint x", "git diff --output=x", "rg --pre sh x", "rm graph query -rf src", "git grep -Osh x", "ls \"$(rm a)\""] {
+        for refused in ["sed -i s/a/b/ a.py", "cat a; rm b", "git commit -m x", "python -m pytest", "echo hi > a.txt", "find . -delete", "ls $(rm -rf app)", "rm -rf app # graph query", "ls `rm a`", "find . -fprint x", "git diff --output=x", "rg --pre sh x", "rm graph query -rf src", "git grep -Osh x", "ls \"$(rm a)\"", "rg \\' ; rm -rf app ; echo \\'", "find . \"-delete\"", "find . -de''lete", "rg \"--pre\" sh x", "git grep \"-Osh\" x", "git -c core.fsmonitor=\"rm -rf app\" status", "cat <(rm -rf app)", "Get-Content (Remove-Item app)"] {
             assert!(!only_looks(refused), "{refused}");
         }
         assert!(decide(&run("the-dam:worker", "rm -rf app"), &dir).unwrap().contains("only looks"));

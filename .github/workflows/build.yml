@@ -55,7 +55,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      # The branch tip, not the pushed commit: a run queued behind one that committed binaries rebases cleanly.
+      # The branch tip, not the pushed commit: a run queued behind one that committed binaries rebases cleanly (the binaries may lag a newer source until the next run).
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
