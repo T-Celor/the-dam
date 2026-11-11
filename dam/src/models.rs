@@ -67,11 +67,16 @@ fn sets(line: &str, key: &str) -> bool {
     line.trim_start().strip_prefix(key).is_some_and(|rest| rest.trim_start().starts_with('='))
 }
 
-// The lines of `table` (None: those before the first header) as (first, end), or None where the table is not there.
+// Whether `line` is the header `[name]`, ignoring surrounding whitespace and a trailing comment.
+fn header_is(line: &str, name: &str) -> bool {
+    line.trim().strip_prefix('[').and_then(|rest| rest.split_once(']')).is_some_and(|(inside, after)| inside.trim() == name && (after.trim().is_empty() || after.trim_start().starts_with('#')))
+}
+
+// The lines of `table` (None:those before the first header) as (first, end), or None where the table is not there.
 fn region(lines: &[String], table: Option<&str>) -> Option<(usize, usize)> {
     let first_header = lines.iter().position(|line| is_header(line)).unwrap_or(lines.len());
     let Some(name) = table else { return Some((0, first_header)) };
-    let at = lines.iter().position(|line| line.trim() == format!("[{name}]"))?;
+    let at = lines.iter().position(|line| header_is(line, name))?;
     let end = lines[at + 1..].iter().position(|line| is_header(line)).map_or(lines.len(), |next| at + 1 + next);
 
     Some((at + 1, end))
@@ -275,5 +280,12 @@ mod tests {
         assert!(with_codex_models("model = \"gpt-7\"\n", false, &mut backup).unwrap().contains("gpt-7"));
         assert!(with_codex_models("x = \"\"\"a\"\"\"", true, &mut Map::new()).is_err());
         assert!(with_codex_models("agents.default_subagent_model = \"x\"", true, &mut Map::new()).is_err());
+    }
+
+    #[test]
+    fn a_table_header_with_a_comment_is_still_the_table() {
+        let on = with_codex_models("[agents]  # note\nmax_threads = 2\n", true, &mut Map::new()).unwrap();
+        assert_eq!(on.matches("[agents]").count(), 1, "{on}");
+        assert!(on.contains("default_subagent_model"), "{on}");
     }
 }

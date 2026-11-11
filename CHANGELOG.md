@@ -2,6 +2,17 @@
 
 ## 0.32.0
 
+- **General review, fixed.**
+  - A worker's shell can only look: substitutions, comments, write options (`-fprint`, `--output`, `--pre`) and a fake `graph query` are refused; quoted search patterns still pass.
+  - Config files are no longer clobbered: `/beaver default` leaves an unreadable `config.json` alone, `models install` reads `[agents]  # note` as the table, a foreign Copilot status line is kept, tool pruning re-reads settings right before writing and keeps non-ASCII.
+  - Concurrent hooks: locks and atomic writes on the journal, flow counts, session docs, deny list and config; log lines are written in one call.
+  - Logs and per-session files are trimmed (30 days, last 5000 lines); the status reads only the ledger's tail.
+  - The squeeze hook has a watchdog, strips a BOM and says honestly what it folds.
+  - The generated Codex and Copilot hooks take their timeouts from `hooks/hooks.json`.
+  - The mod keeps one 15 s timer and checks the shape of `te status`.
+  - The build workflow rebases and runs one at a time.
+  - `bin/` scripts work from the PATH.
+
 - **Tool pruning asks first.** The default is now `propose`: when tools went unused, the agent asks you at session start and removes them only on a yes (`TE_TOOLPRUNE=auto` keeps the old automatic removal).
 
 - **The same band on Copilot and Codex.** Eight slots in Claude Code's order (🦫 💧 💸 🪵 🌀 🧠 🗺️ 🌊): loops come from the loop guard's journal events, the context fill from the payload when it carries one, `–` where there is nothing to measure. The 💧 share is now saved over saved plus spent, as under Claude Code.

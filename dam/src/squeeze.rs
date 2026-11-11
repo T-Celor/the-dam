@@ -392,7 +392,7 @@ fn squeeze_from(text: &str, floor: usize) -> String {
 pub const ELIDE_FROM_CHARS: usize = 4000;
 const KEEP_HEAD: usize = 15;
 const KEEP_TAIL: usize = 30;
-// The lines that sound like trouble are kept (with the line before and after), up to this many.
+// The lines that sound like trouble are kept (with the line before and after), up to this many; later ones fall into the counted gaps.
 const KEEP_ALARMS: usize = 80;
 
 // Whether shortening is on: `DAM_ELIDE=off` keeps every line, as before 0.22.

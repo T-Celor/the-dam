@@ -176,20 +176,9 @@ fn guard_target(repo_root: &str, path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-// Python's json.dump(indent=2): the same text, with non-ASCII escaped and the keys in their order.
+// json.dump(indent=2) with the keys in their order; non-ASCII stays as written (a person's settings keep their characters).
 pub(crate) fn pretty(value: &Value) -> String {
-    let mut out = String::new();
-    for c in serde_json::to_string_pretty(value).unwrap_or_default().chars() {
-        if c.is_ascii() {
-            out.push(c);
-        } else {
-            for unit in c.encode_utf16(&mut [0u16; 2]) {
-                out.push_str(&format!("\\u{unit:04x}"));
-            }
-        }
-    }
-
-    out
+    serde_json::to_string_pretty(value).unwrap_or_default()
 }
 
 pub(crate) fn write_json(path: &Path, value: &Value) -> std::io::Result<()> {
@@ -269,7 +258,28 @@ fn apply_in(repo_root: &str, items: &[String], store: &Store, host: Host, home: 
         return apply_codex(repo_root, &path, items, store, cli);
     }
     let created = !path.exists();
-    let mut data = read_settings(&path)?;
+    let (data, added) = with_items(&path, host, items)?;
+    if added.is_empty() {
+        return Ok(added);
+    }
+    drop(data);
+    // Recorded before written, as `restore` writes before it forgets: whichever write fails, the record still covers every entry of the plugin's in the file.
+    let mut all: BTreeSet<String> = applied_at(store, &path).into_iter().collect();
+    all.extend(added.iter().cloned());
+    record(store, &all, &path)?;
+    // Read again right before the write: the person may have edited the file meanwhile.
+    let (data, _) = with_items(&path, host, items)?;
+    write_json(&path, &Value::Object(data)).map_err(|e| e.to_string())?;
+    if created {
+        exclude_from_git(repo_root, settings_rel(host));
+    }
+
+    Ok(added)
+}
+
+// The file's settings with `items` added to the host's list, and those that were not there yet.
+fn with_items(path: &Path, host: Host, items: &[String]) -> Result<(Map<String, Value>, Vec<String>), String> {
+    let mut data = read_settings(path)?;
     let refuse = |what: &str| format!("refusing to edit {}: {what} is not what a settings file holds there", path.display());
     let (outer, key) = list_key(host);
     let holder = match outer {
@@ -278,20 +288,9 @@ fn apply_in(repo_root: &str, items: &[String], store: &Store, host: Host, home: 
     };
     let list = holder.entry(key).or_insert_with(|| json!([])).as_array_mut().ok_or_else(|| refuse(key))?;
     let added: Vec<String> = items.iter().filter(|item| !list.iter().any(|rule| rule.as_str() == Some(item.as_str()))).cloned().collect();
-    if added.is_empty() {
-        return Ok(added);
-    }
     list.extend(added.iter().map(|item| json!(item)));
-    // Recorded before written, as `restore` writes before it forgets: whichever write fails, the record still covers every entry of the plugin's in the file.
-    let mut all: BTreeSet<String> = applied_at(store, &path).into_iter().collect();
-    all.extend(added.iter().cloned());
-    record(store, &all, &path)?;
-    write_json(&path, &Value::Object(data)).map_err(|e| e.to_string())?;
-    if created {
-        exclude_from_git(repo_root, settings_rel(host));
-    }
 
-    Ok(added)
+    Ok((data, added))
 }
 
 // Removes entries this plugin added (all of them when `items` is empty); returns those removed. A restore needs no
@@ -534,22 +533,36 @@ fn codex_config_error(repo_root: &str, cli: &str) -> Option<String> {
     let mut command = crate::sidecall::command(cli).ok()?;
     command.args(["features", "list"]).current_dir(repo_root).env("TE_SIDECALL", "1").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().ok()?;
+    // Drained while polling: a pipe nobody reads stalls the child at 64 KB, and the wait runs to the kill.
+    fn drain(pipe: Option<impl std::io::Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut buf);
+            }
+            buf
+        })
+    }
+    let (stdout, stderr) = (drain(child.stdout.take()), drain(child.stderr.take()));
     let deadline = Instant::now() + Duration::from_secs(30);
-    while child.try_wait().ok()?.is_none() {
+    let status = loop {
+        if let Some(status) = child.try_wait().ok()? {
+            break status;
+        }
         if Instant::now() > deadline {
             let _ = child.kill();
             let _ = child.wait();
             return None;
         }
         std::thread::sleep(Duration::from_millis(50));
-    }
-    let out = child.wait_with_output().ok()?;
-    if out.status.success() {
+    };
+    if status.success() {
         return None;
     }
-    let said: String = String::from_utf8_lossy(if out.stderr.is_empty() { &out.stdout } else { &out.stderr }).trim().chars().take(500).collect();
+    let (stdout, stderr) = (stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default());
+    let said: String = String::from_utf8_lossy(if stderr.is_empty() { &stdout } else { &stderr }).trim().chars().take(500).collect();
 
-    Some(if said.is_empty() { format!("exit {}", out.status.code().unwrap_or(-1)) } else { said })
+    Some(if said.is_empty() { format!("exit {}", status.code().unwrap_or(-1)) } else { said })
 }
 
 fn split_lines(text: &str) -> Vec<String> {
@@ -592,7 +605,15 @@ fn apply_codex(repo_root: &str, path: &Path, capabilities: &[String], store: &St
     record(store, &all, path)?;
     write_text(path, &text).map_err(|e| e.to_string())?;
     if let Some(error) = cli.and_then(|cli| codex_config_error(repo_root, cli)) {
-        let _ = if created { fs::remove_file(path) } else { write_text(path, &original) };
+        // The check took up to 30 s: take back only our marked lines from what the file holds now, not a stale copy.
+        let tags: Vec<String> = added.iter().map(|capability| format!("{MARK}:{capability}")).collect();
+        let _ = match fs::read_to_string(path) {
+            Ok(now) => {
+                let back = toml_remove(&split_lines(&now), &tags).concat();
+                if created && back.trim().is_empty() { fs::remove_file(path) } else { write_text(path, &back) }
+            }
+            Err(_) => Ok(()),
+        };
         record(store, &mine, path)?;
         return Err(format!("Codex rejected the edited {}, so it was put back: {error}", path.display()));
     }
@@ -675,6 +696,11 @@ fn copilot_folder_trusted(path: &Path, home: &Path) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pretty_keeps_non_ascii_as_written() {
+        assert!(pretty(&json!({"k": "é✓"})).contains("é✓"));
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("dam-denylist-{name}-{}", std::process::id()));

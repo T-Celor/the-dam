@@ -113,14 +113,16 @@ export function outputTokens(tool: string, record: ToolRecord & { persistedOutpu
 }
 
 export function parseEconomizer(stdout: string) {
-  const { toolprune, microskills, ledger } = JSON.parse(stdout)
+  const { toolprune, microskills, ledger } = JSON.parse(stdout) ?? {}
+  const count = (list: unknown) => (Array.isArray(list) ? list.length : 0)
+  const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : 0)
 
   return {
-    pruned: toolprune?.applied?.length ?? 0,
-    pending: toolprune?.proposal?.length ?? 0,
-    facts: microskills?.injected_lines ?? 0,
-    loops: (ledger?.nudges ?? 0) + (ledger?.aborts ?? 0),
-    overhead: Math.round(ledger?.overhead_tokens ?? 0),
+    pruned: count(toolprune?.applied),
+    pending: count(toolprune?.proposal),
+    facts: num(microskills?.injected_lines),
+    loops: num(ledger?.nudges) + num(ledger?.aborts),
+    overhead: Math.round(num(ledger?.overhead_tokens)),
   }
 }
 

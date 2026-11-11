@@ -163,10 +163,15 @@ fn every_codex_hook_line_runs_the_way_codex_runs_it() {
     assert!(ran >= 4, "{ran} Codex hooks");
 }
 
+fn has_sh() -> bool {
+    Command::new("sh").arg("-c").arg("true").status().is_ok()
+}
+
 #[test]
 fn every_codex_unix_line_runs_in_sh_too() {
     // On Windows Codex uses `commandWindows`, but the `command` line is what macOS and Linux run: it needs no Windows.
-    if cfg!(windows) && Command::new("sh").arg("-c").arg("true").status().is_err() {
+    if cfg!(windows) && !has_sh() {
+        eprintln!("SKIPPED every_codex_unix_line_runs_in_sh_too: no `sh` on PATH");
         return;
     }
     let installed = install();
@@ -178,7 +183,8 @@ fn every_codex_unix_line_runs_in_sh_too() {
 
 #[test]
 fn every_copilot_bash_line_runs_the_way_copilot_runs_it() {
-    if Command::new("sh").arg("-c").arg("true").status().is_err() {
+    if !has_sh() {
+        eprintln!("SKIPPED every_copilot_bash_line_runs_the_way_copilot_runs_it: no `sh` on PATH");
         return;
     }
     let installed = install();

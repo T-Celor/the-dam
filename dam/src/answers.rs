@@ -27,7 +27,7 @@ pub fn squeezed(original: &str, text: String) -> Option<(String, usize, usize)> 
 }
 
 pub fn squeeze_note(before: usize, after: usize, path: &str) -> String {
-    format!("\n\n[The dam condensed this output from about {before} to {after} tokens without dropping any line. Original: {path}.]")
+    format!("\n\n[The dam condensed this output from about {before} to {after} tokens, repeated lines folded into counts. Original: {path}.]")
 }
 
 pub fn web_note(before: usize, after: usize, path: &str) -> String {
@@ -364,7 +364,7 @@ pub fn condensed(original: &str, command: Option<&str>) -> Option<Condensed> {
 }
 
 pub fn elide_note(before: usize, after: usize, path: &str) -> String {
-    format!("\n\n[The dam shortened this output from about {before} to {after} tokens: the first and last lines and every line mentioning an error or warning are kept, the lines between are left out (the gaps say how many). The whole output: {path}.]")
+    format!("\n\n[The dam shortened this output from about {before} to {after} tokens: the first and last lines and the lines mentioning an error or warning (up to 80, with their neighbours) are kept, the lines between are left out (the gaps say how many, and any further error lines are among them). The whole output: {path}.]")
 }
 
 fn note_of(done: &Condensed, path: &str) -> String {
@@ -420,7 +420,7 @@ pub fn condense(original: &str, command: Option<&str>, dir: &Path) -> Option<(St
 
 // The JSON to print for one Codex or Copilot payload, or None for "nothing to say" (`{}`).
 pub fn respond(host: Host, input: &str, dir: &Path) -> Option<String> {
-    let input: Value = serde_json::from_str(input).ok()?;
+    let input: Value = serde_json::from_str(input.trim_start_matches('\u{feff}')).ok()?;
     match host {
         Host::Claude => None,
         Host::Codex => match input["hook_event_name"].as_str()? {
@@ -429,7 +429,7 @@ pub fn respond(host: Host, input: &str, dir: &Path) -> Option<String> {
                 let (cwd, session) = (input["cwd"].as_str().unwrap_or("."), input["session_id"].as_str().unwrap_or(""));
                 let mut out = json!({"systemMessage": crate::journal::status_text(host, Some(session).filter(|s| !s.is_empty()), Path::new(cwd), input["transcript_path"].as_str().map(Path::new), None)});
                 // Codex has no status line of its own to fill: the line is shown to the person with each prompt, as `systemMessage`.
-                if let Some(facts) = prompt_facts(input["prompt"].as_str()?, cwd, session) {
+                if let Some(facts) = input["prompt"].as_str().and_then(|prompt| prompt_facts(prompt, cwd, session)) {
                     out["hookSpecificOutput"] = json!({"hookEventName": "UserPromptSubmit", "additionalContext": facts});
                 }
                 Some(out.to_string())
@@ -512,8 +512,12 @@ fn post_tool(host: Host, call: &Call, dir: &Path) -> Option<String> {
 
 // `dam squeeze hook`: one payload on stdin, one answer on stdout; `{}` on anything unexpected, and always exit 0.
 pub fn hook() {
-    let mut input = String::new();
-    let _ = std::io::stdin().read_to_string(&mut input);
+    crate::watchdog(25);
+    let mut bytes = Vec::new();
+    if let Err(error) = std::io::stdin().read_to_end(&mut bytes) {
+        eprintln!("dam squeeze hook: cannot read stdin: {error}");
+    }
+    let input = String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string();
     // Release builds abort on panic, so catch_unwind cannot help: the panic hook answers `{}` and exits 0 instead.
     std::panic::set_hook(Box::new(|_| {
         // Not println!: on a closed stdout it would panic again, and abort with a failure.
@@ -651,7 +655,7 @@ mod tests {
 
     #[test]
     fn the_texts_keep_their_wording() {
-        assert_eq!(squeeze_note(10, 2, "/p"), "\n\n[The dam condensed this output from about 10 to 2 tokens without dropping any line. Original: /p.]");
+        assert_eq!(squeeze_note(10, 2, "/p"), "\n\n[The dam condensed this output from about 10 to 2 tokens, repeated lines folded into counts. Original: /p.]");
         assert!(graph_facts(&["a".into()], "dam").starts_with("The project's map on these names (`\"dam\" graph query \"<question>\"` asks it more):\n\na"));
     }
 

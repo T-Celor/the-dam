@@ -197,18 +197,69 @@ fn decide_locked(input: &Value, state_dir: &Path, workers: bool) -> Option<Strin
 
 // Whether every part of a shell command only looks (a listing, a read, a search, a map query, `git status`), nothing that builds or changes.
 fn only_looks(command: &str) -> bool {
-    if command.contains('>') || command.contains("sed -i") || command.contains("-delete") || command.contains("-exec") {
+    // A substitution hides a second command, even inside double quotes.
+    if command.contains("$(") || command.contains('`') {
         return false;
     }
-    command.split(['&', ';', '|', '\n']).map(str::trim).filter(|part| !part.is_empty()).all(|part| {
-        if part.starts_with("cd ") || part.contains(" graph query") || part.contains(" graph facts") {
+    // What a quoted word holds (a search pattern) is data: only the command's own words are checked.
+    let flat = flatten(command);
+    if flat.contains('>') || flat.contains('#') {
+        return false;
+    }
+    // Options that make a looking command write or run something.
+    const WRITES: [&str; 11] = ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls", "--output", "--pre"];
+    flat.split(['&', ';', '|', '\n']).map(str::trim).filter(|part| !part.is_empty()).all(|part| {
+        let words: Vec<&str> = part.split_whitespace().collect();
+        let name = |word: &str| word.trim_matches(['"', '\'']).replace('\\', "/").to_lowercase().rsplit('/').next().unwrap_or("").to_string();
+        let first = name(words[0]);
+        if words.iter().any(|word| WRITES.iter().any(|w| *word == *w || word.starts_with(&format!("{w}="))) || (first == "tree" && *word == "-o") || (first == "git" && (word.starts_with("-O") || word.starts_with("--open-files-in-pager")))) {
+            return false;
+        }
+        if first == "cd" || (matches!(first.as_str(), "dam" | "dam.exe" | "dam-run") && words.get(1) == Some(&"graph") && matches!(words.get(2), Some(&"query") | Some(&"facts"))) {
             return true;
         }
-        let mut words = part.split_whitespace();
-        let first = words.next().unwrap_or("").replace('\\', "/").to_lowercase();
-        let first = first.rsplit('/').next().unwrap_or("").to_string();
-        first == "git" && words.next().is_some_and(|sub| matches!(sub, "ls-files" | "grep" | "status" | "log" | "diff" | "show" | "blame")) || LOOK_COMMANDS.contains(&first.as_str())
+        if first == "git" {
+            // Past git's own options (`--no-pager`, `-C dir`, `-c key=value`) to the subcommand.
+            let mut rest = words[1..].iter();
+            while let Some(word) = rest.next() {
+                if matches!(*word, "-C" | "-c") {
+                    rest.next();
+                } else if !word.starts_with('-') {
+                    return matches!(*word, "ls-files" | "grep" | "status" | "log" | "diff" | "show" | "blame");
+                }
+            }
+            return false;
+        }
+        LOOK_COMMANDS.contains(&first.as_str())
     })
+}
+
+// The command with each quoted span replaced by `Q`, except one that starts a part (a quoted program path).
+fn flatten(command: &str) -> String {
+    let mut out = String::new();
+    let mut chars = command.chars();
+    while let Some(c) = chars.next() {
+        if c != '"' && c != '\'' {
+            out.push(c);
+            continue;
+        }
+        let mut inner = String::new();
+        for d in chars.by_ref() {
+            if d == c {
+                break;
+            }
+            inner.push(d);
+        }
+        if out.trim_end_matches([' ', '\t']).chars().last().is_none_or(|last| matches!(last, '&' | ';' | '|' | '\n')) {
+            out.push(c);
+            out.push_str(&inner);
+            out.push(c);
+        } else {
+            out.push('Q');
+        }
+    }
+
+    out
 }
 
 const LOOK_COMMANDS: [&str; 17] = ["ls", "dir", "find", "tree", "cat", "type", "head", "tail", "wc", "grep", "rg", "egrep", "get-childitem", "gci", "get-content", "select-string", "sls"];
@@ -326,10 +377,10 @@ mod tests {
     fn a_worker_may_only_look() {
         let dir = std::env::temp_dir().join(format!("worker-looks-{}", std::process::id()));
         let run = |agent: &str, command: &str| json!({"tool_name": "Bash", "session_id": "s", "agent_type": agent, "tool_input": {"command": command}});
-        for allowed in ["ls -R app", "cd app && cat a.py | head", "git status", "rg -n post app", "cat a; ls", "\"x\" graph query \"post\""] {
+        for allowed in ["ls -R app", "cd app && cat a.py | head", "git status", "rg -n post app", "cat a; ls", "\"/p/scripts/dam-run\" graph query \"post\"", "rg -n \"fn (a|b)|#\\[test\\]\" src", "rg \"-> Result\" src", "git --no-pager log --pretty=oneline", "git -C d status", "dam graph query \"C# parser\""] {
             assert!(only_looks(allowed), "{allowed}");
         }
-        for refused in ["sed -i s/a/b/ a.py", "cat a; rm b", "git commit -m x", "python -m pytest", "echo hi > a.txt", "find . -delete"] {
+        for refused in ["sed -i s/a/b/ a.py", "cat a; rm b", "git commit -m x", "python -m pytest", "echo hi > a.txt", "find . -delete", "ls $(rm -rf app)", "rm -rf app # graph query", "ls `rm a`", "find . -fprint x", "git diff --output=x", "rg --pre sh x", "rm graph query -rf src", "git grep -Osh x", "ls \"$(rm a)\""] {
             assert!(!only_looks(refused), "{refused}");
         }
         assert!(decide(&run("the-dam:worker", "rm -rf app"), &dir).unwrap().contains("only looks"));

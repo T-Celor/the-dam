@@ -38,8 +38,29 @@ struct Handler {
 // What the mod does under Claude Code, done by a hook elsewhere: condensing outputs and the map's answers (answers.rs).
 // Copilot ignores what its prompt hook prints, so its map answers for a prompt go through the later
 // userPromptTransformed, which may rewrite what the model receives.
-fn mod_hooks() -> Vec<Handler> {
+// `graph first` and `goldfish hook` take their timeout from hooks/hooks.json (30 here if it has none).
+fn declared(claude: &Value, words: &str) -> (Value, Option<String>) {
+    let line = format!("{CLAUDE_RUN}{words}");
+    for groups in claude["hooks"].as_object().into_iter().flat_map(|events| events.values()) {
+        for group in groups.as_array().into_iter().flatten() {
+            for hook in group["hooks"].as_array().into_iter().flatten() {
+                if hook["command"].as_str() == Some(line.as_str()) {
+                    return (hook["timeout"].clone(), group["matcher"].as_str().map(Into::into));
+                }
+            }
+        }
+    }
+
+    (json!(30), None)
+}
+
+fn mod_hooks(claude: &Value) -> Vec<Handler> {
     let hook = |words: &str, event: &str, matcher: Option<&str>, codex: bool, copilot: bool| Handler { event: event.into(), matcher: matcher.map(Into::into), words: words.into(), timeout: json!(30), status: None, codex, copilot };
+    let declared_hook = |words: &str, event: &str, default: &str| {
+        // The timeout follows hooks.json; the matcher stays these hosts' own (Claude's names tools Codex and Copilot do not have).
+        let (timeout, _) = declared(claude, words);
+        Handler { timeout, ..hook(words, event, Some(default), true, true) }
+    };
 
     vec![
         hook("squeeze hook", "PostToolUse", Some("Bash|mcp__.*"), true, true),
@@ -47,21 +68,25 @@ fn mod_hooks() -> Vec<Handler> {
         hook("squeeze hook", "UserPromptTransformed", None, false, true),
         // The map first, as under Claude Code: a search or listing is answered from it, once. Codex looks through its shell and
         // Copilot through grep/glob/view, which the hook tells apart itself.
-        hook("graph first", "PreToolUse", Some("Bash"), true, true),
+        declared_hook("graph first", "PreToolUse", "Bash"),
         // A finished design document is sent to review (Codex writes files through apply_patch or its shell).
-        hook("goldfish hook", "PostToolUse", Some("apply_patch|Bash"), true, true),
+        declared_hook("goldfish hook", "PostToolUse", "apply_patch|Bash"),
     ]
 }
 
 // Each portable handler of hooks/hooks.json, then the mod's.
-fn handlers(claude: &Value) -> Vec<Handler> {
+fn handlers(claude: &Value) -> Result<Vec<Handler>, String> {
     let mut found = Vec::new();
     for (event, groups) in claude["hooks"].as_object().into_iter().flatten() {
         for group in groups.as_array().into_iter().flatten() {
             for hook in group["hooks"].as_array().into_iter().flatten() {
-                let Some((program, args)) = hook["command"].as_str().and_then(|line| line.strip_prefix(CLAUDE_RUN)).and_then(|rest| rest.split_once(' ')) else { continue };
-                if !PORTABLE.contains(&program) || args.is_empty() {
+                let Some(rest) = hook["command"].as_str().and_then(|line| line.strip_prefix(CLAUDE_RUN)) else { continue };
+                let (program, args) = rest.split_once(' ').unwrap_or((rest, ""));
+                if !PORTABLE.contains(&program) {
                     continue;
+                }
+                if args.is_empty() {
+                    return Err(format!("hooks/hooks.json: `{rest}` names {program} but no subcommand"));
                 }
                 found.push(Handler {
                     event: event.clone(),
@@ -75,9 +100,9 @@ fn handlers(claude: &Value) -> Vec<Handler> {
             }
         }
     }
-    found.extend(mod_hooks());
+    found.extend(mod_hooks(claude));
 
-    found
+    Ok(found)
 }
 
 // The host named on every line, and Copilot's event too, as its camelCase payloads do not carry it.
@@ -149,7 +174,7 @@ fn read(root: &Path, path: &str) -> Result<Value, String> {
 // Every generated file, as (path from the plugin's folder, content).
 pub fn files(root: &Path) -> Result<Vec<(&'static str, Value)>, String> {
     let plugin = read(root, ".claude-plugin/plugin.json")?;
-    let handlers = handlers(&read(root, "hooks/hooks.json")?);
+    let handlers = handlers(&read(root, "hooks/hooks.json")?)?;
     let meta = pick(&plugin, &["name", "version", "description", "author", "homepage", "repository", "license", "keywords"]);
     let with = |extra: Value| -> Value {
         let mut all = meta.clone();
@@ -247,5 +272,17 @@ pub fn run(check: bool) -> i32 {
             eprintln!("{error}");
             2
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_portable_hook_without_a_subcommand_fails_loudly() {
+        let hooks = |command: String| json!({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": command}]}]}});
+        assert!(handlers(&hooks(format!("{CLAUDE_RUN}te"))).is_err());
+        assert_eq!(handlers(&hooks(format!("{CLAUDE_RUN}te hook"))).unwrap()[0].words, "te hook");
     }
 }

@@ -46,7 +46,7 @@
         "type": "command",
         "bash": "\"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/dam-run\" goldfish hook --host copilot --event postToolUse || exit 0",
         "powershell": "$root = if ($env:PLUGIN_ROOT) { $env:PLUGIN_ROOT } else { $env:CLAUDE_PLUGIN_ROOT }; $exe = Join-Path $root 'bin/windows-x64/dam.exe'; if (Test-Path $exe) { & $exe goldfish hook --host copilot --event postToolUse }",
-        "timeoutSec": 30
+        "timeoutSec": 10
       }
     ],
     "postToolUseFailure": [

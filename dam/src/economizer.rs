@@ -164,9 +164,28 @@ impl Store {
         if let Some(dir) = target.parent() {
             fs::create_dir_all(dir)?;
         }
-        let mut file = OpenOptions::new().create(true).append(true).open(target)?;
+        let mut file = OpenOptions::new().create(true).append(true).open(&target)?;
+        let mut line = dumps(record, None);
+        line.push('\n');
+        file.write_all(line.as_bytes())?;
+        drop(file);
+        trim_tail(&target, 10_000, 5_000);
 
-        writeln!(file, "{}", dumps(record, None))
+        Ok(())
+    }
+
+    // Best effort: files older than `days` in sessions/ and judge/ go.
+    pub(crate) fn prune_old(&self, days: u64) {
+        let limit = Duration::from_secs(days * 86_400);
+        for dir in ["sessions", "judge"] {
+            let Ok(entries) = fs::read_dir(self.base.join(dir)) else { continue };
+            for entry in entries.flatten() {
+                let old = entry.metadata().ok().filter(|meta| meta.is_file()).and_then(|meta| meta.modified().ok()).and_then(|at| at.elapsed().ok()).is_some_and(|age| age > limit);
+                if old {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
     }
 
     // The same lock file as the Python's: a stuck holder costs at most the wait, then the work goes on.
@@ -186,6 +205,22 @@ impl Store {
         }
 
         Some(file)
+    }
+}
+
+// A log over `over` lines is cut to its last `keep`; best effort. The size gate spares a read on every append.
+pub(crate) fn trim_tail(path: &Path, over: usize, keep: usize) {
+    if fs::metadata(path).map_or(true, |meta| meta.len() < (over as u64) * 40) {
+        return;
+    }
+    let Ok(bytes) = fs::read(path) else { return };
+    let lines: Vec<&[u8]> = bytes.split_inclusive(|byte| *byte == b'\n').collect();
+    if lines.len() <= over {
+        return;
+    }
+    let temp = PathBuf::from(format!("{}.{}.trim", path.display(), std::process::id()));
+    if fs::write(&temp, lines[lines.len() - keep..].concat()).is_err() || fs::rename(&temp, path).is_err() {
+        let _ = fs::remove_file(&temp);
     }
 }
 
@@ -431,11 +466,13 @@ impl Hook {
         let guard = TurnGuard::from_value(&data);
         let summary = guard.summary(stopped_normally);
         if guard.cum_turns != 0 && stopped_normally {
-            let lock = self.store.locked("envelope");
-            let mut tracker = self.tracker();
-            tracker.update(guard.cum_turns, guard.resolved_proxy(stopped_normally), guard.whole.snapshot());
-            self.store.write("envelope.json", &tracker.to_saved())?;
-            drop(lock);
+            // Without the lock the update is skipped, not raced.
+            if let Some(lock) = self.store.locked("envelope") {
+                let mut tracker = self.tracker();
+                tracker.update(guard.cum_turns, guard.resolved_proxy(stopped_normally), guard.whole.snapshot());
+                self.store.write("envelope.json", &tracker.to_saved())?;
+                drop(lock);
+            }
         }
         let mut turns = doc.get("turns").and_then(Value::as_array).cloned().unwrap_or_default();
         let from = turns.len().saturating_sub(TURN_HISTORY - 1);
@@ -541,6 +578,7 @@ impl Hook {
     fn session_start(&self) -> std::io::Result<Value> {
         let source = Some(self.text("source")).filter(|source| !source.is_empty()).unwrap_or_else(|| "startup".to_string());
         crate::session::ensure_launcher();
+        self.store.prune_old(30);
         let mut doc = self.session_doc();
         doc["source"] = json!(source);
         if doc.get("cwd").is_none() {
@@ -642,6 +680,8 @@ impl Hook {
         if self.config.loopguard == "off" || python_truthy(self.field("agent_id")) {
             return Ok(json!({}));
         }
+        // Read-modify-save of the session doc under a short lock; on timeout this event is skipped rather than clobbering.
+        let Some(_session_lock) = self.store.locked_within(&format!("session-{}", self.session), Duration::from_secs(3)) else { return Ok(json!({})) };
         let event = Some(self.text("hook_event_name")).filter(|name| !name.is_empty()).unwrap_or_else(|| "PostToolUse".to_string());
         let mut doc = self.session_doc();
         let key = self.text("prompt_id");
@@ -788,6 +828,18 @@ pub fn hook() {
 mod tests {
     use super::*;
     use crate::config::Config;
+
+    #[test]
+    fn a_long_log_is_cut_to_its_tail() {
+        let path = std::env::temp_dir().join(format!("te-trim-{}.jsonl", std::process::id()));
+        let text: String = (0..10_100).map(|n| format!("{{\"n\": {n:040}}}\n")).collect();
+        fs::write(&path, text).unwrap();
+        trim_tail(&path, 10_000, 5_000);
+        let kept = fs::read_to_string(&path).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(kept.lines().count(), 5_000);
+        assert!(kept.lines().last().unwrap().contains("10099"));
+    }
 
     #[test]
     fn json_is_written_as_python_writes_it() {

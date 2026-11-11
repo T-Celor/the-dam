@@ -147,6 +147,25 @@ fn describe(repo: &RepoId) -> String {
     }
 }
 
+// The last 2 MiB of the ledger, from a line start: the ledger is capped, the status needs only the recent end.
+fn ledger_tail(path: &Path) -> Vec<u8> {
+    use std::io::{Read, Seek, SeekFrom};
+    const TAIL: u64 = 2 << 20;
+    let Ok(mut file) = fs::File::open(path) else { return Vec::new() };
+    let len = file.metadata().map_or(0, |meta| meta.len());
+    let start = len.saturating_sub(TAIL);
+    let mut bytes = Vec::new();
+    if file.seek(SeekFrom::Start(start)).is_err() || file.read_to_end(&mut bytes).is_err() {
+        return Vec::new();
+    }
+    if start > 0 {
+        let cut = bytes.iter().position(|byte| *byte == b'\n').map_or(bytes.len(), |at| at + 1);
+        bytes.drain(..cut);
+    }
+
+    bytes
+}
+
 pub(crate) fn gather(repo: &RepoId, root: &Path) -> Value {
     let repo_dir = root.join("repos").join(&repo.key);
     let store = Store { base: repo_dir.join(crate::hosts::name()) };
@@ -154,7 +173,7 @@ pub(crate) fn gather(repo: &RepoId, root: &Path) -> Value {
     let injection = store.read("injection.json").unwrap_or(Value::Null);
     let untool = store.read("untool.json").unwrap_or(Value::Null);
     let tracker = EnvelopeTracker::load(&store.read("envelope.json").unwrap_or(Value::Null), &config.aggr, &config.thresholds);
-    let log = fs::read(store.base.join("ledger.jsonl")).unwrap_or_default();
+    let log = ledger_tail(&store.base.join("ledger.jsonl"));
     let records: Vec<Value> = String::from_utf8_lossy(&log).lines().filter_map(|line| serde_json::from_str(line).ok()).filter(Value::is_object).collect();
     let injected = injection.get("rendered").and_then(Value::as_str).unwrap_or("").lines().filter(|line| line.starts_with("- ")).count();
 

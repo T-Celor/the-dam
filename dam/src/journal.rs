@@ -16,10 +16,26 @@ fn flow_dir(root: &Path, host: Host) -> PathBuf {
 }
 
 fn file_name(session: &str) -> String {
-    let name: String = session.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')).take(120).collect();
+    // Injective: every other byte is `_xx` (hex), and a `_` that a hex pair follows is `_5f`, so ids made of safe characters
+    // keep their names and no two ids share a file.
+    let bytes = session.as_bytes();
+    let mut name = String::new();
+    for (i, &b) in bytes.iter().enumerate() {
+        let hex_pair_follows = bytes.get(i + 1..i + 3).is_some_and(|pair| pair.iter().all(u8::is_ascii_hexdigit));
+        if b == b'_' && hex_pair_follows {
+            name.push_str("_5f");
+        } else if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.') {
+            name.push(b as char);
+        } else {
+            name.push_str(&format!("_{b:02x}"));
+        }
+    }
+    name.truncate(120);
 
     format!("{}.json", if name.is_empty() { UNKNOWN_SESSION } else { &name })
 }
+
+const FLOW_KEPT: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
 
 fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |at| at.as_secs())
@@ -42,10 +58,13 @@ fn read_flow(path: &Path) -> Flow {
 fn add_at(root: &Path, host: Host, session: &str, before: usize, after: usize) {
     let dir = flow_dir(root, host);
     let path = dir.join(file_name(session));
-    let was = read_flow(&path);
-    let doc = json!({"seen": was.seen + before as u64, "saved": was.saved + before.saturating_sub(after) as u64, "outputs": was.outputs + 1, "at": now()});
-    // A count that cannot be written only makes the status line show less: never fail the hook for it.
-    let _ = fs::create_dir_all(&dir).and_then(|()| fs::write(&path, doc.to_string()));
+    // The lock sits beside the folder, not in it: every file in it is read as a count.
+    crate::paths::with_lock(&dir.with_file_name("flow.lock"), || {
+        let was = read_flow(&path);
+        let doc = json!({"seen": was.seen + before as u64, "saved": was.saved + before.saturating_sub(after) as u64, "outputs": was.outputs + 1, "at": now()});
+        // A count that cannot be written only makes the status line show less: never fail the hook for it.
+        let _ = crate::paths::write_atomic(&path, doc.to_string().as_bytes());
+    });
 }
 
 // One condensed output's tokens, before and after.
@@ -67,13 +86,12 @@ pub fn event(host: Host, session: &str, icon: &str, text: &str) {
     }
     let path = events_file(&abspath(&state_root()), host);
     let line = json!({"at": now(), "session": session, "icon": icon, "text": text}).to_string();
-    let mut lines: Vec<String> = fs::read_to_string(&path).map(|old| old.lines().map(String::from).collect()).unwrap_or_default();
-    lines.push(line);
-    let from = lines.len().saturating_sub(MOST_EVENT_LINES);
-    if let Some(folder) = path.parent() {
-        let _ = fs::create_dir_all(folder);
-    }
-    let _ = crate::paths::write_atomic(&path, format!("{}\n", lines[from..].join("\n")).as_bytes());
+    crate::paths::with_lock(&path.with_file_name("events.lock"), || {
+        let mut lines: Vec<String> = fs::read_to_string(&path).map(|old| old.lines().map(String::from).collect()).unwrap_or_default();
+        lines.push(line);
+        let from = lines.len().saturating_sub(MOST_EVENT_LINES);
+        let _ = crate::paths::write_atomic(&path, format!("{}\n", lines[from..].join("\n")).as_bytes());
+    });
 }
 
 // The latest session's events, newest first, as `HH:MM  icon text` (UTC).
@@ -94,11 +112,19 @@ fn totals(root: &Path, host: Host, session: Option<&str>) -> (Flow, Flow, Option
     let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
     for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
         let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let modified = entry.metadata().and_then(|meta| meta.modified()).ok();
+        // Best effort: a count untouched for a month is a finished session's.
+        if modified.and_then(|at| at.elapsed().ok()).is_some_and(|age| age > FLOW_KEPT) {
+            let _ = fs::remove_file(&path);
+            continue;
+        }
         let flow = read_flow(&path);
         all.seen += flow.seen;
         all.saved += flow.saved;
         all.outputs += flow.outputs;
-        let modified = entry.metadata().and_then(|meta| meta.modified()).ok();
         if let Some(at) = modified.filter(|at| newest.as_ref().is_none_or(|(best, _)| at > best)) {
             newest = Some((at, path));
         }
@@ -264,9 +290,9 @@ fn ours(program: &str) -> String {
 // `settings` with the status line set to the dam's (Some) or the dam's removed (None); another one is left alone.
 pub fn with_status_line(settings: &str, command: Option<&str>) -> Result<String, String> {
     let mut doc: Map<String, Value> = if settings.trim().is_empty() { Map::new() } else { serde_json::from_str(settings).map_err(|error| format!("not JSON the dam can edit ({error}): left as it is"))? };
-    let current = doc.get("statusLine").and_then(|line| line.get("command")).and_then(Value::as_str);
+    let current = doc.get("statusLine");
     // Ours is exactly what `ours` writes: a quoted program, then these words, and nothing after them.
-    let is_ours = current.is_some_and(|line| line.starts_with('"') && line.ends_with("\" te statusline --host copilot"));
+    let is_ours = current.and_then(|line| line.get("command")).and_then(Value::as_str).is_some_and(|line| line.starts_with('"') && line.ends_with("\" te statusline --host copilot"));
     if current.is_some() && !is_ours {
         return Err("it already has a status line of its own: left as it is".to_string());
     }
@@ -314,7 +340,10 @@ mod tests {
         assert_eq!(session, Flow { seen: 1500, saved: 1000, outputs: 2 });
         assert_eq!(all.saved, 1005);
         // A session id is a file name, never a path.
-        assert!(flow_dir(&dir.0, Host::Copilot).join("..evil.json").is_file());
+        assert!(flow_dir(&dir.0, Host::Copilot).join(".._2fevil.json").is_file());
+        assert_ne!(file_name("a/b"), file_name("ab"));
+        assert_ne!(file_name("a/b"), file_name("a_2fb"));
+        assert_eq!(file_name("sess-1.x_y"), "sess-1.x_y.json");
         assert!(line(&session, "full", 3).starts_with("💧 1.0k tokens saved on 2 output(s) · 🦫 full · 🧠 3 fact(s)"));
     }
 
@@ -328,6 +357,8 @@ mod tests {
         let off: Value = serde_json::from_str(&with_status_line(&on, None).unwrap()).unwrap();
         assert_eq!(off, json!({"theme": "dark"}));
         assert!(with_status_line("{\"statusLine\": {\"type\": \"command\", \"command\": \"mine.sh\"}}", Some("x")).is_err());
+        assert!(with_status_line("{\"statusLine\": \"mine.sh\"}", Some("x")).is_err());
+        assert!(with_status_line("{\"statusLine\": {\"type\": \"x\"}}", None).is_err());
         assert!(with_status_line("{ not json", Some("x")).is_err());
         assert!(with_status_line("", Some("x")).unwrap().contains("statusLine"));
     }
@@ -341,6 +372,19 @@ mod tests {
         assert_eq!(event_lines(&root, Host::Codex, 5), vec!["02:01  🦫 second", "01:01  🗺️ first"]);
         assert_eq!(event_lines(&root, Host::Copilot, 5), Vec::<String>::new());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn counts_untouched_for_a_month_are_deleted() {
+        let dir = crate::session::TempDir::new("dam-journal-old-").unwrap();
+        add_at(&dir.0, Host::Copilot, "old", 100, 10);
+        add_at(&dir.0, Host::Copilot, "new", 100, 10);
+        let old = flow_dir(&dir.0, Host::Copilot).join(file_name("old"));
+        let at = std::time::SystemTime::now() - std::time::Duration::from_secs(40 * 24 * 3600);
+        fs::OpenOptions::new().write(true).open(&old).unwrap().set_modified(at).unwrap();
+        let (_, all, _) = totals(&dir.0, Host::Copilot, None);
+        assert_eq!(all.outputs, 1);
+        assert!(!old.exists());
     }
 
     #[test]

@@ -229,8 +229,11 @@ async function squeeze($: Dollar, tool: string, record: Record<string, unknown>,
   if (!path) {
     // A ring of files: the full outputs stay readable without piling up on disk.
     keptOutputs = (keptOutputs + 1) % KEPT_OUTPUTS
-    path = `${await homeOf($)}/.claude/the-dam-outputs/${SESSION_TAG}-${keptOutputs}.txt`
-    await $.fs.write(path, original)
+    const home = await homeOf($)
+    if (home) {
+      path = `${home}/.claude/the-dam-outputs/${SESSION_TAG}-${keptOutputs}.txt`
+      await $.fs.write(path, original)
+    }
   }
   const gain = Math.max(0, result.before - result.after)
   const kept = persisted && !isInline ? ', too long to show: its saved file was condensed' : ''
@@ -360,17 +363,21 @@ async function rememberToolSizes($: Dollar, tools: ReadonlyArray<{ name: string;
 
 async function readEconomizer($: Dollar, program: string) {
   const out = (await $.process.run([program, 'te', 'status', '--json'])).stdout
-  const status = JSON.parse(out) as { state?: string; toolprune?: { applied?: string[] } }
+  const status = JSON.parse(out) as { state?: string; toolprune?: { applied?: unknown } }
   economizerState = status.state ?? null
   const sizes = ((await $.store.get(TOOL_SIZES)) ?? {}) as Record<string, number>
-  prunedTokens = (status.toolprune?.applied ?? []).reduce((sum, name) => sum + Number(sizes[name] ?? 0), 0)
+  const list = status.toolprune?.applied
+  const applied = Array.isArray(list) ? (list as string[]) : []
+  prunedTokens = applied.reduce((sum, name) => sum + (Number.isFinite(sizes[name]) ? sizes[name] : 0), 0)
 
   return parseEconomizer(out)
 }
 
 // Beaver writes this session's level to a file named after it.
 async function readLevel($: Dollar) {
-  const dir = (await $.env.get('CLAUDE_CONFIG_DIR'))?.replace(/\\/g, '/') ?? `${await homeOf($)}/.claude`
+  const home = await homeOf($)
+  const dir = (await $.env.get('CLAUDE_CONFIG_DIR'))?.replace(/\\/g, '/') ?? (home ? `${home}/.claude` : null)
+  if (!dir) return null
   const session = (await $.session.id()).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 200)
   const level = (await attempt(() => $.fs.read(`${dir}/beaver-modes/session-${session}`)))?.trim()
 
@@ -406,6 +413,9 @@ async function refresh($: Dollar) {
   }))
 }
 
+// One refresh timer at a time: every session start replaces the last.
+let contextTimer: { cancel: () => void } | null = null
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'the-dam', description: 'Show what each tool saved' })
@@ -413,8 +423,9 @@ export const register: Register = on => {
     // In the background, and a step that throws must not take the session with it.
     // Where `te doctor` looks to tell a blocked module from an idle one.
     void attempt(async () => {
-      const state = (await $.env.get('TOKENECONOMIZER_HOME'))?.replace(/\\/g, '/') ?? `${await homeOf($)}/.tokeneconomizer`
-      await $.fs.write(`${state}/channels/module`, String(Math.floor(Date.now() / 1000)))
+      const base = (await $.env.get('TOKENECONOMIZER_HOME'))?.replace(/\\/g, '/') ?? ((await homeOf($)) ? `${await homeOf($)}/.tokeneconomizer` : null)
+      if (!base) return
+      await $.fs.write(`${base}/channels/module`, String(Math.floor(Date.now() / 1000)))
     })
     void attempt(async () => {
       await installMissing($)
@@ -428,7 +439,8 @@ export const register: Register = on => {
     void isGraphable.then(isWorth => {
       if (isWorth) void attempt(() => buildGraph($).then(() => checkGains($)))
     })
-    $.clock.every(CONTEXT_EVERY_MS, () => void refreshContext($))
+    contextTimer?.cancel()
+    contextTimer = $.clock.every(CONTEXT_EVERY_MS, () => void refreshContext($))
 
     return next(e)
   })

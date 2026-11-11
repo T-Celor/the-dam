@@ -298,7 +298,10 @@ pub fn minutes(at: f64) -> String {
 pub fn append_error(line: &str) {
     let root = abspath(&state_root());
     let _ = fs::create_dir_all(&root);
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(root.join("errors.log")) {
-        let _ = writeln!(file, "{line}");
+    let path = root.join("errors.log");
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = file.write_all(format!("{line}\n").as_bytes());
+        drop(file);
+        crate::economizer::trim_tail(&path, 10_000, 5_000);
     }
 }

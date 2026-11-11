@@ -87,7 +87,7 @@
             "type": "command",
             "command": "\"$PLUGIN_ROOT/scripts/dam-run\" goldfish hook --host codex",
             "commandWindows": "set NoDefaultCurrentDirectoryInExePath=1&& set \"PATH=%PLUGIN_ROOT%\\bin\\windows-x64;%PATH%\"&& dam.exe goldfish hook --host codex",
-            "timeout": 30
+            "timeout": 10
           }
         ]
       }

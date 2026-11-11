@@ -4,7 +4,8 @@
 # On Windows it starts nothing but the program: each process costs tens of milliseconds under Git
 # Bash, and Claude Code cancels a session-end hook that is not done quickly.
 self=$0
-case $self in *\*) self=$(printf '%s' "$self" | tr '\' '/') ;; esac
+case $self in *\\*) self=$(printf '%s' "$self" | tr '\\' '/') ;; esac
+case $self in */*) ;; *) self=$(command -v -- "$self") || self=$0 ;; esac
 case $self in */*) dir=${self%/*} ;; *) dir=. ;; esac
 if [ "${OS:-}" = Windows_NT ]; then
   folder=windows-x64 ext=.exe

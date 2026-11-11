@@ -426,7 +426,10 @@ fn last_activity(ctx: &Ctx) -> f64 {
 // Writes the pending `auto` deny list once the repository has been quiet long enough. Returns the seconds to wait before looking again, or None when there is nothing left to wait for.
 pub fn apply_pending(ctx: &Ctx, now_s: Option<f64>) -> Option<f64> {
     let now_s = now_s.filter(|n| *n != 0.0).unwrap_or_else(now);
-    let _lock = ctx.store.locked("mechanisms");
+    let Some(_lock) = ctx.store.locked("mechanisms") else {
+        eprintln!("toolprune: the mechanisms lock is busy; the pending deny list is not written now, it will be tried again");
+        return Some(WAITER_POLL_S);
+    };
     let mut unt = ctx.store.read("untool.json").filter(Value::is_object).unwrap_or_else(|| json!({}));
     let pending = unt.get("auto_pending").filter(|pending| python_truthy(pending)).cloned()?;
     let root = pending.get("root").and_then(Value::as_str).filter(|root| !root.is_empty()).unwrap_or(&ctx.repo.root).to_string();
@@ -461,6 +464,7 @@ pub fn apply_pending(ctx: &Ctx, now_s: Option<f64>) -> Option<f64> {
 pub fn schedule_pending(ctx: &Ctx) -> Option<f64> {
     let wait = apply_pending(ctx, None);
     if wait.is_some() && std::env::var("TE_FOLD_SYNC").as_deref() != Ok("1") {
+        beat_now(&ctx.store.base);
         spawn_waiter(ctx);
     }
 
@@ -473,9 +477,19 @@ pub fn revive_waiter(ctx: &Ctx) {
     let is_waiting = ctx.store.read("untool.json").and_then(|unt| unt.get("auto_pending").cloned()).is_some_and(|pending| python_truthy(&pending));
     let is_alive = mtime(&ctx.store.base.join("toolprune-waiter")).is_some_and(|wrote| now() - wrote < 2.0 * WAITER_POLL_S);
     if is_waiting && !is_alive && std::env::var("TE_FOLD_SYNC").as_deref() != Ok("1") {
+        // Heartbeat first: a session starting before the child writes its own would start another waiter.
+        beat_now(&ctx.store.base);
         spawn_waiter(ctx);
     }
 }
+
+fn beat_now(base: &Path) {
+    let _ = fs::create_dir_all(base);
+    let _ = fs::write(base.join("toolprune-waiter"), SPAWNING);
+}
+
+// What the parent leaves in the heartbeat for the waiter it is starting, which takes it over with its own pid.
+const SPAWNING: &str = "spawning";
 
 // The waiter is this program again, detached, as the fold's other jobs are.
 fn spawn_waiter(ctx: &Ctx) -> Option<()> {
@@ -588,7 +602,7 @@ fn refuse_unwritable(base: &Path) -> bool {
 // `toolprune apply-pending`, which the fold leaves running, detached: wait until the pending `auto` deny list can be written without costing a warm prompt cache, then write it. One waiter per repository: a second finds the first one's heartbeat fresh and leaves.
 fn wait_and_apply(ctx: &Ctx) -> i32 {
     let beat = ctx.store.base.join("toolprune-waiter");
-    if mtime(&beat).is_some_and(|wrote| now() - wrote < 2.0 * WAITER_POLL_S) {
+    if mtime(&beat).is_some_and(|wrote| now() - wrote < 2.0 * WAITER_POLL_S) && fs::read_to_string(&beat).is_ok_and(|who| who != SPAWNING) {
         return 0;
     }
     let _ = fs::create_dir_all(&ctx.store.base);
@@ -738,6 +752,10 @@ pub fn command(ctx: &Ctx, args: &[String]) -> i32 {
                 println!("not a removable Codex capability: {} (choose from {})", bad.iter().map(|tool| tool.as_str()).collect::<Vec<_>>().join(", "), codex.join(", "));
                 return 2;
             }
+            let Some(_lock) = ctx.store.locked("mechanisms") else {
+                println!("not applied: the mechanisms lock is busy (another toolprune run is writing); try again");
+                return 1;
+            };
             let added = match denylist::apply(&ctx.repo.root, &tools, &ctx.store, host) {
                 Ok(added) => added,
                 Err(why) => {
@@ -754,6 +772,10 @@ pub fn command(ctx: &Ctx, args: &[String]) -> i32 {
             0
         }
         "restore" => {
+            let Some(_lock) = ctx.store.locked("mechanisms") else {
+                println!("not restored: the mechanisms lock is busy (another toolprune run is writing); try again");
+                return 1;
+            };
             let removed = match denylist::restore(&ctx.repo.root, &ctx.store, items, host) {
                 Ok(removed) => removed,
                 Err(why) => {

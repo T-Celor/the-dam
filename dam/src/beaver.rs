@@ -72,17 +72,21 @@ fn default_level() -> String {
         .unwrap_or_else(|| DEFAULT_LEVEL.to_string())
 }
 
-fn write_default_level(level: &str) {
+// Refuses (file untouched) when the existing config does not parse: rewriting it would erase its other keys.
+fn write_default_level(level: &str) -> Result<(), String> {
     let path = config_path();
-    let text = fs::read_to_string(&path).unwrap_or_default();
-    let mut entries = json::entries(text.trim_start_matches('\u{feff}')).unwrap_or_default();
+    // Only a missing file is empty: an unreadable one (UTF-16, no access) is left as it is.
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("{} cannot be read ({error}): left as it is", path.display())),
+    };
+    let text = text.trim_start_matches('\u{feff}');
+    let mut entries = if text.trim().is_empty() { Vec::new() } else { json::entries(text).ok_or_else(|| format!("{} is not JSON the dam can edit: left as it is", path.display()))? };
     entries.retain(|(key, _)| key != "\"defaultMode\"");
     entries.push(("\"defaultMode\"".to_string(), json::quote(level)));
     let body: Vec<String> = entries.iter().map(|(key, value)| format!("  {key}: {value}")).collect();
-    if let Some(dir) = path.parent() {
-        let _ = fs::create_dir_all(dir);
-    }
-    let _ = fs::write(path, format!("{{\n{}\n}}", body.join(",\n")));
+    crate::paths::write_atomic(&path, format!("{{\n{}\n}}", body.join(",\n")).as_bytes()).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 fn shared_state() -> PathBuf {
@@ -443,8 +447,10 @@ fn track() {
             print!("BEAVER MODE OFF");
         }
         Some(PromptAction::Default(level)) => {
-            write_default_level(&level);
-            print!("BEAVER DEFAULT SET — new sessions start in {level}.");
+            match write_default_level(&level) {
+                Ok(()) => print!("BEAVER DEFAULT SET — new sessions start in {level}."),
+                Err(why) => print!("BEAVER DEFAULT NOT SET — {why}"),
+            }
         }
         Some(PromptAction::Report(level)) => print!("BEAVER MODE ACTIVE — level: {level}"),
         Some(PromptAction::Set(level)) => {

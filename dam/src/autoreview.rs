@@ -283,14 +283,17 @@ pub fn hook() {
 // The documents a session start checks: the README and what is under `docs/`.
 fn session_docs(root: &Path) -> Vec<PathBuf> {
     let mut found = vec![root.join("README.md")];
-    let mut folders = vec![root.join("docs")];
-    while let Some(folder) = folders.pop() {
+    let mut folders = vec![(root.join("docs"), 0)];
+    while let Some((folder, depth)) = folders.pop() {
         let Ok(entries) = fs::read_dir(&folder) else { continue };
         for entry in entries.flatten() {
             let path = entry.path();
+            if entry.file_type().is_ok_and(|kind| kind.is_symlink()) && path.is_dir() {
+                continue;
+            }
             if path.is_dir() {
-                if folders.len() < 40 {
-                    folders.push(path);
+                if depth < 6 && folders.len() < 40 {
+                    folders.push((path, depth + 1));
                 }
             } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md")) {
                 found.push(path);

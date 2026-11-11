@@ -45,6 +45,7 @@ test('only a real project is worth a graph', () => {
 test('tool figures are read from their own output', () => {
   expect(parseEconomizer('{"toolprune":{"applied":[1,2],"proposal":[3]},"microskills":{"injected_lines":5},"ledger":{"nudges":2,"aborts":1,"overhead_tokens":10548.15}}')).toEqual({ pruned: 2, pending: 1, facts: 5, loops: 3, overhead: 10548 })
   expect(parseEconomizer('{}')).toEqual({ pruned: 0, pending: 0, facts: 0, loops: 0, overhead: 0 })
+  expect(parseEconomizer('{"toolprune":{"applied":{},"proposal":"x"},"microskills":{"injected_lines":"5"},"ledger":{"nudges":null,"aborts":{},"overhead_tokens":"9"}}')).toEqual({ pruned: 0, pending: 0, facts: 0, loops: 0, overhead: 0 })
   expect(graphNodes('P\ta.py\nN\tF\ta.py\t0\t1\nN\tf\tgo\t0\t2\nE\t0\t1\td\n')).toBe(2)
 })
 

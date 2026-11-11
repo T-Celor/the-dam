@@ -381,9 +381,7 @@ fn write_object(path: &Path, doc: Map<String, Value>) -> Result<Map<String, Valu
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
-        let temp = format!("{}.tmp", path.display());
-        fs::write(&temp, crate::economizer::dumps(&Value::Object(doc.clone()), Some(2)))?;
-        fs::rename(&temp, path)
+        crate::paths::write_atomic(path, crate::economizer::dumps(&Value::Object(doc.clone()), Some(2)).as_bytes())
     };
     write().map_err(|error| error.to_string())?;
 

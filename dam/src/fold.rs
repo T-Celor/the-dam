@@ -54,7 +54,8 @@ pub fn fold_session(ctx: &Ctx, session: &str, transcript_path: Option<&str>) -> 
         None => record["error"] = json!("transcript unreadable"),
         Some(trace_path) => {
             let run = run_dir(&workdir.0, &trace_path)?;
-            let _mechanisms = ctx.store.locked("mechanisms");
+            // Without the lock the mechanism work is skipped, not raced.
+            let Some(_mechanisms) = ctx.store.locked("mechanisms") else { return Ok(None) };
             let profile = ctx.config.text("microskills");
             // The proposer's paid calls, unless this agent's model calls are paused: then none answers.
             let runner = (profile.contains("distiller") && sidecall::paused(&ctx.root).is_none()).then(|| sidecall::runner_for(&ctx.config));

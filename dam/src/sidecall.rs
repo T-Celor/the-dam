@@ -20,23 +20,29 @@ pub type Runner = dyn Fn(&str, &str) -> Result<(String, Option<f64>), String>;
 static SIGNED_OUT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"To authenticate|/login\b|\b[Nn]ot (?:logged|signed) in").expect("fixed"));
 static HELP: OnceLock<String> = OnceLock::new();
 
-struct Output {
-    code: Option<i32>,
-    stdout: String,
-    stderr: String,
+pub(crate) struct Output {
+    pub(crate) code: Option<i32>,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
 }
 
-fn reader<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<String> {
+// How long the pipes get to reach end-of-file once the child has exited: a grandchild that kept them open is let go.
+const READER_GRACE: Duration = Duration::from_secs(5);
+
+fn reader<R: Read + Send + 'static>(pipe: Option<R>) -> std::sync::mpsc::Receiver<String> {
+    let (send, receive) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
         if let Some(mut pipe) = pipe {
             let _ = pipe.read_to_end(&mut bytes);
         }
-        String::from_utf8_lossy(&bytes).into_owned()
-    })
+        let _ = send.send(String::from_utf8_lossy(&bytes).into_owned());
+    });
+
+    receive
 }
 
-fn run_capture(mut command: Command, input: Option<&str>, timeout: Duration) -> Result<Output, String> {
+pub(crate) fn run_capture(mut command: Command, input: Option<&str>, timeout: Duration) -> Result<Output, String> {
     command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| error.to_string())?;
     if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
@@ -59,7 +65,11 @@ fn run_capture(mut command: Command, input: Option<&str>, timeout: Duration) -> 
         std::thread::sleep(Duration::from_millis(20));
     };
 
-    Ok(Output { code: status.code(), stdout: out.join().unwrap_or_default(), stderr: err.join().unwrap_or_default() })
+    // Both readers share one deadline; what a reader had not finished by then is dropped with it.
+    let until = Instant::now() + READER_GRACE;
+    let take = |pipe: std::sync::mpsc::Receiver<String>| pipe.recv_timeout(until.saturating_duration_since(Instant::now())).unwrap_or_default();
+
+    Ok(Output { code: status.code(), stdout: take(out), stderr: take(err) })
 }
 
 fn pause_path(root: &Path) -> PathBuf {
@@ -155,12 +165,24 @@ pub fn claude_cli() -> String {
     if exe.is_file() { exe.to_string_lossy().into_owned() } else { "claude".to_string() }
 }
 
-// shortcut: one Claude Code per process, so `--help` is read once whatever path asked for it.
+// Read once per process, and kept in a state file (best effort) for the next one: each judge job is its own process.
+// The file's first line names the CLI and its modification time, so an upgrade reads `--help` again.
 fn claude_help(cli: &str) -> &'static str {
     HELP.get_or_init(|| {
+        let stamp = std::fs::metadata(which(cli).unwrap_or_else(|| PathBuf::from(cli))).and_then(|meta| meta.modified()).ok().and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |at| at.as_secs());
+        let key = format!("{cli}|{stamp}\n");
+        let cache = abspath(&state_root()).join("claude-help.txt");
+        if let Some(text) = std::fs::read_to_string(&cache).ok().and_then(|text| text.strip_prefix(&key).map(str::to_string)) {
+            return text;
+        }
         let Ok(mut command) = command(cli) else { return String::new() };
         command.arg("--help");
-        run_capture(command, None, Duration::from_secs(30)).map(|output| output.stdout).unwrap_or_default()
+        let help = run_capture(command, None, Duration::from_secs(30)).map(|output| output.stdout).unwrap_or_default();
+        if !help.is_empty() {
+            let _ = crate::paths::write_atomic(&cache, format!("{key}{help}").as_bytes());
+        }
+
+        help
     })
 }
 

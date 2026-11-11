@@ -270,14 +270,14 @@ fn claude_code_is_left_to_the_mod_the_squeeze_hook_says_nothing_there() {
 
 #[test]
 fn token_economizer_answers_each_host_in_its_own_shape() {
+    // A short, successful `make` gives the economizer nothing to say: both hosts get an empty object.
     let cases = [
         ("codex", vec!["te", "hook", "--host", "codex"], json!({"session_id": "s4", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {"command": "make"}, "tool_response": "ok"})),
         ("copilot", vec!["te", "hook", "--host", "copilot", "--event", "postToolUse"], json!({"sessionId": "s4", "toolName": "bash", "toolArgs": {"command": "make"}, "toolResult": {"resultType": "success", "textResultForLlm": "ok"}})),
     ];
     for (host, words, payload) in cases {
         let out = hook(host, &words, payload);
-        assert!(out.get("systemMessage").is_none() || host == "codex", "{host}");
-        assert!(out.as_object().unwrap().keys().all(|key| ["hookSpecificOutput", "systemMessage", "additionalContext", "decision", "reason"].contains(&key.as_str())), "{out}");
+        assert_eq!(out, json!({}), "{host}");
     }
 }
 
